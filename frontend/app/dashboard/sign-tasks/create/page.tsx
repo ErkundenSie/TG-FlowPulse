@@ -18,18 +18,18 @@ import {
     Plus,
     X,
     ChatCircleText,
-    Clock,
     Trash,
     Spinner,
-    DiceFive,
-    Robot,
-    MathOperations,
     Lightning,
     Check
 } from "@phosphor-icons/react";
 import { ThemeLanguageToggle } from "../../../../components/ThemeLanguageToggle";
 import { useLanguage } from "../../../../context/LanguageContext";
 import { ToastContainer, useToast } from "../../../../components/ui/toast";
+
+type CreateTargetMode = "single_task" | "batch_tasks";
+
+const getChatTitle = (chat: ChatInfo) => chat.title || chat.username || chat.first_name || String(chat.id);
 
 export default function CreateSignTaskPage() {
     const router = useRouter();
@@ -45,9 +45,9 @@ export default function CreateSignTaskPage() {
     const [rangeStart, setRangeStart] = useState("09:00");
     const [rangeEnd, setRangeEnd] = useState("18:00");
     const [randomSeconds, setRandomSeconds] = useState(0);
-    const [chatId, setChatId] = useState(0);
     const [signInterval, setSignInterval] = useState(1);
     const [chats, setChats] = useState<SignTaskChat[]>([]);
+    const [createTargetMode, setCreateTargetMode] = useState<CreateTargetMode>("single_task");
 
     // 账号和 Chat 数据
     const [accounts, setAccounts] = useState<AccountInfo[]>([]);
@@ -56,6 +56,7 @@ export default function CreateSignTaskPage() {
     const [chatSearch, setChatSearch] = useState("");
     const [chatSearchResults, setChatSearchResults] = useState<ChatInfo[]>([]);
     const [chatSearchLoading, setChatSearchLoading] = useState(false);
+    const [selectedDialogChats, setSelectedDialogChats] = useState<ChatInfo[]>([]);
 
     const formatErrorMessage = useCallback((key: string, err?: any) => {
         const base = t(key);
@@ -116,6 +117,8 @@ export default function CreateSignTaskPage() {
 
     const handleAccountChange = (accountName: string) => {
         setSelectedAccount(accountName);
+        setChats([]);
+        setSelectedDialogChats([]);
         if (token) {
             loadChats(token, accountName);
         }
@@ -160,8 +163,49 @@ export default function CreateSignTaskPage() {
             setChatSearch("");
             setChatSearchResults([]);
             setChatSearchLoading(false);
+            setSelectedDialogChats([]);
         }
     }, [editingChat, selectedAccount]);
+
+    const sanitizeTaskName = useCallback((raw: string) => {
+        return raw
+            .trim()
+            .replace(/[<>:"/\\|?*]+/g, "_")
+            .replace(/\s+/g, "_")
+            .replace(/_+/g, "_")
+            .replace(/^_+|_+$/g, "")
+            .slice(0, 64);
+    }, []);
+
+    const batchCreateSummary = useCallback((success: number, failed: number) => {
+        return `${t("batch_create_done")}: ${success} ${t("success")}, ${failed} ${t("failure")}`;
+    }, [t]);
+
+    const buildBatchTaskName = useCallback((baseName: string, chat: SignTaskChat) => {
+        const cleanBase = sanitizeTaskName(baseName);
+        const cleanChatName = sanitizeTaskName(chat.name) || sanitizeTaskName(`chat_${chat.chat_id}`) || `chat_${chat.chat_id}`;
+        return cleanBase ? sanitizeTaskName(`${cleanBase}_${cleanChatName}`) || cleanChatName : cleanChatName;
+    }, [sanitizeTaskName]);
+
+    const toggleSelectedDialogChat = useCallback((chat: ChatInfo) => {
+        setSelectedDialogChats((prev) => {
+            const exists = prev.some((item) => item.id === chat.id);
+            if (exists) {
+                return prev.filter((item) => item.id !== chat.id);
+            }
+            return [...prev, chat];
+        });
+        setEditingChat((prev) => prev ? { ...prev, chat_id: 0, name: "" } : prev);
+    }, []);
+
+    const buildDialogChat = useCallback((chat: ChatInfo, source: NonNullable<typeof editingChat>): SignTaskChat => ({
+        chat_id: chat.id,
+        name: getChatTitle(chat),
+        message_thread_id: source.message_thread_id,
+        actions: source.actions,
+        action_interval: source.action_interval,
+        delete_after: source.delete_after,
+    }), []);
 
     const handleAddChat = () => {
         setEditingChat({
@@ -175,7 +219,8 @@ export default function CreateSignTaskPage() {
 
     const handleSaveChat = () => {
         if (!editingChat) return;
-        if (editingChat.chat_id === 0) {
+        const hasManualSelection = editingChat.chat_id !== 0;
+        if (!hasManualSelection && selectedDialogChats.length === 0) {
             addToast(t("select_chat_error"), "error");
             return;
         }
@@ -183,13 +228,16 @@ export default function CreateSignTaskPage() {
             addToast(t("add_action_error"), "error");
             return;
         }
-        setChats([...chats, editingChat]);
+        const nextChats = hasManualSelection
+            ? [editingChat]
+            : selectedDialogChats.map((chat) => buildDialogChat(chat, editingChat));
+        setChats([...chats, ...nextChats]);
         setEditingChat(null);
     };
 
     const handleSubmit = async () => {
         if (!token) return;
-        if (!taskName) {
+        if (!taskName && createTargetMode === "single_task") {
             addToast(t("task_name_required"), "error");
             return;
         }
@@ -208,6 +256,31 @@ export default function CreateSignTaskPage() {
 
         try {
             setLoading(true);
+            if (createTargetMode === "batch_tasks") {
+                let successCount = 0;
+                let failureCount = 0;
+                for (const chat of chats) {
+                    try {
+                        await createSignTask(token, {
+                            name: buildBatchTaskName(taskName, chat),
+                            account_name: selectedAccount,
+                            sign_at: executionMode === "fixed" ? signAt : "0 0 * * *",
+                            chats: [chat],
+                            random_seconds: randomSeconds,
+                            sign_interval: signInterval,
+                            execution_mode: executionMode,
+                            range_start: rangeStart,
+                            range_end: rangeEnd,
+                        });
+                        successCount += 1;
+                    } catch {
+                        failureCount += 1;
+                    }
+                }
+                addToast(batchCreateSummary(successCount, failureCount), failureCount > 0 ? "error" : "success");
+                setTimeout(() => router.push("/dashboard/sign-tasks"), 1500);
+                return;
+            }
             await createSignTask(token, {
                 name: taskName,
                 account_name: selectedAccount,
@@ -283,6 +356,25 @@ export default function CreateSignTaskPage() {
                                 >
                                     {accounts.map(acc => <option key={acc.name} value={acc.name}>{acc.name}</option>)}
                                 </select>
+                            </div>
+                            <div className="space-y-2 md:col-span-2">
+                                <label className="text-xs font-bold text-main/40 uppercase tracking-wider">{t("create_target_mode")}</label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                        type="button"
+                                        className={`h-10 rounded-lg border text-xs font-bold transition-colors ${createTargetMode === "single_task" ? "border-[#8a3ffc]/50 bg-[#8a3ffc]/15 text-[#b57dff]" : "border-white/5 bg-black/5 text-main/50 hover:text-main/80"}`}
+                                        onClick={() => setCreateTargetMode("single_task")}
+                                    >
+                                        {t("create_mode_single_task")}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className={`h-10 rounded-lg border text-xs font-bold transition-colors ${createTargetMode === "batch_tasks" ? "border-[#8a3ffc]/50 bg-[#8a3ffc]/15 text-[#b57dff]" : "border-white/5 bg-black/5 text-main/50 hover:text-main/80"}`}
+                                        onClick={() => setCreateTargetMode("batch_tasks")}
+                                    >
+                                        {t("create_mode_batch_tasks")}
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
@@ -418,18 +510,23 @@ export default function CreateSignTaskPage() {
                                             ) : chatSearchResults.length > 0 ? (
                                                 <div className="flex flex-col">
                                                     {chatSearchResults.map((chat) => {
-                                                        const title = chat.title || chat.username || String(chat.id);
+                                                        const title = getChatTitle(chat);
+                                                        const selected = selectedDialogChats.some((item) => item.id === chat.id);
                                                         return (
                                                             <button
                                                                 key={chat.id}
                                                                 type="button"
-                                                                className="text-left px-3 py-2 hover:bg-white/5 border-b border-white/5 last:border-b-0"
+                                                                className="text-left px-3 py-2 hover:bg-white/5 border-b border-white/5 last:border-b-0 flex items-center gap-2"
                                                                 onClick={() => {
-                                                                    setEditingChat({ ...editingChat, chat_id: chat.id, name: title });
-                                                                    setChatSearch("");
-                                                                    setChatSearchResults([]);
+                                                                    toggleSelectedDialogChat(chat);
                                                                 }}
                                                             >
+                                                                <input
+                                                                    type="checkbox"
+                                                                    readOnly
+                                                                    checked={selected}
+                                                                    className="!mb-0 h-4 w-4 accent-[#8a3ffc] shrink-0"
+                                                                />
                                                                 <div className="text-sm font-semibold truncate">{title}</div>
                                                                 <div className="text-[10px] text-main/40 font-mono truncate">
                                                                     {chat.id}{chat.username ? ` · @${chat.username}` : ""}
@@ -443,19 +540,66 @@ export default function CreateSignTaskPage() {
                                             )}
                                         </div>
                                     ) : (
-                                        <select
-                                            className="mt-2"
-                                            value={editingChat.chat_id}
-                                            onChange={(e) => {
-                                                const cid = parseInt(e.target.value);
-                                                const chat = availableChats.find(c => c.id === cid);
-                                                setEditingChat({ ...editingChat, chat_id: cid, name: chat?.title || chat?.username || "" });
-                                            }}
-                                        >
-                                            <option value={0}>{t("select_chat_placeholder")}</option>
-                                            {availableChats.map(c => <option key={c.id} value={c.id}>{c.title || c.username}</option>)}
-                                        </select>
+                                        <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-white/5 bg-black/5">
+                                            {availableChats.map((chat) => {
+                                                const title = getChatTitle(chat);
+                                                const selected = selectedDialogChats.some((item) => item.id === chat.id);
+                                                return (
+                                                    <button
+                                                        key={chat.id}
+                                                        type="button"
+                                                        className="w-full text-left px-3 py-2 hover:bg-white/5 border-b border-white/5 last:border-b-0 flex items-center gap-2"
+                                                        onClick={() => toggleSelectedDialogChat(chat)}
+                                                    >
+                                                        <input
+                                                            type="checkbox"
+                                                            readOnly
+                                                            checked={selected}
+                                                            className="!mb-0 h-4 w-4 accent-[#8a3ffc] shrink-0"
+                                                        />
+                                                        <div className="min-w-0">
+                                                            <div className="text-sm font-semibold truncate">{title}</div>
+                                                            <div className="text-[10px] text-main/40 font-mono truncate">
+                                                                {chat.id}{chat.username ? ` · @${chat.username}` : ""}
+                                                            </div>
+                                                        </div>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
                                     )}
+                                    <div className="mt-3 space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-[10px] text-main/40 uppercase tracking-wider">
+                                                {t("selected_chats")} ({selectedDialogChats.length})
+                                            </label>
+                                            <button
+                                                type="button"
+                                                className="text-[10px] text-[#8a3ffc] hover:text-[#8a3ffc]/80 font-bold uppercase"
+                                                onClick={() => setSelectedDialogChats([])}
+                                            >
+                                                {t("clear_selected")}
+                                            </button>
+                                        </div>
+                                        {selectedDialogChats.length > 0 ? (
+                                            <div className="flex flex-wrap gap-2">
+                                                {selectedDialogChats.map((chat) => (
+                                                    <button
+                                                        key={chat.id}
+                                                        type="button"
+                                                        className="inline-flex max-w-full items-center gap-2 rounded-lg border border-white/5 bg-white/5 px-2 py-1 text-xs text-main/70 hover:bg-rose-500/10 hover:text-rose-300"
+                                                        onClick={() => toggleSelectedDialogChat(chat)}
+                                                    >
+                                                        <span className="truncate max-w-[180px]">{getChatTitle(chat)}</span>
+                                                        <X weight="bold" size={12} />
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="text-xs text-main/30">{t("no_selected_chats")}</div>
+                                        )}
+                                        <div className="text-[10px] text-main/30">{t("multi_select_hint")}</div>
+                                    </div>
                                     <div className="mt-4">
                                         <label className="text-[10px] text-main/40 uppercase tracking-wider">{t("topic_id_label") || "Topic/Thread ID (Optional)"}</label>
                                         <input
@@ -464,6 +608,25 @@ export default function CreateSignTaskPage() {
                                             placeholder={t("topic_id_placeholder") || "Leave blank if not applicable"}
                                             value={editingChat.message_thread_id || ""}
                                             onChange={(e) => setEditingChat({ ...editingChat, message_thread_id: e.target.value ? parseInt(e.target.value) : undefined })}
+                                        />
+                                    </div>
+                                    <div className="mt-4">
+                                        <label className="text-[10px] text-main/40 uppercase tracking-wider">{t("manual_chat_id")}</label>
+                                        <input
+                                            inputMode="numeric"
+                                            className="!mb-0"
+                                            placeholder={t("manual_id_placeholder")}
+                                            value={editingChat.chat_id ? String(editingChat.chat_id) : ""}
+                                            onChange={(e) => {
+                                                const value = e.target.value.trim();
+                                                const cid = value ? parseInt(value) : 0;
+                                                setSelectedDialogChats([]);
+                                                setEditingChat({
+                                                    ...editingChat,
+                                                    chat_id: Number.isNaN(cid) ? 0 : cid,
+                                                    name: value ? t("chat_default_name").replace("{id}", value) : "",
+                                                });
+                                            }}
                                         />
                                     </div>
                                 </div>
