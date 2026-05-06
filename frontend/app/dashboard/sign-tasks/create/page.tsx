@@ -644,12 +644,13 @@ export default function CreateSignTaskPage() {
 
                                     <div className="max-h-[200px] overflow-y-auto space-y-3 custom-scrollbar pr-2">
                                         {editingChat.actions.map((act, i) => (
-                                            <div key={i} className="flex gap-3 items-center animate-scale-in">
-                                                <div className="w-6 h-6 rounded-lg bg-white/5 flex items-center justify-center text-[10px] font-bold text-main/30">
+                                            <div key={i} className="flex gap-3 items-start animate-scale-in">
+                                                <div className="w-6 h-6 rounded-lg bg-white/5 flex items-center justify-center text-[10px] font-bold text-main/30 mt-2">
                                                     {i + 1}
                                                 </div>
-                                                <input
-                                                    className="!h-9 !text-sm"
+                                                <textarea
+                                                    rows={3}
+                                                    className="min-h-[72px] max-h-[180px] flex-1 resize-y bg-white/2 rounded-xl p-3 !text-sm text-main/70 border border-white/5 focus:border-[#8a3ffc]/30 outline-none transition-all placeholder:text-main/20 custom-scrollbar"
                                                     value={act.text}
                                                     onChange={(e) => {
                                                         const newActs = [...editingChat.actions];
@@ -662,7 +663,7 @@ export default function CreateSignTaskPage() {
                                                         const newActs = editingChat.actions.filter((_, idx) => idx !== i);
                                                         setEditingChat({ ...editingChat, actions: newActs });
                                                     }}
-                                                    className="action-btn !w-9 !h-9 !text-rose-400"
+                                                    className="action-btn !w-9 !h-9 !text-rose-400 mt-2"
                                                 >
                                                     <X weight="bold" />
                                                 </button>

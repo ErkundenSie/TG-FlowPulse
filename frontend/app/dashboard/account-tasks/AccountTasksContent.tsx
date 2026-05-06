@@ -73,7 +73,7 @@ const TaskItem = memo(({ task, loading, running, onEdit, onRun, onViewLogs, onCo
     loading: boolean;
     running: boolean;
     onEdit: (task: SignTask) => void;
-    onRun: (name: string) => void;
+    onRun: (task: SignTask) => void;
     onViewLogs: (task: SignTask) => void;
     onCopy: (name: string) => void;
     onDelete: (name: string) => void;
@@ -144,13 +144,12 @@ const TaskItem = memo(({ task, loading, running, onEdit, onRun, onViewLogs, onCo
 
             <div className="mt-3 grid grid-cols-4 gap-2 md:hidden">
                 <button
-                    onClick={() => onRun(task.name)}
+                    onClick={() => onRun(task)}
                     disabled={loading || running}
-                    className="action-btn col-span-4 !w-full !h-10 gap-2 !text-sm !font-bold !text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="action-btn !w-full !h-10 !text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-40 disabled:cursor-not-allowed"
                     title={t("run_now")}
                 >
                     {running ? <Spinner className="animate-spin" size={14} /> : <Play weight="fill" size={14} />}
-                    <span>{running ? t("task_running") : t("run_now")}</span>
                 </button>
                 <button
                     onClick={() => onEdit(task)}
@@ -205,13 +204,12 @@ const TaskItem = memo(({ task, loading, running, onEdit, onRun, onViewLogs, onCo
 
                 <div className="flex items-center gap-1 bg-black/10 rounded-xl p-1 border border-white/5">
                     <button
-                        onClick={() => onRun(task.name)}
+                        onClick={() => onRun(task)}
                         disabled={loading || running}
-                        className="action-btn !w-auto !h-8 gap-1.5 px-2.5 !text-xs !font-bold !text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="action-btn !w-8 !h-8 !text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-40 disabled:cursor-not-allowed"
                         title={t("run_now")}
                     >
                         {running ? <Spinner className="animate-spin" size={14} /> : <Play weight="fill" size={14} />}
-                        <span>{running ? t("task_running") : t("run_now")}</span>
                     </button>
                     <button
                         onClick={() => onEdit(task)}
@@ -672,7 +670,9 @@ export default function AccountTasksContent() {
             try {
                 const logs = await getSignTaskLogs(token, liveLogTaskName, accountName);
                 if (!cancelled) {
-                    setLiveLogs(logs || []);
+                    if (logs && logs.length > 0) {
+                        setLiveLogs(logs);
+                    }
                 }
             } catch {
                 // Live logs are best-effort; the final result toast still reports errors.
@@ -768,20 +768,32 @@ export default function AccountTasksContent() {
         }
     };
 
-    const handleRunTask = async (taskName: string) => {
+    const handleRunTask = async (task: SignTask) => {
         if (!token) return;
+
+        const taskName = task.name;
+        const initialLogs = [
+            `${t("run_now")}: ${taskName}`,
+            `目标会话: ${task.chats.length} 个`,
+            ...task.chats.map((chat, index) => {
+                const chatName = chat.name || chat.chat_id;
+                return `${index + 1}/${task.chats.length} ${chatName} (${chat.chat_id})，动作 ${chat.actions?.length || 0} 步`;
+            }),
+            "等待后端执行日志...",
+        ];
 
         try {
             setRunningTaskNames((prev) => new Set(prev).add(taskName));
             setLiveLogTaskName(taskName);
-            setLiveLogs([]);
+            setLiveLogs(initialLogs);
             const result = await runSignTask(token, taskName, accountName);
             const outputLogs = (result.output || "").split(/\r?\n/).filter(Boolean);
             try {
                 const logs = await getSignTaskLogs(token, taskName, accountName);
-                setLiveLogs((logs && logs.length >= outputLogs.length) ? logs : outputLogs);
+                const finalLogs = (logs && logs.length >= outputLogs.length) ? logs : outputLogs;
+                setLiveLogs(finalLogs.length > 0 ? finalLogs : initialLogs);
             } catch {
-                setLiveLogs(outputLogs);
+                setLiveLogs(outputLogs.length > 0 ? outputLogs : initialLogs);
             }
 
             if (!result.success && result.error) {
@@ -1743,13 +1755,13 @@ export default function AccountTasksContent() {
 
                                 <div className="flex flex-col gap-3">
                                     {(showCreateDialog ? newTask.actions : editTask.actions).map((action, index) => (
-                                        <div key={index} className="rounded-xl border border-white/5 bg-black/5 p-3 animate-scale-in">
-                                            <div className="grid grid-cols-1 md:grid-cols-[2rem_minmax(0,115px)_minmax(0,1fr)_2.5rem] gap-3 items-start">
-                                                <div className="shrink-0 w-8 h-10 flex items-center justify-center font-mono text-[10px] text-main/30 font-bold border border-white/5 rounded-lg bg-white/5">
+                                        <div key={index} className="rounded-xl border border-white/5 bg-black/[0.035] p-3 animate-scale-in">
+                                            <div className="grid grid-cols-[2rem_minmax(0,1fr)_2.5rem] md:grid-cols-[2rem_minmax(0,125px)_minmax(0,1fr)_2.5rem] gap-3 items-start">
+                                                <div className="shrink-0 w-8 h-10 flex items-center justify-center font-mono text-[10px] text-main/35 font-bold border border-white/5 rounded-lg bg-white/5">
                                                     {index + 1}
                                                 </div>
                                                 <select
-                                                    className="!h-10 !mb-0"
+                                                    className="!h-10 !mb-0 !text-xs"
                                                     value={toActionTypeOption(action)}
                                                     onChange={(e) => {
                                                         const selectedType = e.target.value as ActionTypeOption;
@@ -1799,11 +1811,12 @@ export default function AccountTasksContent() {
                                                     <option value="keyword_notify">{keywordNotifyLabel}</option>
                                                 </select>
 
-                                                <div className="min-w-0">
+                                                <div className="min-w-0 col-span-3 md:col-span-1">
                                                 {(action.action === 1 || action.action === 3) && (
-                                                    <input
+                                                    <textarea
                                                         placeholder={action.action === 1 ? sendTextPlaceholder : clickButtonPlaceholder}
-                                                        className="!mb-0 !h-10"
+                                                        rows={3}
+                                                        className="!mb-0 min-h-[74px] max-h-[180px] w-full resize-y bg-white/[0.035] rounded-xl px-3 py-2.5 text-sm leading-6 text-main/75 border border-white/5 focus:border-[#8a3ffc]/40 focus:bg-white/[0.055] outline-none transition-all placeholder:text-main/20 custom-scrollbar"
                                                         value={action.text || ""}
                                                         onChange={(e) => {
                                                             updateCurrentDialogAction(index, (currentAction) => ({
@@ -2198,6 +2211,7 @@ export default function AccountTasksContent() {
                                             <button
                                                 onClick={() => showCreateDialog ? handleRemoveAction(index) : handleEditRemoveAction(index)}
                                                 className="action-btn shrink-0 !w-10 !h-10 !text-rose-400 !bg-rose-500/5 hover:!bg-rose-500/10"
+                                                title={t("delete")}
                                             >
                                                 <Trash weight="bold" size={16} />
                                             </button>
