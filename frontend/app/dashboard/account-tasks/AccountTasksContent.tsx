@@ -776,11 +776,12 @@ export default function AccountTasksContent() {
             setLiveLogTaskName(taskName);
             setLiveLogs([]);
             const result = await runSignTask(token, taskName, accountName);
+            const outputLogs = (result.output || "").split(/\r?\n/).filter(Boolean);
             try {
                 const logs = await getSignTaskLogs(token, taskName, accountName);
-                setLiveLogs(logs || []);
+                setLiveLogs((logs && logs.length >= outputLogs.length) ? logs : outputLogs);
             } catch {
-                // ignore live log refresh errors after completion
+                setLiveLogs(outputLogs);
             }
 
             if (!result.success && result.error) {

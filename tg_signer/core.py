@@ -1298,6 +1298,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             if success_count == 0 and len(config.chats) > 0:
                 raise RuntimeError("所有会话均执行失败（详细请看运行日志）")
 
+            self.log(f"目标会话执行汇总: 成功 {success_count} 个，失败 {failure_count} 个")
             sign_record[str(now.date())] = now.isoformat()
             with open(self.sign_record_file, "w", encoding="utf-8") as fp:
                 json.dump(sign_record, fp)

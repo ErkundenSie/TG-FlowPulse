@@ -151,6 +151,10 @@ export default function SignTasksPage() {
             };
 
             const result = await runSignTask(token, taskName, accountName);
+            const outputLogs = (result.output || "").split(/\r?\n/).filter(Boolean);
+            if (outputLogs.length > 0) {
+                setRunLogs(outputLogs);
+            }
 
             if (!result.success) {
                 if (result.error && result.error.includes("运行中")) {
