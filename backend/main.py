@@ -98,11 +98,15 @@ def ready_check(response: Response) -> dict[str, str]:
 
 # 静态前端托管（Mode A: 单容器，FastAPI 提供静态文件）
 # 挂载 Next.js 静态资源
-app.mount(
-    "/_next",
-    StaticFiles(directory="/web/_next"),
-    name="nextjs_static",
-)
+web_dir = Path("/web")
+next_static_dir = web_dir / "_next"
+
+if next_static_dir.exists():
+    app.mount(
+        "/_next",
+        StaticFiles(directory=next_static_dir),
+        name="nextjs_static",
+    )
 
 
 # Catch-all 路由：处理所有前端路由，返回 index.html
@@ -114,6 +118,9 @@ async def serve_spa(full_path: str):
     """
     # 检查是否是静态文件请求
     web_dir = Path("/web")
+    if not next_static_dir.exists():
+        return {"detail": "Frontend not built"}
+
     file_path = web_dir / full_path
 
     # 如果文件存在且不是目录，直接返回文件

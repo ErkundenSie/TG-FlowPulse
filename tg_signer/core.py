@@ -1265,7 +1265,12 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
 
         async def sign_once():
             success_count = 0
-            for chat in config.chats:
+            failure_count = 0
+            total_chats = len(config.chats)
+            for index, chat in enumerate(config.chats, start=1):
+                self.log(
+                    f"开始执行目标会话 {index}/{total_chats}: {chat.name or chat.chat_id} ({chat.chat_id})"
+                )
                 self.context.sign_chats[chat.chat_id].append(chat)
                 try:
                     await self.sign_a_chat(chat)

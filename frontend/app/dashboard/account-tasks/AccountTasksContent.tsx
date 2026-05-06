@@ -21,6 +21,7 @@ import {
     SignTaskHistoryItem,
     ChatInfo,
     CreateSignTaskRequest,
+    SignTaskChat,
 } from "../../../lib/api";
 import {
     CaretLeft,
@@ -46,6 +47,7 @@ import { ToastContainer, useToast } from "../../../components/ui/toast";
 import { useLanguage } from "../../../context/LanguageContext";
 
 type ActionTypeOption = "1" | "2" | "3" | "ai_vision" | "ai_logic" | "keyword_notify";
+type CreateTargetMode = "single_task" | "batch_tasks";
 
 const DICE_OPTIONS = [
     "\uD83C\uDFB2",
@@ -62,6 +64,8 @@ const splitKeywordInput = (value: string, matchMode?: string) => {
     const splitter = matchMode === "regex" ? /\n/ : /\n|,/;
     return value.split(splitter).map((item) => item.trim()).filter(Boolean);
 };
+
+const getChatTitle = (chat: ChatInfo) => chat.title || chat.username || chat.first_name || String(chat.id);
 
 // Memoized Task Item Component
 const TaskItem = memo(({ task, loading, running, onEdit, onRun, onViewLogs, onCopy, onDelete, t, language }: {
@@ -96,6 +100,11 @@ const TaskItem = memo(({ task, loading, running, onEdit, onRun, onViewLogs, onCo
                         <span className="text-[9px] font-mono text-main/30 bg-white/5 px-1.5 py-0.5 rounded border border-white/5">
                             {task.chats[0]?.chat_id || "-"}
                         </span>
+                        {task.chats.length > 1 && (
+                            <span className="text-[9px] font-bold text-[#8a3ffc]/70 bg-[#8a3ffc]/10 px-1.5 py-0.5 rounded border border-[#8a3ffc]/10">
+                                +{task.chats.length - 1}
+                            </span>
+                        )}
                     </div>
                     <div className="flex items-center gap-3">
                         <div className="flex items-center gap-1.5 text-main/40">
@@ -133,14 +142,15 @@ const TaskItem = memo(({ task, loading, running, onEdit, onRun, onViewLogs, onCo
                 )}
             </div>
 
-            <div className="mt-3 grid grid-cols-5 gap-2 md:hidden">
+            <div className="mt-3 grid grid-cols-4 gap-2 md:hidden">
                 <button
                     onClick={() => onRun(task.name)}
                     disabled={loading || running}
-                    className="action-btn !w-full !h-10 !text-emerald-400 hover:bg-emerald-500/10"
-                    title={t("run")}
+                    className="action-btn col-span-4 !w-full !h-10 gap-2 !text-sm !font-bold !text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                    title={t("run_now")}
                 >
                     {running ? <Spinner className="animate-spin" size={14} /> : <Play weight="fill" size={14} />}
+                    <span>{running ? t("task_running") : t("run_now")}</span>
                 </button>
                 <button
                     onClick={() => onEdit(task)}
@@ -197,10 +207,11 @@ const TaskItem = memo(({ task, loading, running, onEdit, onRun, onViewLogs, onCo
                     <button
                         onClick={() => onRun(task.name)}
                         disabled={loading || running}
-                        className="action-btn !w-8 !h-8 !text-emerald-400 hover:bg-emerald-500/10"
-                        title={t("run")}
+                        className="action-btn !w-auto !h-8 gap-1.5 px-2.5 !text-xs !font-bold !text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={t("run_now")}
                     >
                         {running ? <Spinner className="animate-spin" size={14} /> : <Play weight="fill" size={14} />}
+                        <span>{running ? t("task_running") : t("run_now")}</span>
                     </button>
                     <button
                         onClick={() => onEdit(task)}
@@ -256,6 +267,8 @@ export default function AccountTasksContent() {
     const [chatSearch, setChatSearch] = useState("");
     const [chatSearchResults, setChatSearchResults] = useState<ChatInfo[]>([]);
     const [chatSearchLoading, setChatSearchLoading] = useState(false);
+    const [selectedCreateChats, setSelectedCreateChats] = useState<ChatInfo[]>([]);
+    const [createTargetMode, setCreateTargetMode] = useState<CreateTargetMode>("single_task");
     const [loading, setLoading] = useState(false);
     const [refreshingChats, setRefreshingChats] = useState(false);
     const [historyTaskName, setHistoryTaskName] = useState<string | null>(null);
@@ -329,6 +342,7 @@ export default function AccountTasksContent() {
         range_start: "09:00",
         range_end: "18:00",
         notify_on_failure: true,
+        target_chats: [] as SignTaskChat[],
     });
     const [copyTaskDialog, setCopyTaskDialog] = useState<{ taskName: string; config: string } | null>(null);
     const [showPasteDialog, setShowPasteDialog] = useState(false);
@@ -387,6 +401,16 @@ export default function AccountTasksContent() {
     const copyTaskFallbackManual = isZh ? "\u81EA\u52A8\u590D\u5236\u5931\u8D25\uFF0C\u8BF7\u5728\u5F39\u7A97\u5185\u624B\u52A8\u590D\u5236" : "Auto copy failed, please copy manually from dialog";
     const copyAllTasksTitle = t("export_all_tasks");
     const taskFailureNotifyLabel = isZh ? "\u5931\u8D25\u901A\u77E5" : "Failure Notify";
+    const createTargetModeLabel = isZh ? "\u521B\u5EFA\u65B9\u5F0F" : "Create Mode";
+    const createModeSingleTaskLabel = isZh ? "\u4E00\u4E2A\u4EFB\u52A1\u591A\u4F1A\u8BDD" : "One Task, Many Chats";
+    const createModeBatchTasksLabel = isZh ? "\u591A\u4E2A\u72EC\u7ACB\u4EFB\u52A1" : "Separate Tasks";
+    const selectedChatsLabel = isZh ? "\u5DF2\u9009\u4F1A\u8BDD" : "Selected Chats";
+    const clearSelectedChatsLabel = isZh ? "\u6E05\u7A7A" : "Clear";
+    const multiSelectHint = isZh ? "\u5217\u8868\u548C\u641C\u7D22\u7ED3\u679C\u652F\u6301\u591A\u9009\uFF1B\u624B\u52A8 Chat ID \u4FDD\u6301\u5355\u76EE\u6807\u3002" : "List and search results support multi-select; manual Chat ID stays single-target.";
+    const noSelectedChatsLabel = isZh ? "\u5C1A\u672A\u9009\u62E9\u4F1A\u8BDD" : "No chats selected";
+    const manualChatDisabledHint = isZh ? "\u591A\u9009\u65F6\u4F7F\u7528\u4E0A\u65B9\u5DF2\u9009\u4F1A\u8BDD\uFF1B\u5982\u9700\u624B\u52A8 ID\uFF0C\u8BF7\u5148\u6E05\u7A7A\u5DF2\u9009\u4F1A\u8BDD\u3002" : "Multi-select uses the selected chats above. Clear them first to enter a manual ID.";
+    const batchCreateSummary = (success: number, failed: number) =>
+        isZh ? `\u6279\u91CF\u521B\u5EFA\u5B8C\u6210\uFF1A\u6210\u529F ${success} \u4E2A\uFF0C\u5931\u8D25 ${failed} \u4E2A` : `Batch create finished: ${success} succeeded, ${failed} failed`;
 
     const sanitizeTaskName = useCallback((raw: string) => {
         return raw
@@ -396,6 +420,111 @@ export default function AccountTasksContent() {
             .replace(/_+/g, "_")
             .replace(/^_+|_+$/g, "")
             .slice(0, 64);
+    }, []);
+
+    const resetCreateTaskForm = useCallback(() => {
+        setNewTask({
+            name: "",
+            sign_at: "0 6 * * *",
+            random_minutes: 0,
+            chat_id: 0,
+            chat_id_manual: "",
+            chat_name: "",
+            message_thread_id: undefined,
+            actions: [{ action: 1, text: "" }],
+            delete_after: undefined,
+            action_interval: 1,
+            execution_mode: "fixed",
+            range_start: "09:00",
+            range_end: "18:00",
+            notify_on_failure: true,
+        });
+        setSelectedCreateChats([]);
+        setCreateTargetMode("single_task");
+        setChatSearch("");
+        setChatSearchResults([]);
+        setChatSearchLoading(false);
+    }, []);
+
+    const toggleSelectedChat = useCallback((chat: ChatInfo) => {
+        setSelectedCreateChats((prev) => {
+            const exists = prev.some((item) => item.id === chat.id);
+            if (exists) {
+                return prev.filter((item) => item.id !== chat.id);
+            }
+            return [...prev, chat];
+        });
+        setNewTask((prev) => ({
+            ...prev,
+            chat_id: 0,
+            chat_id_manual: "",
+            chat_name: "",
+        }));
+    }, []);
+
+    const buildSignTaskChat = useCallback((chat: ChatInfo): SignTaskChat => ({
+        chat_id: chat.id,
+        name: getChatTitle(chat),
+        message_thread_id: newTask.message_thread_id,
+        actions: newTask.actions,
+        delete_after: newTask.delete_after,
+        action_interval: newTask.action_interval,
+    }), [newTask.action_interval, newTask.actions, newTask.delete_after, newTask.message_thread_id]);
+
+    const buildManualSignTaskChat = useCallback((chatId: number): SignTaskChat => ({
+        chat_id: chatId,
+        name: newTask.chat_name || t("chat_default_name").replace("{id}", String(chatId)),
+        message_thread_id: newTask.message_thread_id,
+        actions: newTask.actions,
+        delete_after: newTask.delete_after,
+        action_interval: newTask.action_interval,
+    }), [newTask.action_interval, newTask.actions, newTask.chat_name, newTask.delete_after, newTask.message_thread_id, t]);
+
+    const buildBatchTaskName = useCallback((baseName: string, chat: ChatInfo) => {
+        const cleanBase = sanitizeTaskName(baseName);
+        const cleanChatName = sanitizeTaskName(getChatTitle(chat)) || sanitizeTaskName(`chat_${chat.id}`) || `chat_${chat.id}`;
+        return cleanBase ? sanitizeTaskName(`${cleanBase}_${cleanChatName}`) || cleanChatName : cleanChatName;
+    }, [sanitizeTaskName]);
+
+    const chatInfoToSignTaskChat = useCallback((chat: ChatInfo): SignTaskChat => ({
+        chat_id: chat.id,
+        name: getChatTitle(chat),
+        actions: [],
+        action_interval: 1,
+    }), []);
+
+    const toggleEditTargetChat = useCallback((chat: ChatInfo) => {
+        const target = chatInfoToSignTaskChat(chat);
+        setEditTask((prev) => {
+            const exists = prev.target_chats.some((item) => item.chat_id === target.chat_id);
+            const nextTargets = exists
+                ? prev.target_chats.filter((item) => item.chat_id !== target.chat_id)
+                : [...prev.target_chats, target];
+            const firstTarget = nextTargets[0];
+            return {
+                ...prev,
+                target_chats: nextTargets,
+                chat_id: firstTarget?.chat_id || 0,
+                chat_id_manual: firstTarget ? String(firstTarget.chat_id) : "",
+                chat_name: firstTarget?.name || "",
+                message_thread_id: firstTarget?.message_thread_id,
+            };
+        });
+    }, [chatInfoToSignTaskChat]);
+
+    const removeEditTargetChat = useCallback((chatId: number) => {
+        setEditTask((prev) => {
+            const nextTargets = prev.target_chats.filter((item) => item.chat_id !== chatId);
+            const firstTarget = nextTargets[0];
+            return {
+                ...prev,
+                target_chats: nextTargets,
+                chat_id: firstTarget?.chat_id || 0,
+                chat_id_manual: firstTarget ? String(firstTarget.chat_id) : "",
+                chat_name: firstTarget?.name || "",
+                message_thread_id: firstTarget?.message_thread_id,
+            };
+        });
     }, []);
 
     const toActionTypeOption = useCallback((action: any): ActionTypeOption => {
@@ -589,6 +718,7 @@ export default function AccountTasksContent() {
 
     const applyChatSelection = (chatId: number, chatName: string) => {
         if (showCreateDialog) {
+            setSelectedCreateChats([]);
             setNewTask({
                 ...newTask,
                 name: newTask.name || chatName,
@@ -602,6 +732,14 @@ export default function AccountTasksContent() {
                 chat_id: chatId,
                 chat_id_manual: chatId !== 0 ? chatId.toString() : "",
                 chat_name: chatName,
+                target_chats: chatId !== 0 ? [{
+                    chat_id: chatId,
+                    name: chatName || t("chat_default_name").replace("{id}", String(chatId)),
+                    actions: [],
+                    action_interval: editTask.action_interval,
+                    message_thread_id: editTask.message_thread_id,
+                    delete_after: editTask.delete_after,
+                }] : [],
             });
         }
     };
@@ -873,7 +1011,10 @@ export default function AccountTasksContent() {
             }
         }
 
-        if (chatId === 0) {
+        const hasManualChat = chatId !== 0;
+        const selectedChatsForCreate = hasManualChat ? [] : selectedCreateChats;
+
+        if (!hasManualChat && selectedChatsForCreate.length === 0) {
             addToast(t("select_chat_error"), "error");
             return;
         }
@@ -885,24 +1026,9 @@ export default function AccountTasksContent() {
 
         try {
             setLoading(true);
-            const fallbackTaskName =
-                sanitizeTaskName(newTask.chat_name) ||
-                sanitizeTaskName(newTask.chat_id_manual ? `chat_${newTask.chat_id_manual}` : "") ||
-                `task_${Date.now()}`;
-            const finalTaskName = sanitizeTaskName(newTask.name) || fallbackTaskName;
-
-            const request: CreateSignTaskRequest = {
-                name: finalTaskName,
+            const commonRequest = {
                 account_name: accountName,
                 sign_at: newTask.sign_at,
-                chats: [{
-                    chat_id: chatId,
-                    name: newTask.chat_name || t("chat_default_name").replace("{id}", String(chatId)),
-                    message_thread_id: newTask.message_thread_id,
-                    actions: newTask.actions,
-                    delete_after: newTask.delete_after,
-                    action_interval: newTask.action_interval,
-                }],
                 random_seconds: newTask.random_minutes * 60,
                 execution_mode: newTask.execution_mode,
                 range_start: newTask.range_start,
@@ -910,25 +1036,44 @@ export default function AccountTasksContent() {
                 notify_on_failure: newTask.notify_on_failure,
             };
 
-            await createSignTask(token, request);
-            addToast(t("create_success"), "success");
+            if (hasManualChat || createTargetMode === "single_task") {
+                const targetChats = hasManualChat
+                    ? [buildManualSignTaskChat(chatId)]
+                    : selectedChatsForCreate.map((chat) => buildSignTaskChat(chat));
+                const firstChat = targetChats[0];
+                const fallbackTaskName =
+                    sanitizeTaskName(newTask.chat_name) ||
+                    sanitizeTaskName(firstChat?.name || "") ||
+                    sanitizeTaskName(hasManualChat ? `chat_${chatId}` : "") ||
+                    `task_${Date.now()}`;
+                const finalTaskName = sanitizeTaskName(newTask.name) || fallbackTaskName;
+                const request: CreateSignTaskRequest = {
+                    ...commonRequest,
+                    name: finalTaskName,
+                    chats: targetChats,
+                };
+                await createSignTask(token, request);
+                addToast(t("create_success"), "success");
+            } else {
+                let successCount = 0;
+                let failureCount = 0;
+                for (const chat of selectedChatsForCreate) {
+                    const request: CreateSignTaskRequest = {
+                        ...commonRequest,
+                        name: buildBatchTaskName(newTask.name, chat),
+                        chats: [buildSignTaskChat(chat)],
+                    };
+                    try {
+                        await createSignTask(token, request);
+                        successCount += 1;
+                    } catch {
+                        failureCount += 1;
+                    }
+                }
+                addToast(batchCreateSummary(successCount, failureCount), failureCount > 0 ? "error" : "success");
+            }
             setShowCreateDialog(false);
-            setNewTask({
-                name: "",
-                sign_at: "0 6 * * *",
-                random_minutes: 0,
-                chat_id: 0,
-                chat_id_manual: "",
-                chat_name: "",
-                message_thread_id: undefined,
-                actions: [{ action: 1, text: "" }],
-                delete_after: undefined,
-                action_interval: 1,
-                execution_mode: "fixed",
-                range_start: "09:00",
-                range_end: "18:00",
-                notify_on_failure: true,
-            });
+            resetCreateTaskForm();
             await loadData(token);
         } catch (err: any) {
             addToast(formatErrorMessage("create_failed", err), "error");
@@ -954,6 +1099,7 @@ export default function AccountTasksContent() {
     const handleEditTask = (task: SignTask) => {
         setEditingTaskName(task.name);
         const chat = task.chats[0];
+        const targetChats = task.chats || [];
         setEditTask({
             sign_at: task.sign_at,
             random_minutes: Math.round(task.random_seconds / 60),
@@ -968,6 +1114,7 @@ export default function AccountTasksContent() {
             range_start: task.range_start || "09:00",
             range_end: task.range_end || "18:00",
             notify_on_failure: task.notify_on_failure !== false,
+            target_chats: targetChats,
         });
         setShowEditDialog(true);
     };
@@ -975,8 +1122,19 @@ export default function AccountTasksContent() {
     const handleSaveEdit = async () => {
         if (!token) return;
 
-        const chatId = editTask.chat_id || parseInt(editTask.chat_id_manual) || 0;
-        if (!chatId) {
+        let editTargets = editTask.target_chats;
+        const manualChatId = parseInt(editTask.chat_id_manual) || 0;
+        if (manualChatId && !editTargets.some((chat) => chat.chat_id === manualChatId)) {
+            editTargets = [{
+                chat_id: manualChatId,
+                name: editTask.chat_name || t("chat_default_name").replace("{id}", String(manualChatId)),
+                actions: [],
+                action_interval: editTask.action_interval,
+                message_thread_id: editTask.message_thread_id,
+                delete_after: editTask.delete_after,
+            }];
+        }
+        if (editTargets.length === 0) {
             addToast(t("select_chat_error"), "error");
             return;
         }
@@ -985,20 +1143,22 @@ export default function AccountTasksContent() {
             return;
         }
 
+        const updatedChats = editTargets.map((chat) => ({
+            ...chat,
+            name: chat.name || t("chat_default_name").replace("{id}", String(chat.chat_id)),
+            message_thread_id: editTask.message_thread_id,
+            actions: editTask.actions,
+            delete_after: editTask.delete_after,
+            action_interval: editTask.action_interval,
+        }));
+
         try {
             setLoading(true);
 
             await updateSignTask(token, editingTaskName, {
                 sign_at: editTask.sign_at,
                 random_seconds: editTask.random_minutes * 60,
-                chats: [{
-                    chat_id: chatId,
-                    name: editTask.chat_name || t("chat_default_name").replace("{id}", String(chatId)),
-                    message_thread_id: editTask.message_thread_id,
-                    actions: editTask.actions,
-                    delete_after: editTask.delete_after,
-                    action_interval: editTask.action_interval,
-                }],
+                chats: updatedChats,
                 execution_mode: editTask.execution_mode,
                 range_start: editTask.range_start,
                 range_end: editTask.range_end,
@@ -1197,7 +1357,11 @@ export default function AccountTasksContent() {
                                 </label>
                             </div>
                             <div
-                                onClick={() => { setShowCreateDialog(false); setShowEditDialog(false); }}
+                                onClick={() => {
+                                    setShowCreateDialog(false);
+                                    setShowEditDialog(false);
+                                    if (showCreateDialog) resetCreateTaskForm();
+                                }}
                                 className="modal-close"
                             >
                                 <X weight="bold" />
@@ -1310,6 +1474,28 @@ export default function AccountTasksContent() {
                             </div>
 
                             <div className="glass-panel !bg-black/5 p-4 space-y-4 border-white/5">
+                                {showCreateDialog && (
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] text-main/40 uppercase tracking-wider">{createTargetModeLabel}</label>
+                                        <div className="grid grid-cols-2 gap-2">
+                                            <button
+                                                type="button"
+                                                className={`h-10 rounded-lg border text-xs font-bold transition-colors ${createTargetMode === "single_task" ? "border-[#8a3ffc]/50 bg-[#8a3ffc]/15 text-[#b57dff]" : "border-white/5 bg-black/5 text-main/50 hover:text-main/80"}`}
+                                                onClick={() => setCreateTargetMode("single_task")}
+                                            >
+                                                {createModeSingleTaskLabel}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className={`h-10 rounded-lg border text-xs font-bold transition-colors ${createTargetMode === "batch_tasks" ? "border-[#8a3ffc]/50 bg-[#8a3ffc]/15 text-[#b57dff]" : "border-white/5 bg-black/5 text-main/50 hover:text-main/80"}`}
+                                                onClick={() => setCreateTargetMode("batch_tasks")}
+                                            >
+                                                {createModeBatchTasksLabel}
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <label className="text-[10px] text-main/40 uppercase tracking-wider">{t("search_chat")}</label>
@@ -1326,21 +1512,34 @@ export default function AccountTasksContent() {
                                                 ) : chatSearchResults.length > 0 ? (
                                                     <div className="flex flex-col">
                                                         {chatSearchResults.map((chat) => {
-                                                            const title = chat.title || chat.username || String(chat.id);
+                                                            const title = getChatTitle(chat);
+                                                            const selected = showCreateDialog
+                                                                ? selectedCreateChats.some((item) => item.id === chat.id)
+                                                                : editTask.target_chats.some((item) => item.chat_id === chat.id);
                                                             return (
                                                                 <button
                                                                     key={chat.id}
                                                                     type="button"
-                                                                    className="text-left px-3 py-2 hover:bg-white/5 border-b border-white/5 last:border-b-0"
+                                                                    className="text-left px-3 py-2 hover:bg-white/5 border-b border-white/5 last:border-b-0 flex items-center gap-2"
                                                                     onClick={() => {
-                                                                        applyChatSelection(chat.id, title);
-                                                                        setChatSearch("");
-                                                                        setChatSearchResults([]);
+                                                                        if (showCreateDialog) {
+                                                                            toggleSelectedChat(chat);
+                                                                        } else {
+                                                                            toggleEditTargetChat(chat);
+                                                                        }
                                                                     }}
                                                                 >
-                                                                    <div className="text-sm font-semibold truncate">{title}</div>
-                                                                    <div className="text-[10px] text-main/40 font-mono truncate">
-                                                                        {chat.id}{chat.username ? ` 路 @${chat.username}` : ""}
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        readOnly
+                                                                        checked={selected}
+                                                                        className="!mb-0 h-4 w-4 accent-[#8a3ffc] shrink-0"
+                                                                    />
+                                                                    <div className="min-w-0">
+                                                                        <div className="text-sm font-semibold truncate">{title}</div>
+                                                                        <div className="text-[10px] text-main/40 font-mono truncate">
+                                                                            {chat.id}{chat.username ? ` · @${chat.username}` : ""}
+                                                                        </div>
                                                                     </div>
                                                                 </button>
                                                             );
@@ -1367,40 +1566,130 @@ export default function AccountTasksContent() {
                                                 {t("refresh_list")}
                                             </button>
                                         </div>
-                                        <select
-                                            className="!mb-0"
-                                            value={showCreateDialog ? newTask.chat_id : editTask.chat_id}
-                                            onChange={(e) => {
-                                                const id = parseInt(e.target.value);
-                                                const chat = chats.find(c => c.id === id);
-                                                const chatName = chat?.title || chat?.username || "";
-                                                applyChatSelection(id, chatName);
-                                            }}
-                                        >
-                                            <option value={0}>{t("select_from_list")}</option>
-                                            {chats.map(chat => (
-                                                <option key={chat.id} value={chat.id}>
-                                                    {chat.title || chat.username || chat.id}
-                                                </option>
-                                            ))}
-                                        </select>
+                                        <div className="max-h-48 overflow-y-auto rounded-lg border border-white/5 bg-black/5">
+                                            {chats.map((chat) => {
+                                                const title = getChatTitle(chat);
+                                                const selected = showCreateDialog
+                                                    ? selectedCreateChats.some((item) => item.id === chat.id)
+                                                    : editTask.target_chats.some((item) => item.chat_id === chat.id);
+                                                return (
+                                                    <button
+                                                        key={chat.id}
+                                                        type="button"
+                                                        className="w-full text-left px-3 py-2 hover:bg-white/5 border-b border-white/5 last:border-b-0 flex items-center gap-2"
+                                                        onClick={() => showCreateDialog ? toggleSelectedChat(chat) : toggleEditTargetChat(chat)}
+                                                    >
+                                                        <input
+                                                            type="checkbox"
+                                                            readOnly
+                                                            checked={selected}
+                                                            className="!mb-0 h-4 w-4 accent-[#8a3ffc] shrink-0"
+                                                        />
+                                                        <div className="min-w-0">
+                                                            <div className="text-sm font-semibold truncate">{title}</div>
+                                                            <div className="text-[10px] text-main/40 font-mono truncate">
+                                                                {chat.id}{chat.username ? ` · @${chat.username}` : ""}
+                                                            </div>
+                                                        </div>
+                                                    </button>
+                                                );
+                                            })}
+                                        </div>
                                     </div>
                                 </div>
+                                {(showCreateDialog || showEditDialog) && (
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <label className="text-[10px] text-main/40 uppercase tracking-wider">
+                                                {selectedChatsLabel} ({showCreateDialog ? selectedCreateChats.length : editTask.target_chats.length})
+                                            </label>
+                                            <button
+                                                type="button"
+                                                className="text-[10px] text-[#8a3ffc] hover:text-[#8a3ffc]/80 font-bold uppercase"
+                                                onClick={() => showCreateDialog
+                                                    ? setSelectedCreateChats([])
+                                                    : setEditTask({ ...editTask, target_chats: [], chat_id: 0, chat_id_manual: "", chat_name: "" })
+                                                }
+                                            >
+                                                {clearSelectedChatsLabel}
+                                            </button>
+                                        </div>
+                                        {(showCreateDialog ? selectedCreateChats.length : editTask.target_chats.length) > 0 ? (
+                                            <div className="flex flex-wrap gap-2">
+                                                {showCreateDialog ? (
+                                                    selectedCreateChats.map((chat) => (
+                                                        <button
+                                                            key={chat.id}
+                                                            type="button"
+                                                            className="inline-flex max-w-full items-center gap-2 rounded-lg border border-white/5 bg-white/5 px-2 py-1 text-xs text-main/70 hover:bg-rose-500/10 hover:text-rose-300"
+                                                            onClick={() => toggleSelectedChat(chat)}
+                                                        >
+                                                            <span className="truncate max-w-[180px]">{getChatTitle(chat)}</span>
+                                                            <X weight="bold" size={12} />
+                                                        </button>
+                                                    ))
+                                                ) : (
+                                                    editTask.target_chats.map((chat) => (
+                                                        <button
+                                                            key={chat.chat_id}
+                                                            type="button"
+                                                            className="inline-flex max-w-full items-center gap-2 rounded-lg border border-white/5 bg-white/5 px-2 py-1 text-xs text-main/70 hover:bg-rose-500/10 hover:text-rose-300"
+                                                            onClick={() => removeEditTargetChat(chat.chat_id)}
+                                                        >
+                                                            <span className="truncate max-w-[180px]">{chat.name || chat.chat_id}</span>
+                                                            <X weight="bold" size={12} />
+                                                        </button>
+                                                    ))
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <div className="text-xs text-main/30">{noSelectedChatsLabel}</div>
+                                        )}
+                                        <div className="text-[10px] text-main/30">{multiSelectHint}</div>
+                                    </div>
+                                )}
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div className="space-y-2">
                                         <label className="text-[10px] text-main/40 uppercase tracking-wider">{t("manual_chat_id")}</label>
+                                        {(() => {
+                                            const hasSelectedTargets = showCreateDialog
+                                                ? selectedCreateChats.length > 0
+                                                : editTask.target_chats.length > 0;
+                                            return (
                                         <input
                                             placeholder={t("manual_id_placeholder")}
                                             className="!mb-0"
-                                            value={showCreateDialog ? newTask.chat_id_manual : editTask.chat_id_manual}
+                                            disabled={hasSelectedTargets}
+                                            value={hasSelectedTargets ? "" : (showCreateDialog ? newTask.chat_id_manual : editTask.chat_id_manual)}
                                             onChange={(e) => {
                                                 if (showCreateDialog) {
-                                                    setNewTask({ ...newTask, chat_id_manual: e.target.value, chat_id: 0 });
+                                                    setSelectedCreateChats([]);
+                                                    setNewTask({ ...newTask, chat_id_manual: e.target.value, chat_id: 0, chat_name: "" });
                                                 } else {
-                                                    setEditTask({ ...editTask, chat_id_manual: e.target.value, chat_id: 0 });
+                                                    const value = e.target.value.trim();
+                                                    const chatId = parseInt(value) || 0;
+                                                    setEditTask({
+                                                        ...editTask,
+                                                        chat_id_manual: value,
+                                                        chat_id: 0,
+                                                        chat_name: value ? t("chat_default_name").replace("{id}", value) : "",
+                                                        target_chats: chatId ? [{
+                                                            chat_id: chatId,
+                                                            name: t("chat_default_name").replace("{id}", value),
+                                                            actions: [],
+                                                            action_interval: editTask.action_interval,
+                                                            message_thread_id: editTask.message_thread_id,
+                                                            delete_after: editTask.delete_after,
+                                                        }] : [],
+                                                    });
                                                 }
                                             }}
                                         />
+                                            );
+                                        })()}
+                                        {(showCreateDialog ? selectedCreateChats.length > 0 : editTask.target_chats.length > 0) && (
+                                            <div className="text-[10px] text-main/30">{manualChatDisabledHint}</div>
+                                        )}
                                     </div>
                                     <div className="space-y-2">
                                         <label className="text-[10px] text-main/40 uppercase tracking-wider">{t("topic_id_label") || "Topic/Thread ID (Optional)"}</label>
@@ -1921,7 +2210,11 @@ export default function AccountTasksContent() {
                         <footer className="p-6 border-t border-white/5 flex gap-3">
                             <button
                                 className="btn-secondary flex-1"
-                                onClick={() => { setShowCreateDialog(false); setShowEditDialog(false); }}
+                                onClick={() => {
+                                    setShowCreateDialog(false);
+                                    setShowEditDialog(false);
+                                    if (showCreateDialog) resetCreateTaskForm();
+                                }}
                             >
                                 {t("cancel")}
                             </button>

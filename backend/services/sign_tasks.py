@@ -1613,6 +1613,9 @@ class SignTaskService:
 
         # 获取 logger 实例
         tg_logger = logging.getLogger("tg-signer")
+        previous_logger_level = tg_logger.level
+        if tg_logger.getEffectiveLevel() > logging.INFO:
+            tg_logger.setLevel(logging.INFO)
         log_handler = TaskLogHandler(self._active_logs[task_key])
         log_handler.setLevel(logging.INFO)
         log_handler.setFormatter(logging.Formatter("%(asctime)s - %(message)s"))
@@ -1628,6 +1631,7 @@ class SignTaskService:
             task_cfg = self.get_task(task_name, account_name=account_name)
             if not task_cfg:
                 raise ValueError(f"Task {task_name} does not exist or cannot be loaded")
+            task_chats = task_cfg.get("chats") or []
             requires_updates = self._task_requires_updates(task_cfg)
             has_keyword_monitor = self._task_has_keyword_monitor(task_cfg)
             signer_no_updates = not requires_updates
@@ -1673,6 +1677,16 @@ class SignTaskService:
                     )
 
                     # 配置 API 凭据
+                    self._active_logs[task_key].append(
+                        f"本次配置目标会话: {len(task_chats)} 个"
+                    )
+                    for index, chat in enumerate(task_chats, start=1):
+                        chat_name = chat.get("name") or chat.get("chat_id")
+                        action_count = len(chat.get("actions") or [])
+                        self._active_logs[task_key].append(
+                            f"目标 {index}/{len(task_chats)}: {chat_name} ({chat.get('chat_id')})，动作 {action_count} 步"
+                        )
+
                     from backend.services.config import get_config_service
 
                     config_service = get_config_service()
@@ -1747,6 +1761,9 @@ class SignTaskService:
                         max_retries = 3
                         for attempt in range(max_retries):
                             try:
+                                self._active_logs[task_key].append(
+                                    "开始执行全部目标会话..."
+                                )
                                 await signer.run_once(num_of_dialogs=20)
                                 break
                             except Exception as e:
@@ -1761,6 +1778,7 @@ class SignTaskService:
                                 raise
 
                     success = True
+                    self._active_logs[task_key].append("全部目标会话执行流程结束")
                     self._active_logs[task_key].append("任务执行完成")
 
                     # 增加缓冲时间，防止同账号连续执行任务时，Session文件锁尚未完全释放导致 "database is locked"
@@ -1786,6 +1804,7 @@ class SignTaskService:
             self._account_last_run_end[account_name] = time.time()
             self._active_tasks[task_key] = False
             tg_logger.removeHandler(log_handler)
+            tg_logger.setLevel(previous_logger_level)
 
             # 保存执行记录
             final_logs = list(self._active_logs.get(task_key, []))

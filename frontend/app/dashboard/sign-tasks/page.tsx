@@ -113,10 +113,11 @@ export default function SignTasksPage() {
         }
     };
 
-    const handleRun = async (taskName: string) => {
+    const handleRun = async (task: SignTask) => {
         if (!token) return;
 
-        const accountName = prompt(t("account_name_prompt"));
+        const taskName = task.name;
+        const accountName = task.account_name;
         if (!accountName) return;
 
         try {
@@ -326,12 +327,13 @@ export default function SignTasksPage() {
                                         </div>
                                         <div className="w-14 flex flex-col items-center gap-2 pt-[2px]">
                                             <button
-                                                onClick={() => handleRun(task.name)}
+                                                onClick={() => handleRun(task)}
                                                 disabled={loading}
-                                                className="action-btn !w-11 !h-11 !text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-20 disabled:cursor-not-allowed"
-                                                title={t("run")}
+                                                className="action-btn !w-11 !h-auto min-h-11 flex-col gap-1 !text-[10px] !font-bold !text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-20 disabled:cursor-not-allowed"
+                                                title={t("run_now")}
                                             >
                                                 <Play weight="fill" size={14} />
+                                                <span>{t("run_now")}</span>
                                             </button>
                                             <Link
                                                 href={`/dashboard/account-tasks/AccountTasksContent?name=${task.account_name}`}
@@ -416,12 +418,13 @@ export default function SignTasksPage() {
                                 <div className="mt-auto flex items-center justify-between bg-black/10 -mx-6 -mb-6 p-4 border-t border-white/5">
                                     <div className="flex items-center gap-2">
                                         <button
-                                            onClick={() => handleRun(task.name)}
+                                            onClick={() => handleRun(task)}
                                             disabled={loading}
-                                            className="action-btn !text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-20 disabled:cursor-not-allowed"
-                                            title={t("run")}
+                                            className="action-btn !w-auto gap-1.5 px-3 !text-sm !font-bold !text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-20 disabled:cursor-not-allowed"
+                                            title={t("run_now")}
                                         >
-                                            <Play weight="fill" />
+                                            <Play weight="fill" size={16} />
+                                            <span>{t("run_now")}</span>
                                         </button>
                                         <Link
                                             href={`/dashboard/account-tasks/AccountTasksContent?name=${task.account_name}`}

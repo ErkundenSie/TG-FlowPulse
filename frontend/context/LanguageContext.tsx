@@ -30,6 +30,7 @@ const translations: Translations = {
         "add_task": "新增任务",
         "edit": "编辑",
         "run": "运行",
+        "run_now": "立即执行",
         "delete": "删除",
         "confirm_delete": "确定要删除吗？",
         "save": "保存",
@@ -354,7 +355,15 @@ const translations: Translations = {
         "switch_to_english": "切换到英文",
         "switch_to_chinese": "切换到中文",
         "switch_to_light": "切换至日间模式",
-        "switch_to_dark": "切换至夜间模式"
+        "switch_to_dark": "切换至夜间模式",
+        "create_target_mode": "创建方式",
+        "create_mode_single_task": "一个任务多会话",
+        "create_mode_batch_tasks": "多个独立任务",
+        "selected_chats": "已选会话",
+        "clear_selected": "清空",
+        "no_selected_chats": "尚未选择会话",
+        "multi_select_hint": "列表和搜索结果支持多选；手动 Chat ID 保持单目标。",
+        "batch_create_done": "批量创建完成"
     },
     en: {
         "login": "Login",
@@ -375,6 +384,7 @@ const translations: Translations = {
         "add_task": "Add Task",
         "edit": "Edit",
         "run": "Run",
+        "run_now": "Run Now",
         "delete": "Delete",
         "confirm_delete": "Are you sure you want to delete?",
         "save": "Save",
@@ -694,7 +704,15 @@ const translations: Translations = {
         "switch_to_english": "Switch to English",
         "switch_to_chinese": "Switch to Chinese",
         "switch_to_light": "Switch to Light Mode",
-        "switch_to_dark": "Switch to Dark Mode"
+        "switch_to_dark": "Switch to Dark Mode",
+        "create_target_mode": "Create Mode",
+        "create_mode_single_task": "One Task, Many Chats",
+        "create_mode_batch_tasks": "Separate Tasks",
+        "selected_chats": "Selected Chats",
+        "clear_selected": "Clear",
+        "no_selected_chats": "No chats selected",
+        "multi_select_hint": "List and search results support multi-select; manual Chat ID stays single-target.",
+        "batch_create_done": "Batch create finished"
     }
 };
 

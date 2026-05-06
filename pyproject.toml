@@ -32,8 +32,8 @@ dependencies = [
     "python-jose[cryptography]",
     "python-multipart",
     "pyotp",
-    "passlib[bcrypt]",
-    "bcrypt",
+    "passlib[bcrypt]==1.7.4",
+    "bcrypt==4.0.1",
     "qrcode[pil]",
 ]
 
@@ -67,7 +67,14 @@ include-package-data = true
 version = { attr = "tg_signer.__version__" }
 
 [tool.setuptools.packages.find]
-exclude = ["tests*"]
+exclude = [
+    "tests*",
+    "frontend*",
+    "docker*",
+    "tools*",
+    "codex_oauth*",
+    "codex_oauth_userscript*",
+]
 
 [tool.ruff]
 line-length = 88
