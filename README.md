@@ -66,6 +66,51 @@ docker run -d \
   ghcr.io/akasls/tg-signpulse:latest
 ```
 
+### 部署自己修改后的代码
+
+上面的命令使用的是远程官方镜像 `ghcr.io/akasls/tg-signpulse:latest`，不会包含你本地修改过的代码。若要部署自己的修改版，推荐在服务器拉取代码后本地构建镜像：
+
+```bash
+git clone 你的仓库地址 TG-SignPulse
+cd TG-SignPulse
+```
+
+如果服务器上已经有代码，则进入项目目录后更新：
+
+```bash
+cd TG-SignPulse
+git pull
+```
+
+构建本地镜像：
+
+```bash
+docker build -t tg-signpulse:local .
+```
+
+启动本地镜像：
+
+```bash
+docker run -d \
+  --name tg-signpulse \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -v $(pwd)/data:/data \
+  -e TZ=Asia/Shanghai \
+  -e APP_SECRET_KEY=your_secret_key \
+  -e ADMIN_PASSWORD=your_admin_password \
+  tg-signpulse:local
+```
+
+如果之前已经启动过旧容器，先停止并删除旧容器：
+
+```bash
+docker stop tg-signpulse
+docker rm tg-signpulse
+```
+
+以后更新自己的代码后，重新执行 `git pull`、`docker build -t tg-signpulse:local .`，再重建容器即可。只要继续挂载同一个 `data` 目录，任务、账号和配置数据不会因为删除容器而丢失。
+
 如果你走反代（如 Nginx），可改成仅本机监听：
 
 ```bash
