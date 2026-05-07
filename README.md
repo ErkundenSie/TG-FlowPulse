@@ -34,14 +34,14 @@ TG-SignPulse 是一个 Telegram 自动化管理面板。你可以在网页里管
 
 ## 功能概览
 
-| 模块 | 能力 |
-| --- | --- |
-| 账号管理 | 多账号登录、代理配置、状态检测、重新登录 |
-| 任务编排 | 定时/随机时间段执行，支持会话搜索、多选目标、动作序列和动作间隔 |
-| 话题支持 | 群组 `Thread ID` 级别的发送与回复过滤 |
-| 关键词监听 | 命中关键词后可选择 Telegram机器人、转发、Bark 或自定义 URL |
-| 日志排查 | 实时运行日志、历史流程日志、最后执行结果与失败原因回看 |
-| 运维能力 | Docker 部署、持久化数据目录、健康检查、配置导入导出 |
+| 模块       | 能力                                                            |
+| ---------- | --------------------------------------------------------------- |
+| 账号管理   | 多账号登录、代理配置、状态检测、重新登录                        |
+| 任务编排   | 定时/随机时间段执行，支持会话搜索、多选目标、动作序列和动作间隔 |
+| 话题支持   | 群组 `Thread ID` 级别的发送与回复过滤                           |
+| 关键词监听 | 命中关键词后可选择 Telegram机器人、转发、Bark 或自定义 URL      |
+| 日志排查   | 实时运行日志、历史流程日志、最后执行结果与失败原因回看          |
+| 运维能力   | Docker 部署、持久化数据目录、健康检查、配置导入导出             |
 
 ## 小白 3 步部署（推荐）
 
@@ -50,6 +50,7 @@ TG-SignPulse 是一个 Telegram 自动化管理面板。你可以在网页里管
 3. 浏览器打开 `http://服务器IP:8080`，用默认账号登录
 
 默认凭据：
+
 - 账号：`admin`
 - 密码：`admin123`
 
@@ -111,6 +112,45 @@ docker rm tg-signpulse
 
 以后更新自己的代码后，重新执行 `git pull`、`docker build -t tg-signpulse:local .`，再重建容器即可。只要继续挂载同一个 `data` 目录，任务、账号和配置数据不会因为删除容器而丢失。
 
+### 更新本地构建部署
+
+如果你是按上面的 `tg-signpulse:local` 方式部署，更新流程如下：
+
+```bash
+cd /opt/TG-SignPulse
+git pull
+docker build -t tg-signpulse:local .
+docker stop tg-signpulse
+docker rm tg-signpulse
+docker run -d \
+  --name tg-signpulse \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  -v $(pwd)/data:/data \
+  -e TZ=Asia/Shanghai \
+  -e APP_SECRET_KEY=your_secret_key \
+  -e ADMIN_PASSWORD=your_admin_password \
+  tg-signpulse:local
+```
+
+如果你对外使用的不是 `8080`，例如宿主机端口是 `6857`，把端口行改成：
+
+```bash
+-p 6857:8080
+```
+
+更新完成后检查容器状态和日志：
+
+```bash
+docker ps
+docker logs -f tg-signpulse
+```
+
+说明：
+- `docker rm tg-signpulse` 只删除容器，不会删除 `$(pwd)/data` 里的持久化数据。
+- `APP_SECRET_KEY` 建议长期保持不变；随意更换可能导致已有登录态失效。
+- `ADMIN_PASSWORD` 主要影响首次创建 admin 用户；如果数据库中已经存在 admin，后续修改该环境变量不一定会覆盖已有密码。
+
 如果你走反代（如 Nginx），可改成仅本机监听：
 
 ```bash
@@ -168,6 +208,7 @@ touch /data/.probe && rm /data/.probe
 2. 环境变量：`APP_DATA_DIR=/your/path`
 
 说明：
+
 - 修改后建议重启后端服务生效
 - 该目录请务必可写，并挂载持久化卷
 
@@ -272,6 +313,7 @@ frontend/     Next.js 管理面板
 - **项目检查清理**：修复 Ruff 报告的简单规范问题，并将根目录调试脚本调整为可被 pytest 正常收集。
 
 ### 2026-03-20
+
 - **SQLite 死锁修复**：完善了 Pyrogram 客户端实例和底层的生命周期缓存，彻底修复了由于高并发请求和后台任务轮询导致的 `database is locked` 互斥死锁问题。如今并发的后台签到队列会平滑共用连接进行极速的写入，极大降低了硬盘 I/O 且杜绝了任务卡死。
 - **防止任务重复执行 UI 防护**：前端新增防连点与重叠保护。当用户点击“运行任务”时，若任务已在执行，系统不仅会弹出“该任务正在运行中”的柔性截断提示，并且能在全局面板无缝切换为您呈现该任务当前的实时拉取日志流。
 
@@ -283,6 +325,7 @@ frontend/     Next.js 管理面板
 - **代码规范排版**：执行了全面的 Linter 与 Ruff 的扫描，修复多处过期导入。
 
 ### 2026-03-12
+
 - 修复核心底层问题：修复因 Pyrogram 请求超时及 `FloodWait` 重试引发的并发锁饥饿、`Task exception` 未正确回收导致容器内存泄漏及网络高 I/O 问题。
 
 ### 2026-03-06
