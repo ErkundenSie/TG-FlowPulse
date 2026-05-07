@@ -67,6 +67,44 @@ const splitKeywordInput = (value: string, matchMode?: string) => {
 
 const getChatTitle = (chat: ChatInfo) => chat.title || chat.username || chat.first_name || String(chat.id);
 
+const formatLogLine = (line: string) => {
+    return String(line || "")
+        .replace(/[─━_=]{8,}/g, " ")
+        .replace(/\s*\|\s*/g, " · ")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+};
+
+const logToneClass = (line: string) => {
+    const text = line.toLowerCase();
+    if (text.includes("error") || text.includes("failed") || line.includes("失败") || line.includes("错误")) {
+        return "border-rose-500/15 bg-rose-500/[0.04] text-rose-950/80 dark:text-rose-100/80";
+    }
+    if (text.includes("success") || line.includes("成功") || line.includes("完成")) {
+        return "border-emerald-500/15 bg-emerald-500/[0.04] text-emerald-950/80 dark:text-emerald-100/80";
+    }
+    if (line.includes("目标") || line.includes("开始") || line.includes("执行")) {
+        return "border-[#8a3ffc]/15 bg-[#8a3ffc]/[0.045] text-main/85";
+    }
+    return "border-white/5 bg-white/[0.035] text-main/75";
+};
+
+const LogLine = memo(({ line, index }: { line: string; index: number }) => {
+    const formatted = formatLogLine(line);
+    return (
+        <div className={`grid grid-cols-[2.5rem_minmax(0,1fr)] gap-3 rounded-lg border px-3 py-2 ${logToneClass(formatted)}`}>
+            <span className="select-none text-right font-mono text-[10px] leading-5 text-main/25">
+                {(index + 1).toString().padStart(2, "0")}
+            </span>
+            <span className="min-w-0 whitespace-pre-wrap break-words text-[12px] leading-5">
+                {formatted || "-"}
+            </span>
+        </div>
+    );
+});
+
+LogLine.displayName = "LogLine";
+
 // Memoized Task Item Component
 const TaskItem = memo(({ task, loading, running, onEdit, onRun, onViewLogs, onCopy, onDelete, t, language }: {
     task: SignTask;
@@ -2350,7 +2388,7 @@ export default function AccountTasksContent() {
                                 <X weight="bold" />
                             </button>
                         </div>
-                        <div className="flex-1 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed bg-black/20">
+                        <div className="flex-1 overflow-y-auto p-4 bg-black/[0.035] custom-scrollbar">
                             {liveLogs.length === 0 ? (
                                 <div className="flex items-center gap-2 text-main/30 italic">
                                     {runningTaskNames.has(liveLogTaskName) ? (
@@ -2359,14 +2397,9 @@ export default function AccountTasksContent() {
                                     {t("logs_waiting")}
                                 </div>
                             ) : (
-                                <div className="space-y-1">
+                                <div className="space-y-2">
                                     {liveLogs.map((line, index) => (
-                                        <div key={`${index}-${line}`} className="text-main/80 flex gap-2">
-                                            <span className="text-main/20 select-none w-8 text-right">
-                                                {(index + 1).toString().padStart(2, "0")}
-                                            </span>
-                                            <span className="break-all">{line}</span>
-                                        </div>
+                                        <LogLine key={`${index}-${line}`} line={line} index={index} />
                                     ))}
                                 </div>
                             )}
@@ -2394,7 +2427,7 @@ export default function AccountTasksContent() {
                                 <X weight="bold" />
                             </button>
                         </div>
-                        <div className="flex-1 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed bg-black/20">
+                        <div className="flex-1 overflow-y-auto p-4 bg-black/[0.035] custom-scrollbar">
                             {historyLoading ? (
                                 <div className="flex items-center gap-2 text-main/30 italic">
                                     <Spinner className="animate-spin" size={12} />
@@ -2412,16 +2445,16 @@ export default function AccountTasksContent() {
                                             ? (log.flow_logs || []).slice(0, 1)
                                             : (log.flow_logs || []);
                                         return (
-                                        <div key={logKey} className="rounded-xl border border-white/5 bg-white/5 overflow-hidden">
-                                            <div className="flex justify-between items-center px-3 py-2 border-b border-white/5 text-[10px]">
-                                                <div className="flex items-center gap-2 min-w-0">
-                                                    <span className="text-main/30 truncate">
+                                        <div key={logKey} className="rounded-xl border border-white/5 bg-white/[0.045] overflow-hidden">
+                                            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2.5 border-b border-white/5 text-[10px]">
+                                                <div className="flex flex-wrap items-center gap-2 min-w-0">
+                                                    <span className="font-mono text-main/35 whitespace-nowrap">
                                                         {new Date(log.time).toLocaleString(language === "zh" ? "zh-CN" : "en-US")}
                                                     </span>
                                                     {hasMultiLineLogs && (
                                                         <button
                                                             type="button"
-                                                            className="text-[#8a3ffc] hover:text-[#b57dff] font-bold shrink-0"
+                                                            className="rounded-md bg-[#8a3ffc]/10 px-2 py-1 text-[#8a3ffc] hover:bg-[#8a3ffc]/15 hover:text-[#b57dff] font-bold shrink-0 transition-colors"
                                                             onClick={() => {
                                                                 setExpandedHistoryLogs((prev) => {
                                                                     const next = new Set(prev);
@@ -2438,11 +2471,11 @@ export default function AccountTasksContent() {
                                                         </button>
                                                     )}
                                                 </div>
-                                                <span className={log.success ? "text-emerald-400" : "text-rose-400"}>
+                                                <span className={`rounded-full px-2 py-1 font-bold shrink-0 ${log.success ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"}`}>
                                                     {log.success ? t("success") : t("failure")}
                                                 </span>
                                             </div>
-                                            <div className="p-3 space-y-1">
+                                            <div className="p-3 space-y-2">
                                                 <div className="text-main/90">
                                                     {`${t("task_label")}: ${historyTaskName} ${log.success ? t("task_exec_success") : t("task_exec_failed")}`}
                                                 </div>
@@ -2453,12 +2486,7 @@ export default function AccountTasksContent() {
                                                 ) : null}
                                                 {visibleFlowLogs.length > 0 ? (
                                                     visibleFlowLogs.map((line, lineIndex) => (
-                                                        <div key={lineIndex} className="text-main/80 flex gap-2">
-                                                            <span className="text-main/20 select-none w-6 text-right">
-                                                                {(lineIndex + 1).toString().padStart(2, "0")}
-                                                            </span>
-                                                            <span className="break-all">{line}</span>
-                                                        </div>
+                                                        <LogLine key={lineIndex} line={line} index={lineIndex} />
                                                     ))
                                                 ) : (
                                                     <div className="text-main/50">
