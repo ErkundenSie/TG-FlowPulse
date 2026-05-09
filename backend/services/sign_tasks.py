@@ -117,6 +117,7 @@ class SignTaskService:
         self._tasks_cache = None  # 内存缓存
         self._account_locks: Dict[str, asyncio.Lock] = {}  # 账号锁
         self._account_last_run_end: Dict[str, float] = {}  # 账号最后一次结束时间
+        self._chat_refresh_locks: Dict[str, asyncio.Lock] = {}
         self._account_cooldown_seconds = int(
             os.getenv("SIGN_TASK_ACCOUNT_COOLDOWN", "5")
         )
@@ -530,7 +531,7 @@ class SignTaskService:
                     pass
                 continue
 
-            # legacy 鏂囦欢鍙兘娌℃湁 account_name 锛屾槸鏃х増鍗曡处鍙峰湺鏅?
+            # Drop legacy entries that do not carry account_name.
             has_account_field = any(
                 isinstance(item, dict) and "account_name" in item for item in data_list
             )
@@ -1266,16 +1267,21 @@ class SignTaskService:
         获取账号的 Chat 列表 (带缓存)
         """
         cache_file = self.signs_dir / account_name / "chats_cache.json"
+        refresh_lock = self._chat_refresh_locks.get(account_name)
+        if refresh_lock is None:
+            refresh_lock = asyncio.Lock()
+            self._chat_refresh_locks[account_name] = refresh_lock
 
-        if not force_refresh and cache_file.exists():
-            try:
-                with open(cache_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                pass
+        async with refresh_lock:
+            if not force_refresh and cache_file.exists():
+                try:
+                    with open(cache_file, "r", encoding="utf-8") as f:
+                        return json.load(f)
+                except Exception:
+                    pass
 
-        # 如果没有缓存或强制刷新，执行刷新逻辑
-        return await self.refresh_account_chats(account_name)
+            # Refresh only when cache is missing or explicitly forced.
+            return await self.refresh_account_chats(account_name)
 
     def search_account_chats(
         self,

@@ -540,7 +540,13 @@ export default function Dashboard() {
       const fallback = formatErrorMessage("qr_login_failed", err);
       let message = errMsg || fallback;
       const lowerMsg = errMsg.toLowerCase();
-      if (errMsg.includes("瀵嗙爜閿欒") || errMsg.includes("涓ゆ楠岃瘉") || lowerMsg.includes("2fa")) {
+      if (
+        errMsg.includes("\u5bc6\u7801")
+        || errMsg.includes("\u4e24\u6b65\u9a8c\u8bc1")
+        || errMsg.includes("\u4e8c\u6b65\u9a8c\u8bc1")
+        || lowerMsg.includes("2fa")
+        || lowerMsg.includes("password")
+      ) {
         message = t("qr_password_invalid");
       }
       addToast(message, "error");

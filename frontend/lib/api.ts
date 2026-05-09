@@ -555,6 +555,42 @@ export const exportAccountLogs = async (token: string, accountName: string) => {
   window.URL.revokeObjectURL(url);
 };
 
+export interface SystemLogsResponse {
+  path: string;
+  lines: string[];
+  line_count: number;
+  file_size: number;
+  updated_at?: string | null;
+  exists: boolean;
+}
+
+export const getSystemLogs = (token: string, limit: number = 500) =>
+  request<SystemLogsResponse>(`/system-logs?limit=${limit}`, {}, token);
+
+export const clearSystemLogs = (token: string) =>
+  request<{ success: boolean; message: string }>("/system-logs", {
+    method: "DELETE",
+  }, token);
+
+export const exportSystemLogs = async (token: string) => {
+  const res = await fetch(`${API_BASE}/system-logs/export`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!res.ok) throw new Error("Export failed");
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "tg-signpulse-system.log";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+};
+
+
 // ============ 签到任务管理 ============
 
 export interface SignTaskChat {

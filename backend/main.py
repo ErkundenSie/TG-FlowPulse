@@ -41,6 +41,7 @@ from backend.scheduler import (  # noqa: E402
     sync_jobs,
 )
 from backend.services.users import ensure_admin  # noqa: E402
+from backend.utils.app_logging import setup_app_logging  # noqa: E402
 from backend.utils.paths import ensure_data_dirs  # noqa: E402
 
 
@@ -58,6 +59,7 @@ class HealthCheckFilter(logging.Filter):
 logging.getLogger("uvicorn.access").addFilter(HealthCheckFilter())
 
 settings = get_settings()
+setup_app_logging(settings.resolve_logs_dir())
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 app.state.ready = False

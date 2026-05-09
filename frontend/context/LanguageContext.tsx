@@ -370,6 +370,12 @@ const translations: Translations = {
         "switch_to_light": "切换至日间模式",
         "switch_to_dark": "切换至夜间模式",
         "create_target_mode": "创建方式",
+        "system_logs": "\u7cfb\u7edf\u65e5\u5fd7",
+        "system_logs_desc": "\u67e5\u770b\u670d\u52a1\u8fd0\u884c\u65e5\u5fd7\uff0c\u4e0d\u7528\u767b\u5f55\u670d\u52a1\u5668\u6267\u884c docker logs",
+        "system_logs_lines": "\u884c\u6570",
+        "system_logs_size": "\u5927\u5c0f",
+        "system_logs_clear_confirm": "\u786e\u5b9a\u8981\u6e05\u7a7a\u7cfb\u7edf\u65e5\u5fd7\u5417\uff1f",
+        "system_logs_cleared": "\u7cfb\u7edf\u65e5\u5fd7\u5df2\u6e05\u7a7a",
         "create_mode_single_task": "一个任务多会话",
         "create_mode_batch_tasks": "多个独立任务",
         "selected_chats": "已选会话",
@@ -738,7 +744,13 @@ const translations: Translations = {
         "clear_selected": "Clear",
         "no_selected_chats": "No chats selected",
         "multi_select_hint": "List and search results support multi-select; manual Chat ID stays single-target.",
-        "batch_create_done": "Batch create finished"
+        "batch_create_done": "Batch create finished",
+        "system_logs": "System Logs",
+        "system_logs_desc": "View service logs without SSH or docker logs",
+        "system_logs_lines": "Lines",
+        "system_logs_size": "Size",
+        "system_logs_clear_confirm": "Clear system logs?",
+        "system_logs_cleared": "System logs cleared"
     }
 };
 

@@ -26,6 +26,10 @@ import {
     saveTelegramConfig,
     resetTelegramConfig,
     TelegramConfig,
+    getSystemLogs,
+    clearSystemLogs,
+    exportSystemLogs,
+    SystemLogsResponse,
 } from "../../../lib/api";
 import {
     CaretLeft,
@@ -35,6 +39,7 @@ import {
     Gear,
     Cpu,
     DownloadSimple,
+    ArrowClockwise,
     SignOut,
     Spinner,
     ArrowUDownLeft,
@@ -63,7 +68,7 @@ const TIMEZONE_OPTIONS = [
     "Europe/London",
 ] as const;
 
-type SettingsSection = "account" | "global" | "notify" | "ai" | "telegram" | "backup";
+type SettingsSection = "account" | "global" | "notify" | "ai" | "telegram" | "logs" | "backup";
 
 export default function SettingsPage() {
     const router = useRouter();
@@ -75,15 +80,17 @@ export default function SettingsPage() {
     const [totpLoading, setTotpLoading] = useState(false);
     const [configLoading, setConfigLoading] = useState(false);
     const [telegramLoading, setTelegramLoading] = useState(false);
+    const [systemLogsLoading, setSystemLogsLoading] = useState(false);
+    const [systemLogs, setSystemLogs] = useState<SystemLogsResponse | null>(null);
     const [activeSection, setActiveSection] = useState<SettingsSection>("account");
 
-    // 鐢ㄦ埛鍚嶄慨鏀?
+    // Username change form
     const [usernameForm, setUsernameForm] = useState({
         newUsername: "",
         password: "",
     });
 
-    // 瀵嗙爜淇敼
+    // Password change form
     const [passwordForm, setPasswordForm] = useState({
         oldPassword: "",
         newPassword: "",
@@ -168,7 +175,7 @@ export default function SettingsPage() {
             setAIConfigState(config);
             if (config) {
                 setAIForm({
-                    api_key: "", // 涓嶅洖濉瘑閽?
+                    api_key: "", // Do not echo the saved secret
                     base_url: config.base_url || "",
                     model: config.model || "gpt-4o",
                 });
@@ -440,6 +447,49 @@ export default function SettingsPage() {
         }
     };
 
+    const loadSystemLogs = async () => {
+        if (!token) return;
+        try {
+            setSystemLogsLoading(true);
+            const data = await getSystemLogs(token, 800);
+            setSystemLogs(data);
+        } catch (err: any) {
+            addToast(formatErrorMessage("logs_fetch_failed", err), "error");
+        } finally {
+            setSystemLogsLoading(false);
+        }
+    };
+
+    const handleClearSystemLogs = async () => {
+        if (!token) return;
+        if (!confirm(t("system_logs_clear_confirm"))) return;
+        try {
+            setSystemLogsLoading(true);
+            await clearSystemLogs(token);
+            await loadSystemLogs();
+            addToast(t("system_logs_cleared"), "success");
+        } catch (err: any) {
+            addToast(formatErrorMessage("clear_logs_failed", err), "error");
+        } finally {
+            setSystemLogsLoading(false);
+        }
+    };
+
+    const handleExportSystemLogs = async () => {
+        if (!token) return;
+        try {
+            await exportSystemLogs(token);
+        } catch (err: any) {
+            addToast(formatErrorMessage("operation_failed", err), "error");
+        }
+    };
+
+    useEffect(() => {
+        if (activeSection === "logs" && token && !systemLogs && !systemLogsLoading) {
+            loadSystemLogs();
+        }
+    }, [activeSection, token, systemLogs, systemLogsLoading]);
+
     if (!token || checking) {
         return null;
     }
@@ -485,6 +535,13 @@ export default function SettingsPage() {
             description: t("settings_telegram_desc"),
             icon: Cpu,
             color: "text-sky-400 bg-sky-500/10",
+        },
+        {
+            id: "logs",
+            label: t("system_logs"),
+            description: t("system_logs_desc"),
+            icon: Terminal,
+            color: "text-slate-400 bg-slate-500/10",
         },
         {
             id: "backup",

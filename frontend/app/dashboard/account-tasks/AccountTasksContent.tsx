@@ -438,7 +438,7 @@ export default function AccountTasksContent() {
         return true;
     }, [router]);
 
-    // 闂傚倸鍊风粈渚€骞夐敍鍕殰婵°倕鍟伴惌娆撴煙鐎电啸缁惧彞绮欓弻鐔煎箚瑜滈崵鐔搞亜閳哄啫鍘撮柟顔肩秺瀹曞爼濡搁妷褏銈锋俊鐐€ら崑渚€宕愬┑瀣畺婵°倕鎳忛崑銊︾箾閸喎顕滈柡渚囧灦濮婄儤瀵煎▎鎴犳殺濠碘槅鍋勭€氫即濡?
+    // Create task dialog state
     const [showCreateDialog, setShowCreateDialog] = useState(false);
     const [newTask, setNewTask] = useState({
         name: "",
@@ -461,7 +461,7 @@ export default function AccountTasksContent() {
         notify_on_failure: true,
     });
 
-    // 缂傚倸鍊搁崐鎼佸磹閹间礁纾圭憸鐗堝笚閸嬪鏌ｉ幇顒備粵妞ゆ劘濮ら妵鍕箛閸撲焦鍋у銈傛櫇閸忔﹢骞冭ぐ鎺戠倞闁靛鍎崇粊宄邦渻閵堝骸浜栭柛濠冪箞楠炲啫螖閸涱喖浠哄┑鐐茬墛鐎笛囧极椤栫偞鈷戝ù鍏肩懅閻ｈ櫕淇婇銏狀伃闁?
+    // Edit task dialog state
     const [showEditDialog, setShowEditDialog] = useState(false);
     const [editingTaskName, setEditingTaskName] = useState("");
     const [editTask, setEditTask] = useState({
@@ -931,7 +931,7 @@ export default function AccountTasksContent() {
         try {
             setLoading(true);
             await deleteSignTask(token, taskName, accountName);
-            // addToast(language === "zh" ? `濠电姷鏁搁崑娑㈩敋椤撶喐鍙忓Δ锝呭枤閺佸鎲告惔銊ョ疄?${taskName} 闂備浇顕уù鐑藉箠閹捐绠熼梽鍥Φ閹版澘绀冩い鏃傚帶閻庮參鎮峰鍛暭閻㈩垱顨婇崺娑㈠籍閳ь剟濡?: `Task ${taskName} deleted`, "success"); // Removed toast as per user request to just refresh
+            // No toast here; refresh the list after deleting.
             await loadData(token);
         } catch (err: any) {
             // Only show error if it's NOT a 404 (already deleted/doesn't exist)
@@ -1613,7 +1613,7 @@ export default function AccountTasksContent() {
                 )}
             </main>
 
-            {/* 闂傚倸鍊风粈渚€骞夐敍鍕殰婵°倕鍟伴惌娆撴煙鐎电啸缁?缂傚倸鍊搁崐鎼佸磹閹间礁纾圭憸鐗堝笚閸嬪鏌ｉ幇顒備粵妞ゆ劘濮ら妵鍕箛閳轰讲鍋撻幇鏉跨；闁瑰墽绮崑銊︾箾閸喎顕滈柡渚囧灦濮婄儤瀵煎▎鎴犳殺濠碘槅鍋勭€氫即濡撮崨顔鹃檮缂佸鐏濋懓鍨攽閻愭潙鐏﹂悽顖涘笚缁傚秹鎮欓浣稿伎濠碘槅鍨板锟犲传濞差亝鐓涢柛鈩冾殘缁犲鏌″畝瀣М濠碘剝鎮傛俊鐑藉Ψ椤旇崵妫梻浣藉吹閸犳劕煤閺嶎灛娑樷攽閸♀晛娈ㄦ繝鐢靛У閼瑰墽绮绘繝姘厽闁瑰瓨姊瑰▍鍛瑰鍫㈢暫闁哄矉绻濆畷鐔碱敃閵堝浂鍞洪梺?*/}
+            {/* Create/Edit task dialog */}
             {(showCreateDialog || showEditDialog) && (
                 <div className="modal-overlay active">
                     <div className="glass-panel modal-content !max-w-xl flex flex-col" onClick={e => e.stopPropagation()}>

@@ -219,6 +219,35 @@ class TelegramService:
         from tg_signer.core import get_client
 
         checked_at = datetime.utcnow().isoformat() + "Z"
+        status_cache = get_account_status(account_name)
+        cached_checked_at = status_cache.get("checked_at")
+        cached_status = str(status_cache.get("status") or "")
+        cached_needs_relogin = bool(status_cache.get("needs_relogin"))
+        if cached_status == "invalid" and cached_needs_relogin:
+            return {
+                "account_name": account_name,
+                "ok": False,
+                "status": "invalid",
+                "message": status_cache.get("message") or "session 已失效",
+                "code": status_cache.get("code") or "ACCOUNT_SESSION_INVALID",
+                "checked_at": checked_at,
+                "needs_relogin": True,
+            }
+        if cached_status == "connected" and cached_checked_at:
+            try:
+                cached_ts = datetime.fromisoformat(str(cached_checked_at))
+                if (datetime.utcnow() - cached_ts).total_seconds() < 60:
+                    return {
+                        "account_name": account_name,
+                        "ok": True,
+                        "status": "connected",
+                        "message": "",
+                        "code": "OK",
+                        "checked_at": checked_at,
+                        "needs_relogin": False,
+                    }
+            except Exception:
+                pass
 
         if not self.account_exists(account_name):
             return {
@@ -298,9 +327,8 @@ class TelegramService:
             # Reuse shared clients and avoid context-manager disconnect on each refresh.
             lock = get_account_lock(account_name)
             async with lock:
-                if not getattr(client, "is_connected", False):
-                    await client.connect()
-                me = await asyncio.wait_for(client.get_me(), timeout=timeout_seconds)
+                async with client:
+                    me = await asyncio.wait_for(client.get_me(), timeout=timeout_seconds)
             set_account_status(
                 account_name,
                 status="connected",
