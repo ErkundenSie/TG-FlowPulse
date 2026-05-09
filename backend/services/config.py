@@ -619,14 +619,14 @@ class ConfigService:
 
         try:
             with open(config_file, "r", encoding="utf-8") as f:
-                settings = json.load(f)
-                if not isinstance(settings, dict):
+                saved_settings = json.load(f)
+                if not isinstance(saved_settings, dict):
                     return default_settings
                 # 合并默认设置
                 for key, value in default_settings.items():
-                    if key not in settings:
-                        settings[key] = value
-                return settings
+                    if key not in saved_settings:
+                        saved_settings[key] = value
+                return saved_settings
         except (json.JSONDecodeError, OSError):
             return default_settings
 
