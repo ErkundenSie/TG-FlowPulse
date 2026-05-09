@@ -575,6 +575,7 @@ export interface LastRunInfo {
 export interface SignTask {
   name: string;
   account_name: string;
+  group?: string;
   sign_at: string;
   chats: SignTaskChat[];
   random_seconds: number;
@@ -590,6 +591,7 @@ export interface SignTask {
 export interface CreateSignTaskRequest {
   name: string;
   account_name: string;
+  group?: string;
   sign_at: string;
   chats: SignTaskChat[];
   random_seconds?: number;
@@ -602,6 +604,7 @@ export interface CreateSignTaskRequest {
 }
 
 export interface UpdateSignTaskRequest {
+  group?: string;
   sign_at?: string;
   chats?: SignTaskChat[];
   random_seconds?: number;

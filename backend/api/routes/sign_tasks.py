@@ -95,6 +95,7 @@ class SignTaskCreate(BaseModel):
 
     name: str = Field(..., description="任务名称")
     account_name: str = Field(..., description="关联的账号名称")
+    group: str = Field("", description="任务分组")
     sign_at: str = Field(..., description="签到时间（CRON 表达式）")
     chats: List[ChatConfig] = Field(..., description="Chat 配置列表")
     random_seconds: int = Field(0, description="随机延迟秒数")
@@ -124,6 +125,7 @@ class SignTaskCreate(BaseModel):
 class SignTaskUpdate(BaseModel):
     """更新签到任务请求"""
 
+    group: Optional[str] = Field(None, description="任务分组")
     sign_at: Optional[str] = Field(None, description="签到时间（CRON 表达式）")
     chats: Optional[List[ChatConfig]] = Field(None, description="Chat 配置列表")
     random_seconds: Optional[int] = Field(None, description="随机延迟秒数")
@@ -150,6 +152,7 @@ class SignTaskOut(BaseModel):
 
     name: str
     account_name: str = ""
+    group: str = ""
     sign_at: str
     chats: List[Dict[str, Any]]
     random_seconds: int
@@ -235,6 +238,7 @@ async def create_sign_task(
         task = get_sign_task_service().create_task(
             task_name=payload.name,
             account_name=payload.account_name,
+            group=payload.group,
             sign_at=payload.sign_at,
             chats=chats_dict,
             random_seconds=payload.random_seconds,
@@ -293,6 +297,7 @@ async def update_sign_task(
 
         task = get_sign_task_service().update_task(
             task_name=task_name,
+            group=payload.group,
             sign_at=payload.sign_at,
             chats=chats_dict,
             random_seconds=payload.random_seconds,

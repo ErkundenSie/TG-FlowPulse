@@ -957,6 +957,7 @@ class SignTaskService:
             return {
                 "name": task_dir.name,
                 "account_name": resolved_account_name,
+                "group": config.get("group", ""),
                 "sign_at": config.get("sign_at", ""),
                 "random_seconds": config.get("random_seconds", 0),
                 "sign_interval": config.get("sign_interval", 1),
@@ -995,6 +996,7 @@ class SignTaskService:
             return {
                 "name": task_name,
                 "account_name": resolved_account_name,
+                "group": config.get("group", ""),
                 "sign_at": config.get("sign_at", ""),
                 "random_seconds": config.get("random_seconds", 0),
                 "sign_interval": config.get("sign_interval", 1),
@@ -1017,6 +1019,7 @@ class SignTaskService:
         random_seconds: int = 0,
         sign_interval: Optional[int] = None,
         account_name: str = "",
+        group: str = "",
         execution_mode: str = "fixed",
         range_start: str = "",
         range_end: str = "",
@@ -1051,6 +1054,7 @@ class SignTaskService:
         config = {
             "_version": 3,
             "account_name": account_name,
+            "group": group,
             "sign_at": sign_at,
             "random_seconds": random_seconds,
             "sign_interval": sign_interval,
@@ -1089,6 +1093,7 @@ class SignTaskService:
         return {
             "name": task_name,
             "account_name": account_name,
+            "group": group,
             "sign_at": sign_at,
             "random_seconds": random_seconds,
             "sign_interval": sign_interval,
@@ -1103,6 +1108,7 @@ class SignTaskService:
     def update_task(
         self,
         task_name: str,
+        group: Optional[str] = None,
         sign_at: Optional[str] = None,
         chats: Optional[List[Dict[str, Any]]] = None,
         random_seconds: Optional[int] = None,
@@ -1134,6 +1140,7 @@ class SignTaskService:
         config = {
             "_version": 3,
             "account_name": acc_name,
+            "group": group if group is not None else existing.get("group", ""),
             "sign_at": sign_at if sign_at is not None else existing["sign_at"],
             "random_seconds": random_seconds
             if random_seconds is not None
@@ -1198,6 +1205,7 @@ class SignTaskService:
         return {
             "name": task_name,
             "account_name": config["account_name"],
+            "group": config.get("group", ""),
             "sign_at": config["sign_at"],
             "random_seconds": config["random_seconds"],
             "sign_interval": config["sign_interval"],

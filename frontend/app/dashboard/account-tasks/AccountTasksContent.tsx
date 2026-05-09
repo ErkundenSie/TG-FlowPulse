@@ -25,6 +25,7 @@ import {
 } from "../../../lib/api";
 import {
     CaretLeft,
+    CaretDown,
     Plus,
     Play,
     PencilSimple,
@@ -49,6 +50,7 @@ import { useLanguage } from "../../../context/LanguageContext";
 
 type ActionTypeOption = "1" | "2" | "3" | "ai_vision" | "ai_logic" | "keyword_notify";
 type CreateTargetMode = "single_task" | "batch_tasks";
+type ScheduleMode = "fixed_time" | "range" | "cron";
 
 const DICE_OPTIONS = [
     "\uD83C\uDFB2",
@@ -95,6 +97,42 @@ const cleanTime24hInput = (value: string) => {
         return `${hour.slice(0, 2)}:${hour.slice(2, 4)}`;
     }
     return hour.slice(0, 2);
+};
+
+const cronFromFixedTime = (value: string) => normalizeTime24h(value, "06:00");
+
+const fixedTimeFromSchedule = (value: string) => {
+    const raw = String(value || "").trim();
+    if (TIME_24H_PATTERN.test(raw)) return raw;
+    const parts = raw.split(/\s+/);
+    if (parts.length === 5) {
+        const [minute, hour, day, month, dayOfWeek] = parts;
+        if (day === "*" && month === "*" && dayOfWeek === "*") {
+            const hourNum = Number(hour);
+            const minuteNum = Number(minute);
+            if (Number.isInteger(hourNum) && Number.isInteger(minuteNum) && hourNum >= 0 && hourNum <= 23 && minuteNum >= 0 && minuteNum <= 59) {
+                return `${String(hourNum).padStart(2, "0")}:${String(minuteNum).padStart(2, "0")}`;
+            }
+        }
+    }
+    const sixParts = raw.split(/\s+/);
+    if (sixParts.length === 6) {
+        const [second, minute, hour, day, month, dayOfWeek] = sixParts;
+        if (second === "0" && day === "*" && month === "*" && dayOfWeek === "*") {
+            const hourNum = Number(hour);
+            const minuteNum = Number(minute);
+            if (Number.isInteger(hourNum) && Number.isInteger(minuteNum) && hourNum >= 0 && hourNum <= 23 && minuteNum >= 0 && minuteNum <= 59) {
+                return `${String(hourNum).padStart(2, "0")}:${String(minuteNum).padStart(2, "0")}`;
+            }
+        }
+    }
+    return "06:00";
+};
+
+const scheduleModeFromTask = (task: SignTask): ScheduleMode => {
+    if (task.execution_mode === "range") return "range";
+    const raw = String(task.sign_at || "").trim();
+    return TIME_24H_PATTERN.test(raw) ? "fixed_time" : "cron";
 };
 
 const formatLogLine = (line: string) => {
@@ -177,6 +215,11 @@ const TaskItem = memo(({ task, loading, running, onEdit, onRun, onToggleEnabled,
                         <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${task.enabled === false ? "text-rose-400 bg-rose-500/10 border-rose-500/10" : "text-emerald-400 bg-emerald-500/10 border-emerald-500/10"}`}>
                             {task.enabled === false ? t("task_disabled") : t("task_enabled")}
                         </span>
+                        {task.group ? (
+                            <span className="text-[9px] font-bold text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded border border-sky-500/10 truncate max-w-[120px]" title={task.group}>
+                                {task.group}
+                            </span>
+                        ) : null}
                     </div>
                     <div className="flex items-center gap-3">
                         <div className="flex items-center gap-1.5 text-main/40">
@@ -366,6 +409,7 @@ export default function AccountTasksContent() {
     const [runningTaskNames, setRunningTaskNames] = useState<Set<string>>(new Set());
     const [liveLogTaskName, setLiveLogTaskName] = useState<string | null>(null);
     const [liveLogs, setLiveLogs] = useState<string[]>([]);
+    const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
 
     const addToastRef = useRef(addToast);
     const tRef = useRef(t);
@@ -398,7 +442,10 @@ export default function AccountTasksContent() {
     const [showCreateDialog, setShowCreateDialog] = useState(false);
     const [newTask, setNewTask] = useState({
         name: "",
+        group: "",
         sign_at: "0 6 * * *",
+        fixed_time: "06:00",
+        schedule_mode: "fixed_time" as ScheduleMode,
         random_minutes: 0,
         chat_id: 0,
         chat_id_manual: "",
@@ -407,7 +454,7 @@ export default function AccountTasksContent() {
         actions: [{ action: 1, text: "" }],
         delete_after: undefined as number | undefined,
         action_interval: 1,
-        execution_mode: "range" as "fixed" | "range",
+        execution_mode: "fixed" as "fixed" | "range",
         range_start: "09:00",
         range_end: "18:00",
         enabled: true,
@@ -418,7 +465,10 @@ export default function AccountTasksContent() {
     const [showEditDialog, setShowEditDialog] = useState(false);
     const [editingTaskName, setEditingTaskName] = useState("");
     const [editTask, setEditTask] = useState({
+        group: "",
         sign_at: "0 6 * * *",
+        fixed_time: "06:00",
+        schedule_mode: "cron" as ScheduleMode,
         random_minutes: 0,
         chat_id: 0,
         chat_id_manual: "",
@@ -495,6 +545,13 @@ export default function AccountTasksContent() {
     const taskEnabledUpdated = (enabled: boolean) =>
         enabled ? (isZh ? "\u4EFB\u52A1\u5DF2\u542F\u7528" : "Task enabled") : (isZh ? "\u4EFB\u52A1\u5DF2\u505C\u7528" : "Task disabled");
     const createTargetModeLabel = isZh ? "\u521B\u5EFA\u65B9\u5F0F" : "Create Mode";
+    const groupLabel = isZh ? "\u5206\u7EC4" : "Group";
+    const groupPlaceholder = isZh ? "\u4F8B\u5982\uFF1A\u5E7F\u544A / \u7B7E\u5230 / \u76D1\u542C" : "e.g. Ads / Check-in / Monitor";
+    const ungroupedLabel = isZh ? "\u672A\u5206\u7EC4" : "Ungrouped";
+    const scheduleFixedTimeLabel = isZh ? "\u56FA\u5B9A\u65F6\u95F4" : "Fixed Time";
+    const scheduleRangeLabel = isZh ? "\u968F\u673A\u65F6\u95F4\u6BB5" : "Random Range";
+    const scheduleCronLabel = isZh ? "Cron \u9AD8\u7EA7" : "Cron Advanced";
+    const fixedTimeLabel = isZh ? "\u6267\u884C\u65F6\u95F4" : "Run Time";
     const createModeSingleTaskLabel = isZh ? "\u4E00\u4E2A\u4EFB\u52A1\u591A\u4F1A\u8BDD" : "One Task, Many Chats";
     const createModeBatchTasksLabel = isZh ? "\u591A\u4E2A\u72EC\u7ACB\u4EFB\u52A1" : "Separate Tasks";
     const selectedChatsLabel = isZh ? "\u5DF2\u9009\u4F1A\u8BDD" : "Selected Chats";
@@ -520,7 +577,10 @@ export default function AccountTasksContent() {
     const resetCreateTaskForm = useCallback(() => {
         setNewTask({
             name: "",
+            group: "",
             sign_at: "0 6 * * *",
+            fixed_time: "06:00",
+            schedule_mode: "fixed_time",
             random_minutes: 0,
             chat_id: 0,
             chat_id_manual: "",
@@ -690,6 +750,29 @@ export default function AccountTasksContent() {
             setLoading(false);
         }
     }, [accountName, formatErrorMessage, handleAccountSessionInvalid]);
+
+    const groupedTasks = tasks.reduce<Array<{ name: string; tasks: SignTask[] }>>((groups, task) => {
+        const groupName = (task.group || "").trim() || ungroupedLabel;
+        const existing = groups.find((group) => group.name === groupName);
+        if (existing) {
+            existing.tasks.push(task);
+        } else {
+            groups.push({ name: groupName, tasks: [task] });
+        }
+        return groups;
+    }, []);
+
+    const toggleGroupCollapsed = useCallback((groupName: string) => {
+        setCollapsedGroups((prev) => {
+            const next = new Set(prev);
+            if (next.has(groupName)) {
+                next.delete(groupName);
+            } else {
+                next.add(groupName);
+            }
+            return next;
+        });
+    }, []);
 
     useEffect(() => {
         const tokenStr = getToken();
@@ -1123,14 +1206,23 @@ export default function AccountTasksContent() {
     const handleCreateTask = async () => {
         if (!token) return;
 
-        if (newTask.execution_mode === "fixed" && !newTask.sign_at) {
+        const nextExecutionMode: "fixed" | "range" = newTask.schedule_mode === "range" ? "range" : "fixed";
+        const nextSignAt = newTask.schedule_mode === "fixed_time"
+            ? cronFromFixedTime(newTask.fixed_time)
+            : newTask.sign_at.trim();
+
+        if (newTask.schedule_mode === "fixed_time" && !TIME_24H_PATTERN.test(nextSignAt)) {
+            addToast(t("cron_required"), "error");
+            return;
+        }
+        if (newTask.schedule_mode === "cron" && !nextSignAt) {
             addToast(t("cron_required"), "error");
             return;
         }
 
         const nextRangeStart = normalizeTime24h(newTask.range_start, "09:00");
         const nextRangeEnd = normalizeTime24h(newTask.range_end, "18:00");
-        if (newTask.execution_mode === "range" && (!TIME_24H_PATTERN.test(nextRangeStart) || !TIME_24H_PATTERN.test(nextRangeEnd))) {
+        if (newTask.schedule_mode === "range" && (!TIME_24H_PATTERN.test(nextRangeStart) || !TIME_24H_PATTERN.test(nextRangeEnd))) {
             addToast(t("range_required"), "error");
             return;
         }
@@ -1161,9 +1253,10 @@ export default function AccountTasksContent() {
             setLoading(true);
             const commonRequest = {
                 account_name: accountName,
-                sign_at: newTask.sign_at,
+                group: newTask.group.trim(),
+                sign_at: nextSignAt,
                 random_seconds: newTask.random_minutes * 60,
-                execution_mode: newTask.execution_mode,
+                execution_mode: nextExecutionMode,
                 range_start: nextRangeStart,
                 range_end: nextRangeEnd,
                 enabled: newTask.enabled,
@@ -1235,7 +1328,9 @@ export default function AccountTasksContent() {
         const chat = task.chats[0];
         const targetChats = task.chats || [];
         setEditTask({
+            group: task.group || "",
             sign_at: task.sign_at,
+            fixed_time: fixedTimeFromSchedule(task.sign_at),
             random_minutes: Math.round(task.random_seconds / 60),
             chat_id: chat?.chat_id || 0,
             chat_id_manual: chat?.chat_id?.toString() || "",
@@ -1244,6 +1339,7 @@ export default function AccountTasksContent() {
             actions: chat?.actions || [{ action: 1, text: "" }],
             delete_after: chat?.delete_after,
             action_interval: chat?.action_interval || 1,
+            schedule_mode: scheduleModeFromTask(task),
             execution_mode: task.execution_mode || "fixed",
             range_start: task.range_start || "09:00",
             range_end: task.range_end || "18:00",
@@ -1278,9 +1374,23 @@ export default function AccountTasksContent() {
             return;
         }
 
+        const nextExecutionMode: "fixed" | "range" = editTask.schedule_mode === "range" ? "range" : "fixed";
+        const nextSignAt = editTask.schedule_mode === "fixed_time"
+            ? cronFromFixedTime(editTask.fixed_time)
+            : editTask.sign_at.trim();
+
+        if (editTask.schedule_mode === "fixed_time" && !TIME_24H_PATTERN.test(nextSignAt)) {
+            addToast(t("cron_required"), "error");
+            return;
+        }
+        if (editTask.schedule_mode === "cron" && !nextSignAt) {
+            addToast(t("cron_required"), "error");
+            return;
+        }
+
         const nextRangeStart = normalizeTime24h(editTask.range_start, "09:00");
         const nextRangeEnd = normalizeTime24h(editTask.range_end, "18:00");
-        if (editTask.execution_mode === "range" && (!TIME_24H_PATTERN.test(nextRangeStart) || !TIME_24H_PATTERN.test(nextRangeEnd))) {
+        if (editTask.schedule_mode === "range" && (!TIME_24H_PATTERN.test(nextRangeStart) || !TIME_24H_PATTERN.test(nextRangeEnd))) {
             addToast(t("range_required"), "error");
             return;
         }
@@ -1298,10 +1408,11 @@ export default function AccountTasksContent() {
             setLoading(true);
 
             await updateSignTask(token, editingTaskName, {
-                sign_at: editTask.sign_at,
+                group: editTask.group.trim(),
+                sign_at: nextSignAt,
                 random_seconds: editTask.random_minutes * 60,
                 chats: updatedChats,
-                execution_mode: editTask.execution_mode,
+                execution_mode: nextExecutionMode,
                 range_start: nextRangeStart,
                 range_end: nextRangeEnd,
                 enabled: editTask.enabled,
@@ -1449,23 +1560,55 @@ export default function AccountTasksContent() {
                         <p className="text-sm text-[#9496a1]">{t("no_tasks_desc")}</p>
                     </div>
                 ) : (
-                    <div className="flex flex-col gap-3">
-                        {tasks.map((task) => (
-                            <TaskItem
-                                key={task.name}
-                                task={task}
-                                loading={loading}
-                                running={runningTaskNames.has(task.name)}
-                                onEdit={handleEditTask}
-                                onRun={handleRunTask}
-                                onToggleEnabled={handleToggleTaskEnabled}
-                                onViewLogs={handleShowTaskHistory}
-                                onCopy={handleCopyTask}
-                                onDelete={handleDeleteTask}
-                                t={t}
-                                language={language}
-                            />
-                        ))}
+                    <div className="flex flex-col gap-5">
+                        {groupedTasks.map((group) => {
+                            const collapsed = collapsedGroups.has(group.name);
+                            const enabledCount = group.tasks.filter((task) => task.enabled !== false).length;
+                            return (
+                                <section key={group.name} className="flex flex-col gap-3">
+                                    <button
+                                        type="button"
+                                        className="flex items-center justify-between gap-3 px-2 py-1 text-left"
+                                        onClick={() => toggleGroupCollapsed(group.name)}
+                                    >
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <CaretDown
+                                                weight="bold"
+                                                size={14}
+                                                className={`text-main/35 shrink-0 transition-transform ${collapsed ? "-rotate-90" : ""}`}
+                                            />
+                                            <span className="font-bold text-sm truncate">{group.name}</span>
+                                            <span className="rounded-full bg-[#8a3ffc]/10 px-2 py-0.5 text-[10px] font-bold text-[#8a3ffc]">
+                                                {group.tasks.length}
+                                            </span>
+                                        </div>
+                                        <span className="text-[10px] font-bold text-main/35">
+                                            {enabledCount}/{group.tasks.length} {taskEnabledLabel}
+                                        </span>
+                                    </button>
+                                    {!collapsed ? (
+                                        <div className="flex flex-col gap-3">
+                                            {group.tasks.map((task) => (
+                                                <TaskItem
+                                                    key={task.name}
+                                                    task={task}
+                                                    loading={loading}
+                                                    running={runningTaskNames.has(task.name)}
+                                                    onEdit={handleEditTask}
+                                                    onRun={handleRunTask}
+                                                    onToggleEnabled={handleToggleTaskEnabled}
+                                                    onViewLogs={handleShowTaskHistory}
+                                                    onCopy={handleCopyTask}
+                                                    onDelete={handleDeleteTask}
+                                                    t={t}
+                                                    language={language}
+                                                />
+                                            ))}
+                                        </div>
+                                    ) : null}
+                                </section>
+                            );
+                        })}
                     </div>
                 )}
             </main>
@@ -1544,20 +1687,16 @@ export default function AccountTasksContent() {
                                 )}
 
                                 <div className="space-y-2">
-                                    <label className={fieldLabelClass}>{t("scheduling_mode")}</label>
-                                    <select
-                                        className="w-full"
-                                        value={showCreateDialog ? newTask.execution_mode : editTask.execution_mode}
-                                        onChange={(e) => {
-                                            const mode = e.target.value as "fixed" | "range";
-                                            showCreateDialog
-                                                ? setNewTask({ ...newTask, execution_mode: mode })
-                                                : setEditTask({ ...editTask, execution_mode: mode });
-                                        }}
-                                    >
-                                        <option value="range">{t("random_range_recommend")}</option>
-                                        <option value="fixed">{t("fixed_time_cron")}</option>
-                                    </select>
+                                    <label className={fieldLabelClass}>{groupLabel}</label>
+                                    <input
+                                        className="!mb-0"
+                                        placeholder={groupPlaceholder}
+                                        value={showCreateDialog ? newTask.group : editTask.group}
+                                        onChange={(e) => showCreateDialog
+                                            ? setNewTask({ ...newTask, group: e.target.value })
+                                            : setEditTask({ ...editTask, group: e.target.value })
+                                        }
+                                    />
                                 </div>
 
                                 <div className="space-y-2">
@@ -1575,8 +1714,47 @@ export default function AccountTasksContent() {
                                     />
                                 </div>
 
-                                <div className="space-y-2">
-                                    {(showCreateDialog ? newTask.execution_mode : editTask.execution_mode) === "fixed" ? (
+                                <div className="space-y-2 md:col-span-2">
+                                    <label className={fieldLabelClass}>{t("scheduling_mode")}</label>
+                                    <div className="grid grid-cols-3 gap-2">
+                                        {([
+                                            ["fixed_time", scheduleFixedTimeLabel],
+                                            ["range", scheduleRangeLabel],
+                                            ["cron", scheduleCronLabel],
+                                        ] as Array<[ScheduleMode, string]>).map(([mode, label]) => {
+                                            const active = (showCreateDialog ? newTask.schedule_mode : editTask.schedule_mode) === mode;
+                                            return (
+                                                <button
+                                                    key={mode}
+                                                    type="button"
+                                                    className={`h-10 rounded-lg border text-xs font-bold transition-colors ${active ? "border-[#8a3ffc]/50 bg-[#8a3ffc]/15 text-[#b57dff]" : "border-white/5 bg-black/5 text-main/50 hover:text-main/80"}`}
+                                                    onClick={() => showCreateDialog
+                                                        ? setNewTask({ ...newTask, schedule_mode: mode, execution_mode: mode === "range" ? "range" : "fixed" })
+                                                        : setEditTask({ ...editTask, schedule_mode: mode, execution_mode: mode === "range" ? "range" : "fixed" })
+                                                    }
+                                                >
+                                                    {label}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+
+                                <div className="space-y-2 md:col-span-2">
+                                    {(showCreateDialog ? newTask.schedule_mode : editTask.schedule_mode) === "fixed_time" ? (
+                                        <>
+                                            <label className={fieldLabelClass}>{fixedTimeLabel}</label>
+                                            <input
+                                                type="time"
+                                                className="!mb-0"
+                                                value={showCreateDialog ? newTask.fixed_time : editTask.fixed_time}
+                                                onChange={(e) => showCreateDialog
+                                                    ? setNewTask({ ...newTask, fixed_time: e.target.value })
+                                                    : setEditTask({ ...editTask, fixed_time: e.target.value })
+                                                }
+                                            />
+                                        </>
+                                    ) : (showCreateDialog ? newTask.schedule_mode : editTask.schedule_mode) === "cron" ? (
                                         <>
                                             <label className={fieldLabelClass}>{t("sign_time_cron")}</label>
                                             <input
