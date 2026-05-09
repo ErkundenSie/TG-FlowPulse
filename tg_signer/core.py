@@ -235,13 +235,12 @@ class Client(BaseClient):
                             # Prevent interactive login attempt
                             raise ConnectionError(f"Session invalid: {e}")
 
-                        try:
-                            await self.start()
-                        except ConnectionError as e:
-                            if "already connected" not in str(e).lower():
-                                raise e
+                        # connect() has already opened the Pyrogram storage. Calling
+                        # start() here can enter Pyrogram's connect path a second time
+                        # and leave file-based sessions locked under queued tasks.
+                        # get_me() above verifies the session is usable.
 
-                        # Enable WAL mode after start
+                        # Enable WAL mode after connect
                         if hasattr(self, "storage") and hasattr(self.storage, "conn"):
                             try:
                                 self.storage.conn.execute("PRAGMA journal_mode=WAL")

@@ -210,6 +210,23 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
         # 获取任务配置，检查是否为随机时间段模式
         sign_task_service = get_sign_task_service()
         task_config = sign_task_service.get_task(task_name, account_name)
+        if task_config:
+            try:
+                random_seconds = max(0, int(task_config.get("random_seconds") or 0))
+            except (TypeError, ValueError):
+                random_seconds = 0
+
+            if random_seconds > 0 and task_config.get("execution_mode") != "range":
+                delay_seconds = random.uniform(0, random_seconds)
+                logger.info(
+                    "Scheduler: task %s/%s random jitter %.1fs of %ss before run",
+                    account_name,
+                    task_name,
+                    delay_seconds,
+                    random_seconds,
+                )
+                await asyncio.sleep(delay_seconds)
+
         if task_config and task_config.get("execution_mode") == "range":
             range_start_str = task_config.get("range_start")
             range_end_str = task_config.get("range_end")

@@ -844,6 +844,14 @@ class SignTaskService:
             )
             return message
 
+        if os.getenv("SIGN_TASK_PRECHECK_ACCOUNT", "").strip().lower() not in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }:
+            return None
+
         try:
             from backend.services.telegram import get_telegram_service
 
