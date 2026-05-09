@@ -214,6 +214,36 @@ services:
 docker compose up -d --build
 ```
 
+后续更新本地构建版时，推荐按下面流程执行：
+
+```bash
+cd /opt/TG-SignPulse
+
+# 拉取最新代码
+git pull
+
+# 确认 .env 仍然存在，尤其是 APP_SECRET_KEY、ADMIN_PASSWORD、HOST_PORT 不要误删
+cat .env
+
+# 重新构建镜像并替换容器
+docker compose up -d --build
+
+# 查看容器状态和日志
+docker compose ps
+docker compose logs -f
+```
+
+通常不需要先执行 `docker compose down`。`docker compose up -d --build` 会用新镜像替换旧容器，只要继续保留 `./data:/data` 挂载目录，账号、任务、数据库和日志都不会丢。
+
+如果确实想先停止并重建容器，可以执行：
+
+```bash
+docker compose down
+docker compose up -d --build
+```
+
+不要执行 `docker compose down -v`，也不要删除 `data` 目录，否则可能会删除持久化数据。
+
 如果提示 `Bind for 0.0.0.0:8080 failed: port is already allocated`，说明宿主机的 `8080` 已被占用。可以二选一处理：
 
 ```bash
