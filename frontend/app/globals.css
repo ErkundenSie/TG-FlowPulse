@@ -610,8 +610,9 @@ select option {
 }
 
 #settings-view .settings-shell {
-  max-width: 1180px;
+  max-width: 1328px;
   margin: 0 auto;
+  align-items: start;
 }
 
 #settings-view .settings-sidebar,
@@ -627,6 +628,13 @@ select option {
 
 #settings-view .settings-sidebar {
   padding: 8px;
+  align-self: start;
+  margin-top: 0;
+  min-height: auto;
+}
+
+#settings-view .settings-content {
+  align-self: start;
 }
 
 #settings-view .settings-nav-item {
@@ -771,6 +779,7 @@ select option {
   #settings-view .settings-sidebar {
     position: static;
     overflow-x: auto;
+    width: 100%;
   }
 
   #settings-view .settings-sidebar>div {

@@ -535,7 +535,7 @@ export default function SettingsPage() {
 
             <main className="main-content !pt-6">
                 <div className="settings-shell grid grid-cols-1 lg:grid-cols-[248px_minmax(0,1fr)] gap-4 animate-float-up pb-10">
-                    <aside className="settings-sidebar h-fit lg:sticky lg:top-24">
+                    <aside className="settings-sidebar h-fit lg:sticky lg:top-6 lg:self-start">
                         <div className="space-y-1">
                             {settingsSections.map((section) => {
                                 const SectionIcon = section.icon;
@@ -565,7 +565,7 @@ export default function SettingsPage() {
                         </div>
                     </aside>
 
-                    <section className="min-w-0 space-y-4">
+                    <section className="settings-content min-w-0 space-y-4">
                         <div className="settings-section-header flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                             <div className="flex items-center gap-3 min-w-0">
                                 <div className={`settings-icon flex items-center justify-center shrink-0 ${activeSectionMeta.color}`}>
