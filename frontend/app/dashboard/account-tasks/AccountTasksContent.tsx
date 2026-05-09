@@ -552,6 +552,9 @@ export default function AccountTasksContent() {
     const scheduleRangeLabel = isZh ? "\u968F\u673A\u65F6\u95F4\u6BB5" : "Random Range";
     const scheduleCronLabel = isZh ? "Cron \u9AD8\u7EA7" : "Cron Advanced";
     const fixedTimeLabel = isZh ? "\u6267\u884C\u65F6\u95F4" : "Run Time";
+    const scheduleJitterLabel = isZh ? "\u968F\u673A\u9519\u5CF0" : "Random Jitter";
+    const scheduleJitterHint = isZh ? "\u540C\u4E00\u65F6\u95F4\u7684\u4EFB\u52A1\u4F1A\u5728\u8FD9\u4E2A\u7A97\u53E3\u5185\u968F\u673A\u5EF6\u8FDF\u6267\u884C" : "Tasks scheduled at the same time run after a random delay within this window";
+    const minutesLabel = isZh ? "\u5206\u949F" : "min";
     const createModeSingleTaskLabel = isZh ? "\u4E00\u4E2A\u4EFB\u52A1\u591A\u4F1A\u8BDD" : "One Task, Many Chats";
     const createModeBatchTasksLabel = isZh ? "\u591A\u4E2A\u72EC\u7ACB\u4EFB\u52A1" : "Separate Tasks";
     const selectedChatsLabel = isZh ? "\u5DF2\u9009\u4F1A\u8BDD" : "Selected Chats";
@@ -1828,6 +1831,30 @@ export default function AccountTasksContent() {
                                          </>
                                      )}
                                 </div>
+
+                                {(showCreateDialog ? newTask.schedule_mode : editTask.schedule_mode) !== "range" && (
+                                    <div className="space-y-2 md:col-span-2">
+                                        <label className={fieldLabelClass}>{scheduleJitterLabel}</label>
+                                        <div className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.035] px-3 py-2.5 text-main/45 min-w-0">
+                                            <input
+                                                type="number"
+                                                min={0}
+                                                max={1440}
+                                                step={1}
+                                                className="!mb-0 !h-7 !border-0 !bg-transparent !p-0 !font-mono !text-sm !shadow-none focus:!shadow-none"
+                                                value={showCreateDialog ? newTask.random_minutes : editTask.random_minutes}
+                                                onChange={(e) => {
+                                                    const next = Math.max(0, Math.min(1440, parseInt(e.target.value || "0", 10) || 0));
+                                                    showCreateDialog
+                                                        ? setNewTask({ ...newTask, random_minutes: next })
+                                                        : setEditTask({ ...editTask, random_minutes: next });
+                                                }}
+                                            />
+                                            <span className="shrink-0 text-xs font-bold text-main/45">{minutesLabel}</span>
+                                        </div>
+                                        <div className="text-[10px] text-main/30 italic">{scheduleJitterHint}</div>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="glass-panel !bg-black/5 p-4 space-y-4 border-white/5">

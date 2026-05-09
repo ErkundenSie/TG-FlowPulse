@@ -54,8 +54,16 @@ def setup_app_logging(logs_dir: Path) -> Path:
     handler.setFormatter(formatter)
     handler.setLevel(logging.INFO)
 
+    root_logger = logging.getLogger()
+    if root_logger.getEffectiveLevel() > logging.INFO:
+        root_logger.setLevel(logging.INFO)
+
     for logger_name in ("", "backend", "tg-signer", "uvicorn", "uvicorn.error", "uvicorn.access"):
         logger = logging.getLogger(logger_name)
+        if logger_name and logger.getEffectiveLevel() > logging.INFO:
+            logger.setLevel(logging.INFO)
+        if logger_name and logger.propagate:
+            continue
         if not any(
             isinstance(existing, RotatingFileHandler)
             and Path(getattr(existing, "baseFilename", "")) == log_file
@@ -64,6 +72,5 @@ def setup_app_logging(logs_dir: Path) -> Path:
             logger.addHandler(handler)
 
     sys.stdout = TeeStream(sys.stdout, log_file)  # type: ignore[assignment]
-    sys.stderr = TeeStream(sys.stderr, log_file)  # type: ignore[assignment]
     _SETUP_DONE = True
     return log_file

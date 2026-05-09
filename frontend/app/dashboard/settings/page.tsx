@@ -82,6 +82,7 @@ export default function SettingsPage() {
     const [telegramLoading, setTelegramLoading] = useState(false);
     const [systemLogsLoading, setSystemLogsLoading] = useState(false);
     const [systemLogs, setSystemLogs] = useState<SystemLogsResponse | null>(null);
+    const [systemLogLimit, setSystemLogLimit] = useState(800);
     const [activeSection, setActiveSection] = useState<SettingsSection>("account");
 
     // Username change form
@@ -146,6 +147,25 @@ export default function SettingsPage() {
         const base = t(key);
         const code = err?.code;
         return code ? `${base} (${code})` : base;
+    };
+
+    const formatBytes = (size: number) => {
+        if (!Number.isFinite(size) || size <= 0) return "0 B";
+        const units = ["B", "KB", "MB", "GB"];
+        let value = size;
+        let index = 0;
+        while (value >= 1024 && index < units.length - 1) {
+            value /= 1024;
+            index += 1;
+        }
+        return `${value >= 10 || index === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`;
+    };
+
+    const formatDateTime = (value?: string | null) => {
+        if (!value) return "-";
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return value;
+        return date.toLocaleString();
     };
 
     useEffect(() => {
@@ -451,7 +471,7 @@ export default function SettingsPage() {
         if (!token) return;
         try {
             setSystemLogsLoading(true);
-            const data = await getSystemLogs(token, 800);
+            const data = await getSystemLogs(token, systemLogLimit);
             setSystemLogs(data);
         } catch (err: any) {
             addToast(formatErrorMessage("logs_fetch_failed", err), "error");
@@ -466,7 +486,8 @@ export default function SettingsPage() {
         try {
             setSystemLogsLoading(true);
             await clearSystemLogs(token);
-            await loadSystemLogs();
+            const data = await getSystemLogs(token, systemLogLimit);
+            setSystemLogs(data);
             addToast(t("system_logs_cleared"), "success");
         } catch (err: any) {
             addToast(formatErrorMessage("clear_logs_failed", err), "error");
@@ -479,6 +500,7 @@ export default function SettingsPage() {
         if (!token) return;
         try {
             await exportSystemLogs(token);
+            addToast(t("export_success"), "success");
         } catch (err: any) {
             addToast(formatErrorMessage("operation_failed", err), "error");
         }
@@ -488,7 +510,7 @@ export default function SettingsPage() {
         if (activeSection === "logs" && token && !systemLogs && !systemLogsLoading) {
             loadSystemLogs();
         }
-    }, [activeSection, token, systemLogs, systemLogsLoading]);
+    }, [activeSection, token, systemLogs, systemLogsLoading, systemLogLimit]);
 
     if (!token || checking) {
         return null;
@@ -1003,6 +1025,92 @@ export default function SettingsPage() {
                                         <span className="font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">{t("warning_notice")}</span>
                                     </div>
                                     {t("tg_config_warning")}
+                                </div>
+                            </div>
+                        )}
+
+                        {activeSection === "logs" && (
+                            <div className="settings-panel">
+                                <div className="settings-panel-header">
+                                    <div className="settings-panel-title">
+                                        <div className="p-2 bg-slate-500/10 rounded-xl text-slate-400">
+                                            <Terminal weight="bold" size={18} />
+                                        </div>
+                                        <div>
+                                            <h3 className="text-base font-bold">{t("system_logs")}</h3>
+                                            <p className="text-[10px] text-main/40 mt-0.5">{systemLogs?.path || "/data/logs/app.log"}</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2 flex-wrap justify-end">
+                                        <select
+                                            className="!min-h-9 !h-9 !w-auto !px-3 !py-1 !text-xs"
+                                            value={systemLogLimit}
+                                            onChange={(e) => {
+                                                setSystemLogLimit(parseInt(e.target.value, 10));
+                                                setSystemLogs(null);
+                                            }}
+                                        >
+                                            {[200, 500, 800, 1500, 3000, 5000].map((limit) => (
+                                                <option key={limit} value={limit}>{limit}</option>
+                                            ))}
+                                        </select>
+                                        <button onClick={loadSystemLogs} className="action-btn !w-9 !h-9" title={t("refresh_list")} disabled={systemLogsLoading}>
+                                            {systemLogsLoading ? <Spinner className="animate-spin" size={15} /> : <ArrowClockwise weight="bold" size={15} />}
+                                        </button>
+                                        <button onClick={handleExportSystemLogs} className="action-btn !w-9 !h-9" title={t("export_logs")}>
+                                            <DownloadSimple weight="bold" size={15} />
+                                        </button>
+                                        <button onClick={handleClearSystemLogs} className="action-btn !w-9 !h-9 !text-rose-400" title={t("clear_logs")} disabled={systemLogsLoading}>
+                                            <Trash weight="bold" size={15} />
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                                    <div className="settings-callout">
+                                        <div className="text-[10px] uppercase tracking-wider text-main/35 font-bold">{t("system_logs_lines")}</div>
+                                        <div className="mt-1 text-lg font-bold text-main">{systemLogs?.line_count ?? 0}</div>
+                                    </div>
+                                    <div className="settings-callout">
+                                        <div className="text-[10px] uppercase tracking-wider text-main/35 font-bold">{t("system_logs_size")}</div>
+                                        <div className="mt-1 text-lg font-bold text-main">{formatBytes(systemLogs?.file_size ?? 0)}</div>
+                                    </div>
+                                    <div className="settings-callout">
+                                        <div className="text-[10px] uppercase tracking-wider text-main/35 font-bold">{t("last_updated")}</div>
+                                        <div className="mt-1 text-sm font-bold text-main truncate">{formatDateTime(systemLogs?.updated_at)}</div>
+                                    </div>
+                                </div>
+
+                                <div className="rounded-xl border border-white/10 dark:border-white/10 bg-[#0f172a] text-slate-100 overflow-hidden">
+                                    <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-2 bg-white/[0.04]">
+                                        <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                            {systemLogs?.exists ? `${systemLogs.lines.length} / ${systemLogs.line_count}` : "app.log"}
+                                        </div>
+                                        <div className="text-[10px] text-slate-500">{systemLogsLoading ? t("loading") : t("logs")}</div>
+                                    </div>
+                                    <div className="h-[520px] overflow-auto custom-scrollbar p-4 font-mono text-[11px] leading-relaxed">
+                                        {systemLogsLoading && !systemLogs ? (
+                                            <div className="h-full flex items-center justify-center text-slate-500">
+                                                <Spinner className="animate-spin mr-2" size={16} />
+                                                {t("loading")}
+                                            </div>
+                                        ) : systemLogs && systemLogs.lines.length > 0 ? (
+                                            <div className="space-y-1">
+                                                {systemLogs.lines.map((line, index) => (
+                                                    <div key={`${index}-${line.slice(0, 24)}`} className="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-3 hover:bg-white/[0.035] rounded px-2 py-0.5">
+                                                        <span className="select-none text-right text-slate-600">{index + 1}</span>
+                                                        <span className="whitespace-pre-wrap break-words">{line}</span>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="h-full flex flex-col items-center justify-center text-slate-500">
+                                                <Terminal weight="bold" size={24} className="mb-2 opacity-60" />
+                                                <div className="text-sm font-bold">{t("no_logs")}</div>
+                                                <div className="text-[11px] mt-1 opacity-70">/data/logs/app.log</div>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         )}
