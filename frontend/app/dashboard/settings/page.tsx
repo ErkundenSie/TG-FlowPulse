@@ -50,6 +50,18 @@ import { ThemeLanguageToggle } from "../../../components/ThemeLanguageToggle";
 import { useLanguage } from "../../../context/LanguageContext";
 import { TelegramBotNotificationSettings } from "./TelegramBotNotificationSettings";
 
+const TIMEZONE_OPTIONS = [
+    "Asia/Shanghai",
+    "Asia/Hong_Kong",
+    "Asia/Taipei",
+    "Asia/Tokyo",
+    "Asia/Singapore",
+    "UTC",
+    "America/Los_Angeles",
+    "America/New_York",
+    "Europe/London",
+] as const;
+
 export default function SettingsPage() {
     const router = useRouter();
     const { t } = useLanguage();
@@ -99,6 +111,7 @@ export default function SettingsPage() {
     const [globalSettings, setGlobalSettings] = useState<GlobalSettings>({
         sign_interval: null,
         log_retention_days: 7,
+        timezone: "Asia/Shanghai",
         data_dir: null,
         global_proxy: null,
         telegram_bot_notify_enabled: false,
@@ -723,6 +736,21 @@ export default function SettingsPage() {
                                     value={globalSettings.log_retention_days}
                                     onChange={(e) => setGlobalSettings({ ...globalSettings, log_retention_days: parseInt(e.target.value) || 0 })}
                                 />
+                            </div>
+                            <div className="md:col-span-2">
+                                <label className="text-[11px] mb-1">{t("timezone")}</label>
+                                <select
+                                    className="!py-2 !px-4"
+                                    value={globalSettings.timezone || "Asia/Shanghai"}
+                                    onChange={(e) => setGlobalSettings({ ...globalSettings, timezone: e.target.value })}
+                                >
+                                    {TIMEZONE_OPTIONS.map((timezone) => (
+                                        <option key={timezone} value={timezone}>
+                                            {timezone}
+                                        </option>
+                                    ))}
+                                </select>
+                                <p className="mt-1 text-[9px] text-[#9496a1]">{t("timezone_desc")}</p>
                             </div>
                             <div className="md:col-span-2">
                                 <label className="text-[11px] mb-1">{t("data_dir")}</label>

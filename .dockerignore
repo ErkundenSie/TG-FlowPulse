@@ -53,10 +53,14 @@ docs/
 
 # Tests
 tests/
+test_*.py
 .pytest_cache/
 .tox/
 .coverage
 htmlcov/
+bandit_report*.json
+ruff_errors.txt
+git_show_*.txt
 
 # Frontend development files
 frontend/node_modules/

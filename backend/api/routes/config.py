@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 
 from backend.core.auth import get_current_user
+from backend.scheduler import get_scheduler_timezone
 from backend.models.user import User
 from backend.services.config import get_config_service
 from backend.utils.storage import is_writable_dir
@@ -363,6 +364,7 @@ def delete_ai_config(current_user: User = Depends(get_current_user)):
 class GlobalSettingsRequest(BaseModel):
     sign_interval: Optional[int] = None
     log_retention_days: int = 7
+    timezone: Optional[str] = None
     data_dir: Optional[str] = None
     global_proxy: Optional[str] = None
     telegram_bot_notify_enabled: bool = False
@@ -376,6 +378,7 @@ class GlobalSettingsRequest(BaseModel):
 class GlobalSettingsResponse(BaseModel):
     sign_interval: Optional[int] = None
     log_retention_days: int = 7
+    timezone: str
     data_dir: Optional[str] = None
     global_proxy: Optional[str] = None
     telegram_bot_notify_enabled: bool = False
@@ -406,6 +409,7 @@ async def save_global_settings(
         settings = {
             "sign_interval": request.sign_interval,
             "log_retention_days": request.log_retention_days,
+            "timezone": request.timezone,
             "global_proxy": request.global_proxy,
             "telegram_bot_notify_enabled": request.telegram_bot_notify_enabled,
             "telegram_bot_login_notify_enabled": request.telegram_bot_login_notify_enabled,
@@ -418,7 +422,12 @@ async def save_global_settings(
         if "data_dir" in fields_set:
             settings["data_dir"] = request.data_dir
 
+        previous_timezone = get_scheduler_timezone()
         get_config_service().save_global_settings(settings)
+        if request.timezone and request.timezone != previous_timezone:
+            from backend.scheduler import reload_scheduler
+
+            await reload_scheduler()
         return AIConfigSaveResponse(success=True, message="Global settings saved")
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))

@@ -43,6 +43,9 @@ nosetests.xml
 coverage.xml
 *,cover
 .hypothesis/
+bandit_report*.json
+ruff_errors.txt
+git_show_*.txt
 
 # Translations
 *.mo

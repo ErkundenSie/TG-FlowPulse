@@ -467,6 +467,7 @@ export const deleteAIConfig = (token: string) =>
 export interface GlobalSettings {
   sign_interval?: number | null;  // null 表示随机 1-120 秒
   log_retention_days?: number;    // 日志保留天数，默认 7
+  timezone?: string;
   data_dir?: string | null;
   global_proxy?: string | null;
   telegram_bot_notify_enabled?: boolean;
@@ -596,6 +597,7 @@ export interface CreateSignTaskRequest {
   execution_mode?: "fixed" | "range";
   range_start?: string;
   range_end?: string;
+  enabled?: boolean;
   notify_on_failure?: boolean;
 }
 
@@ -607,6 +609,7 @@ export interface UpdateSignTaskRequest {
   execution_mode?: "fixed" | "range";
   range_start?: string;
   range_end?: string;
+  enabled?: boolean;
   notify_on_failure?: boolean;
 }
 

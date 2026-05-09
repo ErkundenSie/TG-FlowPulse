@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from backend.core.config import get_settings
 from backend.utils.storage import (
@@ -18,6 +19,15 @@ from backend.utils.storage import (
 )
 
 settings = get_settings()
+
+
+def validate_timezone(timezone: Optional[str]) -> str:
+    candidate = (timezone or settings.timezone).strip()
+    try:
+        ZoneInfo(candidate)
+    except ZoneInfoNotFoundError:
+        raise ValueError(f"Invalid timezone: {candidate}")
+    return candidate
 
 
 class ConfigService:
@@ -593,6 +603,7 @@ class ConfigService:
         default_settings = {
             "sign_interval": None,  # None 表示使用随机 1-120 秒
             "log_retention_days": 7,
+            "timezone": settings.timezone,
             "data_dir": str(override_data_dir) if override_data_dir else None,
             "global_proxy": None,
             "telegram_bot_notify_enabled": False,
@@ -632,6 +643,7 @@ class ConfigService:
         config_file = self._get_global_settings_file()
         merged = dict(self.get_global_settings())
         merged.update(settings)
+        merged["timezone"] = validate_timezone(merged.get("timezone"))
 
         data_dir_value = merged.get("data_dir")
         if isinstance(data_dir_value, str):

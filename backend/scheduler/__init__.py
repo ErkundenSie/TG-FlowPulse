@@ -11,6 +11,19 @@ from backend.services.tasks import run_task_once
 scheduler: AsyncIOScheduler | None = None
 
 
+def get_scheduler_timezone() -> str:
+    from backend.core.config import get_settings
+
+    settings = get_settings()
+    try:
+        from backend.services.config import get_config_service, validate_timezone
+
+        global_settings = get_config_service().get_global_settings()
+        return validate_timezone(global_settings.get("timezone") or settings.timezone)
+    except Exception:
+        return settings.timezone
+
+
 def create_cron_trigger(cron_str: str) -> CronTrigger:
     """自动解析格式并创建 CronTrigger，支持 5位和6位 cron 表达式以及 HH:MM 或 HH:MM:SS"""
     if ":" in cron_str:
@@ -57,6 +70,7 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
     import logging
     import random
     from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
 
     from backend.services.sign_tasks import get_sign_task_service
 
@@ -79,7 +93,7 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
                     end_time = datetime.strptime(range_end_str, fmt).time()
 
                     # 转换为当前日期的 datetime
-                    now = datetime.now()
+                    now = datetime.now(ZoneInfo(get_scheduler_timezone()))
                     start_dt = now.replace(
                         hour=start_time.hour,
                         minute=start_time.minute,
@@ -231,11 +245,8 @@ async def sync_jobs() -> None:
 async def init_scheduler(sync_on_startup: bool = True) -> AsyncIOScheduler:
     global scheduler
     if scheduler is None:
-        from backend.core.config import get_settings
-
-        settings = get_settings()
         scheduler = AsyncIOScheduler(
-            timezone=settings.timezone,
+            timezone=get_scheduler_timezone(),
             job_defaults={
                 "misfire_grace_time": 3600,  # 允许任务延迟 1 小时执行
                 "coalesce": True,  # 合并积压的执行
@@ -262,6 +273,11 @@ def shutdown_scheduler() -> None:
     if scheduler:
         scheduler.shutdown(wait=False)
         scheduler = None
+
+
+async def reload_scheduler() -> None:
+    shutdown_scheduler()
+    await init_scheduler(sync_on_startup=True)
 
 
 def add_or_update_sign_task_job(

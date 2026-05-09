@@ -35,6 +35,7 @@ import {
     CheckCircle,
     XCircle,
     Hourglass,
+    Power,
     ArrowClockwise,
     ListDashes,
     X,
@@ -59,6 +60,7 @@ const DICE_OPTIONS = [
 ] as const;
 
 const KEYWORD_VARIABLES = ["{keyword}", "{message}", "{sender}", "{chat_title}", "{url}"] as const;
+const CHAT_LIST_PREVIEW_LIMIT = 80;
 
 const splitKeywordInput = (value: string, matchMode?: string) => {
     const splitter = matchMode === "regex" ? /\n/ : /\n|,/;
@@ -66,6 +68,34 @@ const splitKeywordInput = (value: string, matchMode?: string) => {
 };
 
 const getChatTitle = (chat: ChatInfo) => chat.title || chat.username || chat.first_name || String(chat.id);
+
+const TIME_24H_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+const normalizeTime24h = (value: string, fallback: string) => {
+    const raw = String(value || "").trim();
+    if (TIME_24H_PATTERN.test(raw)) return raw;
+
+    const compactMatch = raw.match(/^(\d{1,2})[:：]?(\d{1,2})$/);
+    if (!compactMatch) return fallback;
+
+    const hour = Number(compactMatch[1]);
+    const minute = Number(compactMatch[2]);
+    if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return fallback;
+
+    return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+};
+
+const cleanTime24hInput = (value: string) => {
+    const cleaned = value.replace(/[^\d:：]/g, "").replace("：", ":");
+    const [hour = "", minute = ""] = cleaned.split(":");
+    if (cleaned.includes(":")) {
+        return `${hour.slice(0, 2)}:${minute.slice(0, 2)}`;
+    }
+    if (hour.length > 2) {
+        return `${hour.slice(0, 2)}:${hour.slice(2, 4)}`;
+    }
+    return hour.slice(0, 2);
+};
 
 const formatLogLine = (line: string) => {
     return String(line || "")
@@ -106,12 +136,13 @@ const LogLine = memo(({ line, index }: { line: string; index: number }) => {
 LogLine.displayName = "LogLine";
 
 // Memoized Task Item Component
-const TaskItem = memo(({ task, loading, running, onEdit, onRun, onViewLogs, onCopy, onDelete, t, language }: {
+const TaskItem = memo(({ task, loading, running, onEdit, onRun, onToggleEnabled, onViewLogs, onCopy, onDelete, t, language }: {
     task: SignTask;
     loading: boolean;
     running: boolean;
     onEdit: (task: SignTask) => void;
     onRun: (task: SignTask) => void;
+    onToggleEnabled: (task: SignTask) => void;
     onViewLogs: (task: SignTask) => void;
     onCopy: (name: string) => void;
     onDelete: (name: string) => void;
@@ -121,7 +152,7 @@ const TaskItem = memo(({ task, loading, running, onEdit, onRun, onViewLogs, onCo
     const copyTaskTitle = language === "zh" ? "\u590D\u5236\u4EFB\u52A1" : "Copy Task";
 
     return (
-        <div className={`glass-panel p-4 md:p-5 group hover:border-[#8a3ffc]/30 transition-all ${running ? "border-emerald-500/40 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]" : ""}`}>
+        <div className={`glass-panel p-4 md:p-5 group hover:border-[#8a3ffc]/30 transition-all ${running ? "border-emerald-500/40 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]" : ""} ${task.enabled === false ? "opacity-70" : ""}`}>
             <div className="flex items-start gap-4 min-w-0">
                 <div className="w-10 h-10 rounded-xl bg-[#8a3ffc]/10 flex items-center justify-center text-[#b57dff] shrink-0">
                     <ChatCircleText weight="bold" size={20} />
@@ -143,6 +174,9 @@ const TaskItem = memo(({ task, loading, running, onEdit, onRun, onViewLogs, onCo
                                 +{task.chats.length - 1}
                             </span>
                         )}
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${task.enabled === false ? "text-rose-400 bg-rose-500/10 border-rose-500/10" : "text-emerald-400 bg-emerald-500/10 border-emerald-500/10"}`}>
+                            {task.enabled === false ? t("task_disabled") : t("task_enabled")}
+                        </span>
                     </div>
                     <div className="flex items-center gap-3">
                         <div className="flex items-center gap-1.5 text-main/40">
@@ -180,7 +214,7 @@ const TaskItem = memo(({ task, loading, running, onEdit, onRun, onViewLogs, onCo
                 )}
             </div>
 
-            <div className="mt-3 grid grid-cols-4 gap-2 md:hidden">
+            <div className="mt-3 grid grid-cols-6 gap-2 md:hidden">
                 <button
                     onClick={() => onRun(task)}
                     disabled={loading || running}
@@ -188,6 +222,14 @@ const TaskItem = memo(({ task, loading, running, onEdit, onRun, onViewLogs, onCo
                     title={t("run_now")}
                 >
                     {running ? <Spinner className="animate-spin" size={14} /> : <Play weight="fill" size={14} />}
+                </button>
+                <button
+                    onClick={() => onToggleEnabled(task)}
+                    disabled={loading || running}
+                    className={`action-btn !w-full !h-10 disabled:opacity-40 disabled:cursor-not-allowed ${task.enabled === false ? "!text-rose-400 hover:bg-rose-500/10" : "!text-emerald-400 hover:bg-emerald-500/10"}`}
+                    title={task.enabled === false ? t("enable_task") : t("disable_task")}
+                >
+                    <Power weight={task.enabled === false ? "regular" : "fill"} size={14} />
                 </button>
                 <button
                     onClick={() => onEdit(task)}
@@ -250,6 +292,14 @@ const TaskItem = memo(({ task, loading, running, onEdit, onRun, onViewLogs, onCo
                         {running ? <Spinner className="animate-spin" size={14} /> : <Play weight="fill" size={14} />}
                     </button>
                     <button
+                        onClick={() => onToggleEnabled(task)}
+                        disabled={loading || running}
+                        className={`action-btn !w-8 !h-8 disabled:opacity-40 disabled:cursor-not-allowed ${task.enabled === false ? "!text-rose-400 hover:bg-rose-500/10" : "!text-emerald-400 hover:bg-emerald-500/10"}`}
+                        title={task.enabled === false ? t("enable_task") : t("disable_task")}
+                    >
+                        <Power weight={task.enabled === false ? "regular" : "fill"} size={14} />
+                    </button>
+                    <button
                         onClick={() => onEdit(task)}
                         disabled={loading}
                         className="action-btn !w-8 !h-8"
@@ -303,6 +353,8 @@ export default function AccountTasksContent() {
     const [chatSearch, setChatSearch] = useState("");
     const [chatSearchResults, setChatSearchResults] = useState<ChatInfo[]>([]);
     const [chatSearchLoading, setChatSearchLoading] = useState(false);
+    const [chatsLoaded, setChatsLoaded] = useState(false);
+    const [chatsLoading, setChatsLoading] = useState(false);
     const [selectedCreateChats, setSelectedCreateChats] = useState<ChatInfo[]>([]);
     const [createTargetMode, setCreateTargetMode] = useState<CreateTargetMode>("single_task");
     const [loading, setLoading] = useState(false);
@@ -358,6 +410,7 @@ export default function AccountTasksContent() {
         execution_mode: "range" as "fixed" | "range",
         range_start: "09:00",
         range_end: "18:00",
+        enabled: true,
         notify_on_failure: true,
     });
 
@@ -377,6 +430,7 @@ export default function AccountTasksContent() {
         execution_mode: "fixed" as "fixed" | "range",
         range_start: "09:00",
         range_end: "18:00",
+        enabled: true,
         notify_on_failure: true,
         target_chats: [] as SignTaskChat[],
     });
@@ -437,6 +491,9 @@ export default function AccountTasksContent() {
     const copyTaskFallbackManual = isZh ? "\u81EA\u52A8\u590D\u5236\u5931\u8D25\uFF0C\u8BF7\u5728\u5F39\u7A97\u5185\u624B\u52A8\u590D\u5236" : "Auto copy failed, please copy manually from dialog";
     const copyAllTasksTitle = t("export_all_tasks");
     const taskFailureNotifyLabel = isZh ? "\u5931\u8D25\u901A\u77E5" : "Failure Notify";
+    const taskEnabledLabel = isZh ? "\u542F\u7528" : "Enabled";
+    const taskEnabledUpdated = (enabled: boolean) =>
+        enabled ? (isZh ? "\u4EFB\u52A1\u5DF2\u542F\u7528" : "Task enabled") : (isZh ? "\u4EFB\u52A1\u5DF2\u505C\u7528" : "Task disabled");
     const createTargetModeLabel = isZh ? "\u521B\u5EFA\u65B9\u5F0F" : "Create Mode";
     const createModeSingleTaskLabel = isZh ? "\u4E00\u4E2A\u4EFB\u52A1\u591A\u4F1A\u8BDD" : "One Task, Many Chats";
     const createModeBatchTasksLabel = isZh ? "\u591A\u4E2A\u72EC\u7ACB\u4EFB\u52A1" : "Separate Tasks";
@@ -445,6 +502,8 @@ export default function AccountTasksContent() {
     const multiSelectHint = isZh ? "\u5217\u8868\u548C\u641C\u7D22\u7ED3\u679C\u652F\u6301\u591A\u9009\uFF1B\u624B\u52A8 Chat ID \u4FDD\u6301\u5355\u76EE\u6807\u3002" : "List and search results support multi-select; manual Chat ID stays single-target.";
     const noSelectedChatsLabel = isZh ? "\u5C1A\u672A\u9009\u62E9\u4F1A\u8BDD" : "No chats selected";
     const manualChatDisabledHint = isZh ? "\u591A\u9009\u65F6\u4F7F\u7528\u4E0A\u65B9\u5DF2\u9009\u4F1A\u8BDD\uFF1B\u5982\u9700\u624B\u52A8 ID\uFF0C\u8BF7\u5148\u6E05\u7A7A\u5DF2\u9009\u4F1A\u8BDD\u3002" : "Multi-select uses the selected chats above. Clear them first to enter a manual ID.";
+    const chatListPreviewHint = (visible: number, total: number) =>
+        isZh ? `仅显示前 ${visible} / ${total} 个，会话较多时请使用搜索` : `Showing first ${visible} / ${total}; use search for large lists`;
     const batchCreateSummary = (success: number, failed: number) =>
         isZh ? `\u6279\u91CF\u521B\u5EFA\u5B8C\u6210\uFF1A\u6210\u529F ${success} \u4E2A\uFF0C\u5931\u8D25 ${failed} \u4E2A` : `Batch create finished: ${success} succeeded, ${failed} failed`;
 
@@ -473,6 +532,7 @@ export default function AccountTasksContent() {
             execution_mode: "fixed",
             range_start: "09:00",
             range_end: "18:00",
+            enabled: true,
             notify_on_failure: true,
         });
         setSelectedCreateChats([]);
@@ -620,16 +680,6 @@ export default function AccountTasksContent() {
             setLoading(true);
             const tasksData = await listSignTasks(tokenStr, accountName);
             setTasks(tasksData);
-            try {
-                const chatsData = await getAccountChats(tokenStr, accountName);
-                setChats(chatsData);
-            } catch (err: any) {
-                if (handleAccountSessionInvalid(err)) return;
-                const toast = addToastRef.current;
-                if (toast) {
-                    toast(formatErrorMessage("load_failed", err), "error");
-                }
-            }
         } catch (err: any) {
             if (handleAccountSessionInvalid(err)) return;
             const toast = addToastRef.current;
@@ -724,34 +774,40 @@ export default function AccountTasksContent() {
         };
     }, [token, accountName, liveLogTaskName]);
 
-    const handleRefreshChats = async () => {
+    const loadChats = useCallback(async (forceRefresh = false) => {
         if (!token || !accountName) return;
         try {
-            setRefreshingChats(true);
-            const chatsData = await getAccountChats(token, accountName, true);
+            if (forceRefresh) {
+                setRefreshingChats(true);
+            } else {
+                setChatsLoading(true);
+            }
+            const chatsData = await getAccountChats(token, accountName, forceRefresh);
             setChats(chatsData);
-            addToast(t("chats_refreshed"), "success");
+            setChatsLoaded(true);
+            if (forceRefresh) {
+                addToast(t("chats_refreshed"), "success");
+            }
         } catch (err: any) {
             if (handleAccountSessionInvalid(err)) return;
             addToast(formatErrorMessage("refresh_failed", err), "error");
         } finally {
             setRefreshingChats(false);
+            setChatsLoading(false);
         }
+    }, [accountName, addToast, formatErrorMessage, handleAccountSessionInvalid, t, token]);
+
+    useEffect(() => {
+        if (!token || !accountName || (!showCreateDialog && !showEditDialog) || chatsLoaded || chatsLoading) return;
+        loadChats(false);
+    }, [accountName, chatsLoaded, chatsLoading, loadChats, showCreateDialog, showEditDialog, token]);
+
+    const handleRefreshChats = async () => {
+        await loadChats(true);
     };
 
     const refreshChats = async () => {
-        if (!token) return;
-        try {
-            setLoading(true);
-            const chatsData = await getAccountChats(token, accountName);
-            setChats(chatsData);
-            addToast(t("chats_refreshed"), "success");
-        } catch (err: any) {
-            if (handleAccountSessionInvalid(err)) return;
-            addToast(formatErrorMessage("refresh_failed", err), "error");
-        } finally {
-            setLoading(false);
-        }
+        await loadChats(true);
     };
 
     const applyChatSelection = (chatId: number, chatName: string) => {
@@ -849,6 +905,25 @@ export default function AccountTasksContent() {
                 return next;
             });
             await loadData(token);
+        }
+    };
+
+    const handleToggleTaskEnabled = async (task: SignTask) => {
+        if (!token) return;
+        const nextEnabled = task.enabled === false;
+
+        try {
+            setLoading(true);
+            await updateSignTask(token, task.name, { enabled: nextEnabled }, accountName);
+            setTasks((prev) => prev.map((item) => (
+                item.name === task.name ? { ...item, enabled: nextEnabled } : item
+            )));
+            addToast(taskEnabledUpdated(nextEnabled), "success");
+            await loadData(token);
+        } catch (err: any) {
+            addToast(formatErrorMessage("update_failed", err), "error");
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -1048,8 +1123,15 @@ export default function AccountTasksContent() {
     const handleCreateTask = async () => {
         if (!token) return;
 
-        if (!newTask.sign_at) {
+        if (newTask.execution_mode === "fixed" && !newTask.sign_at) {
             addToast(t("cron_required"), "error");
+            return;
+        }
+
+        const nextRangeStart = normalizeTime24h(newTask.range_start, "09:00");
+        const nextRangeEnd = normalizeTime24h(newTask.range_end, "18:00");
+        if (newTask.execution_mode === "range" && (!TIME_24H_PATTERN.test(nextRangeStart) || !TIME_24H_PATTERN.test(nextRangeEnd))) {
+            addToast(t("range_required"), "error");
             return;
         }
 
@@ -1082,8 +1164,9 @@ export default function AccountTasksContent() {
                 sign_at: newTask.sign_at,
                 random_seconds: newTask.random_minutes * 60,
                 execution_mode: newTask.execution_mode,
-                range_start: newTask.range_start,
-                range_end: newTask.range_end,
+                range_start: nextRangeStart,
+                range_end: nextRangeEnd,
+                enabled: newTask.enabled,
                 notify_on_failure: newTask.notify_on_failure,
             };
 
@@ -1164,6 +1247,7 @@ export default function AccountTasksContent() {
             execution_mode: task.execution_mode || "fixed",
             range_start: task.range_start || "09:00",
             range_end: task.range_end || "18:00",
+            enabled: task.enabled !== false,
             notify_on_failure: task.notify_on_failure !== false,
             target_chats: targetChats,
         });
@@ -1194,6 +1278,13 @@ export default function AccountTasksContent() {
             return;
         }
 
+        const nextRangeStart = normalizeTime24h(editTask.range_start, "09:00");
+        const nextRangeEnd = normalizeTime24h(editTask.range_end, "18:00");
+        if (editTask.execution_mode === "range" && (!TIME_24H_PATTERN.test(nextRangeStart) || !TIME_24H_PATTERN.test(nextRangeEnd))) {
+            addToast(t("range_required"), "error");
+            return;
+        }
+
         const updatedChats = editTargets.map((chat) => ({
             ...chat,
             name: chat.name || t("chat_default_name").replace("{id}", String(chat.chat_id)),
@@ -1211,8 +1302,9 @@ export default function AccountTasksContent() {
                 random_seconds: editTask.random_minutes * 60,
                 chats: updatedChats,
                 execution_mode: editTask.execution_mode,
-                range_start: editTask.range_start,
-                range_end: editTask.range_end,
+                range_start: nextRangeStart,
+                range_end: nextRangeEnd,
+                enabled: editTask.enabled,
                 notify_on_failure: editTask.notify_on_failure,
             }, accountName);
 
@@ -1301,6 +1393,8 @@ export default function AccountTasksContent() {
         });
     }, [updateKeywordContinueAction]);
 
+    const visibleChats = chats.slice(0, CHAT_LIST_PREVIEW_LIMIT);
+
     if (!token || checking) {
         return null;
     }
@@ -1317,14 +1411,6 @@ export default function AccountTasksContent() {
                     </div>
                 </div>
                 <div className="top-right-actions">
-                    <button
-                        onClick={refreshChats}
-                        disabled={loading}
-                        className="action-btn"
-                        title={t("refresh_chats")}
-                    >
-                        <ArrowClockwise weight="bold" className={loading ? 'animate-spin' : ''} />
-                    </button>
                     <button
                         onClick={handleCopyAllTasks}
                         disabled={loading}
@@ -1372,6 +1458,7 @@ export default function AccountTasksContent() {
                                 running={runningTaskNames.has(task.name)}
                                 onEdit={handleEditTask}
                                 onRun={handleRunTask}
+                                onToggleEnabled={handleToggleTaskEnabled}
                                 onViewLogs={handleShowTaskHistory}
                                 onCopy={handleCopyTask}
                                 onDelete={handleDeleteTask}
@@ -1387,13 +1474,26 @@ export default function AccountTasksContent() {
             {(showCreateDialog || showEditDialog) && (
                 <div className="modal-overlay active">
                     <div className="glass-panel modal-content !max-w-xl flex flex-col" onClick={e => e.stopPropagation()}>
-                        <header className="modal-header border-b border-white/5 pb-3 mb-2">
-                            <div className="modal-title flex items-center gap-2 !text-base min-w-0">
+                        <header className="modal-header border-b border-white/5 pb-3 mb-2 !items-start gap-3">
+                            <div className="modal-title flex flex-wrap items-center gap-2 !text-base min-w-0 flex-1">
                                 <div className="p-2 bg-[#8a3ffc]/10 rounded-lg text-[#b57dff]">
                                     <Lightning weight="fill" size={20} />
                                 </div>
-                                <span className="truncate">{showCreateDialog ? t("create_task") : `${t("edit_task")}: ${editingTaskName}`}</span>
-                                <label className="ml-2 inline-flex items-center gap-1.5 text-[10px] text-main/50 font-medium whitespace-nowrap">
+                                <span className="min-w-[160px] max-w-full flex-1 truncate">{showCreateDialog ? t("create_task") : `${t("edit_task")}: ${editingTaskName}`}</span>
+                                <label className="inline-flex h-7 items-center gap-1.5 rounded-full border border-white/5 bg-white/[0.035] px-2.5 text-[10px] text-main/60 font-medium whitespace-nowrap">
+                                    <input
+                                        type="checkbox"
+                                        className="!mb-0 h-3.5 w-3.5 accent-emerald-500"
+                                        checked={showCreateDialog ? newTask.enabled : editTask.enabled}
+                                        onChange={(e) => {
+                                            showCreateDialog
+                                                ? setNewTask({ ...newTask, enabled: e.target.checked })
+                                                : setEditTask({ ...editTask, enabled: e.target.checked });
+                                        }}
+                                    />
+                                    {taskEnabledLabel}
+                                </label>
+                                <label className="inline-flex h-7 items-center gap-1.5 rounded-full border border-white/5 bg-white/[0.035] px-2.5 text-[10px] text-main/60 font-medium whitespace-nowrap">
                                     <input
                                         type="checkbox"
                                         className="!mb-0 h-3.5 w-3.5 accent-[#8a3ffc]"
@@ -1492,35 +1592,63 @@ export default function AccountTasksContent() {
                                                 {t("cron_example")}
                                             </div>
                                         </>
-                                    ) : (
-                                        <>
-                                            <label className={fieldLabelClass}>{t("time_range")}</label>
-                                            <div className="grid grid-cols-2 gap-2">
-                                                <input
-                                                    type="time"
-                                                    className="!mb-0"
-                                                    aria-label={t("start_label")}
-                                                    title={t("start_label")}
-                                                    value={showCreateDialog ? newTask.range_start : editTask.range_start}
-                                                    onChange={(e) => showCreateDialog
-                                                        ? setNewTask({ ...newTask, range_start: e.target.value })
-                                                        : setEditTask({ ...editTask, range_start: e.target.value })
-                                                    }
-                                                />
-                                                <input
-                                                    type="time"
-                                                    className="!mb-0"
-                                                    aria-label={t("end_label")}
-                                                    title={t("end_label")}
-                                                    value={showCreateDialog ? newTask.range_end : editTask.range_end}
-                                                    onChange={(e) => showCreateDialog
-                                                        ? setNewTask({ ...newTask, range_end: e.target.value })
-                                                        : setEditTask({ ...editTask, range_end: e.target.value })
-                                                    }
-                                                />
-                                            </div>
-                                        </>
-                                    )}
+                                     ) : (
+                                         <>
+                                             <label className={fieldLabelClass}>{t("time_range")}</label>
+                                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                                 <label className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.035] px-3 py-2.5 text-main/45 min-w-0">
+                                                     <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider">{t("start_label")}</span>
+                                                     <input
+                                                         type="text"
+                                                         inputMode="numeric"
+                                                         pattern="[0-2][0-9]:[0-5][0-9]"
+                                                         placeholder="09:00"
+                                                         className="!mb-0 !h-7 !border-0 !bg-transparent !p-0 !text-right !font-mono !text-sm !shadow-none focus:!shadow-none"
+                                                         aria-label={t("start_label")}
+                                                         title={t("start_label")}
+                                                         value={showCreateDialog ? newTask.range_start : editTask.range_start}
+                                                         onBlur={(e) => {
+                                                             const next = normalizeTime24h(e.target.value, showCreateDialog ? newTask.range_start : editTask.range_start);
+                                                             showCreateDialog
+                                                                 ? setNewTask({ ...newTask, range_start: next })
+                                                                 : setEditTask({ ...editTask, range_start: next });
+                                                         }}
+                                                         onChange={(e) => {
+                                                             const next = cleanTime24hInput(e.target.value);
+                                                             showCreateDialog
+                                                                 ? setNewTask({ ...newTask, range_start: next })
+                                                                 : setEditTask({ ...editTask, range_start: next });
+                                                         }}
+                                                     />
+                                                 </label>
+                                                 <label className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.035] px-3 py-2.5 text-main/45 min-w-0">
+                                                     <span className="shrink-0 text-[10px] font-bold uppercase tracking-wider">{t("end_label")}</span>
+                                                     <input
+                                                         type="text"
+                                                         inputMode="numeric"
+                                                         pattern="[0-2][0-9]:[0-5][0-9]"
+                                                         placeholder="18:00"
+                                                         className="!mb-0 !h-7 !border-0 !bg-transparent !p-0 !text-right !font-mono !text-sm !shadow-none focus:!shadow-none"
+                                                         aria-label={t("end_label")}
+                                                         title={t("end_label")}
+                                                         value={showCreateDialog ? newTask.range_end : editTask.range_end}
+                                                         onBlur={(e) => {
+                                                             const next = normalizeTime24h(e.target.value, showCreateDialog ? newTask.range_end : editTask.range_end);
+                                                             showCreateDialog
+                                                                 ? setNewTask({ ...newTask, range_end: next })
+                                                                 : setEditTask({ ...editTask, range_end: next });
+                                                         }}
+                                                         onChange={(e) => {
+                                                             const next = cleanTime24hInput(e.target.value);
+                                                             showCreateDialog
+                                                                 ? setNewTask({ ...newTask, range_end: next })
+                                                                 : setEditTask({ ...editTask, range_end: next });
+                                                         }}
+                                                     />
+                                                 </label>
+                                             </div>
+                                         </>
+                                     )}
                                 </div>
                             </div>
 
@@ -1618,34 +1746,48 @@ export default function AccountTasksContent() {
                                             </button>
                                         </div>
                                         <div className="max-h-48 overflow-y-auto rounded-lg border border-white/5 bg-black/5">
-                                            {chats.map((chat) => {
-                                                const title = getChatTitle(chat);
-                                                const selected = showCreateDialog
-                                                    ? selectedCreateChats.some((item) => item.id === chat.id)
-                                                    : editTask.target_chats.some((item) => item.chat_id === chat.id);
-                                                return (
-                                                    <button
-                                                        key={chat.id}
-                                                        type="button"
-                                                        className="w-full text-left px-3 py-2 hover:bg-white/5 border-b border-white/5 last:border-b-0 flex items-center gap-2"
-                                                        onClick={() => showCreateDialog ? toggleSelectedChat(chat) : toggleEditTargetChat(chat)}
-                                                    >
-                                                        <input
-                                                            type="checkbox"
-                                                            readOnly
-                                                            checked={selected}
-                                                            className="!mb-0 h-4 w-4 accent-[#8a3ffc] shrink-0"
-                                                        />
-                                                        <div className="min-w-0">
-                                                            <div className="text-sm font-semibold truncate">{title}</div>
-                                                            <div className="text-[10px] text-main/40 font-mono truncate">
-                                                                {chat.id}{chat.username ? ` · @${chat.username}` : ""}
+                                            {chatsLoading ? (
+                                                <div className="px-3 py-2 text-xs text-main/40 flex items-center gap-2">
+                                                    <Spinner className="animate-spin" size={12} />
+                                                    {t("loading")}
+                                                </div>
+                                            ) : visibleChats.length > 0 ? (
+                                                visibleChats.map((chat) => {
+                                                    const title = getChatTitle(chat);
+                                                    const selected = showCreateDialog
+                                                        ? selectedCreateChats.some((item) => item.id === chat.id)
+                                                        : editTask.target_chats.some((item) => item.chat_id === chat.id);
+                                                    return (
+                                                        <button
+                                                            key={chat.id}
+                                                            type="button"
+                                                            className="w-full text-left px-3 py-2 hover:bg-white/5 border-b border-white/5 last:border-b-0 flex items-center gap-2"
+                                                            onClick={() => showCreateDialog ? toggleSelectedChat(chat) : toggleEditTargetChat(chat)}
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                readOnly
+                                                                checked={selected}
+                                                                className="!mb-0 h-4 w-4 accent-[#8a3ffc] shrink-0"
+                                                            />
+                                                            <div className="min-w-0">
+                                                                <div className="text-sm font-semibold truncate">{title}</div>
+                                                                <div className="text-[10px] text-main/40 font-mono truncate">
+                                                                    {chat.id}{chat.username ? ` · @${chat.username}` : ""}
+                                                                </div>
                                                             </div>
-                                                        </div>
-                                                    </button>
-                                                );
-                                            })}
+                                                        </button>
+                                                    );
+                                                })
+                                            ) : (
+                                                <div className="px-3 py-2 text-xs text-main/40">{chatsLoaded ? t("search_no_results") : t("loading")}</div>
+                                            )}
                                         </div>
+                                        {chats.length > CHAT_LIST_PREVIEW_LIMIT && (
+                                            <div className="text-[10px] text-main/30">
+                                                {chatListPreviewHint(CHAT_LIST_PREVIEW_LIMIT, chats.length)}
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
                                 {(showCreateDialog || showEditDialog) && (

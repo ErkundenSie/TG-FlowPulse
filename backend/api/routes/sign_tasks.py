@@ -105,6 +105,7 @@ class SignTaskCreate(BaseModel):
     range_start: Optional[str] = Field(None, description="随机范围开始时间")
     range_end: Optional[str] = Field(None, description="随机范围结束时间")
 
+    enabled: bool = Field(True, description="Whether the task is enabled")
     notify_on_failure: bool = Field(True, description="Send notification when task fails")
 
     @validator("name")
@@ -132,6 +133,7 @@ class SignTaskUpdate(BaseModel):
     range_end: Optional[str] = Field(None, description="随机范围结束时间")
 
 
+    enabled: Optional[bool] = Field(None, description="Whether the task is enabled")
     notify_on_failure: Optional[bool] = Field(None, description="Send notification when task fails")
 
 
@@ -235,6 +237,7 @@ async def create_sign_task(
             execution_mode=payload.execution_mode,
             range_start=payload.range_start,
             range_end=payload.range_end,
+            enabled=payload.enabled,
             notify_on_failure=payload.notify_on_failure,
         )
 
@@ -293,6 +296,7 @@ async def update_sign_task(
             execution_mode=payload.execution_mode,
             range_start=payload.range_start,
             range_end=payload.range_end,
+            enabled=payload.enabled,
             notify_on_failure=payload.notify_on_failure,
         )
 

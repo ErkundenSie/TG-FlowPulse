@@ -106,8 +106,10 @@ class SignTaskService:
         self.run_history_dir = self.workdir / "history"
         self.signs_dir.mkdir(parents=True, exist_ok=True)
         self.run_history_dir.mkdir(parents=True, exist_ok=True)
-        print(
-            f"DEBUG: 初始化 SignTaskService, signs_dir={self.signs_dir}, exists={self.signs_dir.exists()}"
+        logging.getLogger("backend").debug(
+            "Initialized SignTaskService, signs_dir=%s, exists=%s",
+            self.signs_dir,
+            self.signs_dir.exists(),
         )
         self._active_logs: Dict[tuple[str, str], List[str]] = {}  # (account, task) -> logs
         self._active_tasks: Dict[tuple[str, str], bool] = {}  # (account, task) -> running
@@ -894,7 +896,7 @@ class SignTaskService:
         tasks = []
         base_dir = self.signs_dir
 
-        print(f"DEBUG: 扫描任务目录: {base_dir}")
+        logging.getLogger("backend").debug("Scanning sign task dir: %s", base_dir)
         try:
             # 扫描所有子目录 (账号名)
             for account_path in base_dir.iterdir():
@@ -930,7 +932,7 @@ class SignTaskService:
             return self._tasks_cache
 
         except Exception as e:
-            print(f"DEBUG: 扫描任务出错: {str(e)}")
+            logging.getLogger("backend").debug("Scan sign tasks failed: %s", e)
             return []
 
     def _load_task_config(self, task_dir: Path) -> Optional[Dict[str, Any]]:
@@ -959,11 +961,12 @@ class SignTaskService:
                 "random_seconds": config.get("random_seconds", 0),
                 "sign_interval": config.get("sign_interval", 1),
                 "chats": config.get("chats", []),
-                "enabled": True,
+                "enabled": config.get("enabled", True),
                 "last_run": last_run,
                 "execution_mode": config.get("execution_mode", "fixed"),
                 "range_start": config.get("range_start", ""),
                 "range_end": config.get("range_end", ""),
+                "notify_on_failure": config.get("notify_on_failure", True),
             }
         except Exception:
             return None
@@ -996,7 +999,7 @@ class SignTaskService:
                 "random_seconds": config.get("random_seconds", 0),
                 "sign_interval": config.get("sign_interval", 1),
                 "chats": config.get("chats", []),
-                "enabled": True,
+                "enabled": config.get("enabled", True),
                 "last_run": last_run,
                 "execution_mode": config.get("execution_mode", "fixed"),
                 "range_start": config.get("range_start", ""),
@@ -1017,6 +1020,7 @@ class SignTaskService:
         execution_mode: str = "fixed",
         range_start: str = "",
         range_end: str = "",
+        enabled: bool = True,
         notify_on_failure: bool = True,
     ) -> Dict[str, Any]:
         """
@@ -1054,6 +1058,7 @@ class SignTaskService:
             "execution_mode": execution_mode,
             "range_start": range_start,
             "range_end": range_end,
+            "enabled": enabled,
             "notify_on_failure": notify_on_failure,
         }
 
@@ -1076,7 +1081,7 @@ class SignTaskService:
                 account_name,
                 task_name,
                 range_start if execution_mode == "range" else sign_at,
-                enabled=True,
+                enabled=enabled,
             )
         except Exception as e:
             print(f"DEBUG: 更新调度任务失败: {e}")
@@ -1088,7 +1093,7 @@ class SignTaskService:
             "random_seconds": random_seconds,
             "sign_interval": sign_interval,
             "chats": chats,
-            "enabled": True,
+            "enabled": enabled,
             "execution_mode": execution_mode,
             "range_start": range_start,
             "range_end": range_end,
@@ -1106,6 +1111,7 @@ class SignTaskService:
         execution_mode: Optional[str] = None,
         range_start: Optional[str] = None,
         range_end: Optional[str] = None,
+        enabled: Optional[bool] = None,
         notify_on_failure: Optional[bool] = None,
     ) -> Dict[str, Any]:
         """
@@ -1145,6 +1151,9 @@ class SignTaskService:
             "range_end": range_end
             if range_end is not None
             else existing.get("range_end", ""),
+            "enabled": enabled
+            if enabled is not None
+            else existing.get("enabled", True),
             "notify_on_failure": notify_on_failure
             if notify_on_failure is not None
             else existing.get("notify_on_failure", True),
@@ -1172,7 +1181,7 @@ class SignTaskService:
                 config.get("range_start")
                 if config.get("execution_mode") == "range"
                 else config["sign_at"],
-                enabled=True,
+                enabled=config.get("enabled", True),
             )
         except Exception as e:
             msg = f"DEBUG: 更新调度任务失败: {e}"
@@ -1193,7 +1202,7 @@ class SignTaskService:
             "random_seconds": config["random_seconds"],
             "sign_interval": config["sign_interval"],
             "chats": config["chats"],
-            "enabled": True,
+            "enabled": config.get("enabled", True),
             "execution_mode": config.get("execution_mode", "fixed"),
             "range_start": config.get("range_start", ""),
             "range_end": config.get("range_end", ""),
