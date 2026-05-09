@@ -777,7 +777,6 @@ select option {
 
 @media (max-width: 1024px) {
   #settings-view .settings-sidebar {
-    position: static;
     overflow-x: auto;
     width: 100%;
   }

@@ -203,7 +203,9 @@ class TaskHistoryItem(BaseModel):
 
 @router.get("", response_model=List[SignTaskOut])
 def list_sign_tasks(
-    account_name: Optional[str] = None, current_user=Depends(get_current_user)
+    account_name: Optional[str] = None,
+    force_refresh: bool = False,
+    current_user=Depends(get_current_user),
 ):
     """
     获取所有签到任务列表
@@ -211,7 +213,10 @@ def list_sign_tasks(
     Args:
         account_name: 可选，按账号名筛选任务
     """
-    tasks = get_sign_task_service().list_tasks(account_name=account_name)
+    tasks = get_sign_task_service().list_tasks(
+        account_name=account_name,
+        force_refresh=force_refresh,
+    )
     return tasks
 
 

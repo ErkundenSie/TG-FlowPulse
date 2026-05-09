@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
+from datetime import datetime
+
 from sqlalchemy.orm import Session
 
 from backend.core.database import get_session_local
@@ -51,6 +54,133 @@ def create_cron_trigger(cron_str: str) -> CronTrigger:
     return CronTrigger.from_crontab(cron_str)
 
 
+def _parse_hhmm(value: str):
+    from datetime import datetime
+
+    return datetime.strptime(value, "%H:%M").time()
+
+
+def _range_window_for_now(range_start: str, range_end: str, now):
+    from datetime import timedelta
+
+    start_time = _parse_hhmm(range_start)
+    end_time = _parse_hhmm(range_end)
+
+    start_today = now.replace(
+        hour=start_time.hour,
+        minute=start_time.minute,
+        second=0,
+        microsecond=0,
+    )
+    end_today = now.replace(
+        hour=end_time.hour,
+        minute=end_time.minute,
+        second=0,
+        microsecond=0,
+    )
+
+    if end_today <= start_today:
+        end_after_start = end_today + timedelta(days=1)
+        if start_today <= now <= end_after_start:
+            return start_today, end_after_start
+
+        start_yesterday = start_today - timedelta(days=1)
+        if start_yesterday <= now <= end_today:
+            return start_yesterday, end_today
+
+        return start_today, end_after_start
+
+    return start_today, end_today
+
+
+def _task_ran_in_window(task_config: dict, window_start, window_end) -> bool:
+    from datetime import datetime
+
+    last_run = task_config.get("last_run") if isinstance(task_config, dict) else None
+    if not isinstance(last_run, dict):
+        return False
+
+    raw_time = last_run.get("time")
+    if not raw_time:
+        return False
+
+    try:
+        run_at = datetime.fromisoformat(str(raw_time))
+    except ValueError:
+        return False
+
+    if run_at.tzinfo is None:
+        run_at = run_at.replace(tzinfo=window_start.tzinfo)
+    else:
+        run_at = run_at.astimezone(window_start.tzinfo)
+
+    return window_start <= run_at <= window_end
+
+
+def _schedule_range_catchup_if_needed(task_config: dict) -> None:
+    import logging
+    from zoneinfo import ZoneInfo
+
+    global scheduler
+    if scheduler is None:
+        return
+
+    if not isinstance(task_config, dict):
+        return
+    if task_config.get("execution_mode") != "range":
+        return
+    if not task_config.get("enabled", True):
+        return
+
+    account_name = str(task_config.get("account_name") or "").strip()
+    task_name = str(task_config.get("name") or "").strip()
+    range_start = str(task_config.get("range_start") or "").strip()
+    range_end = str(task_config.get("range_end") or "").strip()
+    if not account_name or not task_name or not range_start or not range_end:
+        return
+
+    logger = logging.getLogger("backend.scheduler")
+    try:
+        tz = ZoneInfo(get_scheduler_timezone())
+        now = __import__("datetime").datetime.now(tz)
+        window_start, window_end = _range_window_for_now(range_start, range_end, now)
+    except Exception as exc:
+        logger.warning("Scheduler: 无法计算随机时间段补跑窗口 %s/%s: %s", account_name, task_name, exc)
+        return
+
+    if not (window_start <= now <= window_end):
+        return
+    if _task_ran_in_window(task_config, window_start, window_end):
+        return
+
+    job_id = f"range-catchup-{account_name}-{task_name}"
+    existing = scheduler.get_job(job_id)
+    if existing and existing.next_run_time and existing.next_run_time >= now:
+        return
+
+    try:
+        scheduler.add_job(
+            _job_run_sign_task,
+            trigger=DateTrigger(run_date=now, timezone=tz),
+            id=job_id,
+            args=[account_name, task_name],
+            replace_existing=True,
+        )
+        logger.info(
+            "Scheduler: 任务 %s/%s 当前位于随机时间段内，已安排补跑：%s",
+            account_name,
+            task_name,
+            now.isoformat(),
+        )
+    except Exception as exc:
+        logger.error(
+            "Scheduler: 安排随机时间段补跑失败 %s/%s: %s",
+            account_name,
+            task_name,
+            exc,
+        )
+
+
 async def _job_run_task(task_id: int) -> None:
     db: Session = get_session_local()()
     try:
@@ -69,7 +199,6 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
     import asyncio
     import logging
     import random
-    from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
 
     from backend.services.sign_tasks import get_sign_task_service
@@ -87,36 +216,20 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
 
             if range_start_str and range_end_str:
                 try:
-                    # 解析时间
-                    fmt = "%H:%M"
-                    start_time = datetime.strptime(range_start_str, fmt).time()
-                    end_time = datetime.strptime(range_end_str, fmt).time()
-
-                    # 转换为当前日期的 datetime
                     now = datetime.now(ZoneInfo(get_scheduler_timezone()))
-                    start_dt = now.replace(
-                        hour=start_time.hour,
-                        minute=start_time.minute,
-                        second=0,
-                        microsecond=0,
-                    )
-                    end_dt = now.replace(
-                        hour=end_time.hour,
-                        minute=end_time.minute,
-                        second=0,
-                        microsecond=0,
+                    start_dt, end_dt = _range_window_for_now(
+                        range_start_str,
+                        range_end_str,
+                        now,
                     )
 
-                    # 如果结束时间小于开始时间，假设是第二天（虽然CRON触发通常在开始时间，这里做个防御）
-                    if end_dt < start_dt:
-                        end_dt += timedelta(days=1)
+                    if now > start_dt:
+                        start_dt = now
 
-                    # 计算总秒数
-                    total_seconds = (end_dt - start_dt).total_seconds()
-
-                    if total_seconds > 0:
+                    remaining_seconds = (end_dt - start_dt).total_seconds()
+                    if remaining_seconds > 0:
                         # 生成随机延迟
-                        delay_seconds = random.uniform(0, total_seconds)
+                        delay_seconds = random.uniform(0, remaining_seconds)
                         logger.info(
                             f"Scheduler: 任务 {task_name} 设置为随机时间段模式 ({range_start_str} - {range_end_str})"
                         )
@@ -234,6 +347,8 @@ async def sync_jobs() -> None:
                     )
             except Exception as e:
                 print(f"Error scheduling sign task {task_name}: {e}")
+            else:
+                _schedule_range_catchup_if_needed(st)
 
         # remove obsolete jobs
         for job_id in existing_ids - desired_ids:
@@ -306,6 +421,17 @@ def add_or_update_sign_task_job(
             args=[account_name, task_name],
             replace_existing=True,
         )
+        try:
+            from backend.services.sign_tasks import get_sign_task_service
+
+            task_config = get_sign_task_service().get_task(
+                task_name,
+                account_name=account_name,
+            )
+            if task_config:
+                _schedule_range_catchup_if_needed(task_config)
+        except Exception:
+            pass
         print(f"Scheduler: 已添加/更新任务 {job_id} -> {cron}")
     except Exception as e:
         print(f"Scheduler: 添加任务 {job_id} 失败: {e}")
