@@ -593,3 +593,207 @@ select option {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-sub);
 }
+
+/* ================= Settings: mainstream admin/system layout ================= */
+#settings-view {
+  --settings-surface: rgba(255, 255, 255, 0.055);
+  --settings-surface-strong: rgba(255, 255, 255, 0.08);
+  --settings-line: rgba(255, 255, 255, 0.09);
+  --settings-muted: var(--text-sub);
+}
+
+.light #settings-view,
+[data-theme="light"] #settings-view {
+  --settings-surface: #ffffff;
+  --settings-surface-strong: #f8fafc;
+  --settings-line: #e5e7eb;
+}
+
+#settings-view .settings-shell {
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+#settings-view .settings-sidebar,
+#settings-view .settings-section-header,
+#settings-view .settings-panel {
+  background: var(--settings-surface);
+  border: 1px solid var(--settings-line);
+  border-radius: 16px;
+  box-shadow: none;
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+
+#settings-view .settings-sidebar {
+  padding: 8px;
+}
+
+#settings-view .settings-nav-item {
+  width: 100%;
+  min-height: 56px;
+  border-radius: 12px;
+  padding: 9px 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  text-align: left;
+  border: 1px solid transparent;
+  transition: 0.18s ease;
+}
+
+#settings-view .settings-nav-item:hover {
+  background: var(--settings-surface-strong);
+}
+
+#settings-view .settings-nav-item.is-active {
+  background: rgba(138, 63, 252, 0.1);
+  border-color: rgba(138, 63, 252, 0.18);
+  color: var(--text-main);
+}
+
+.light #settings-view .settings-nav-item.is-active,
+[data-theme="light"] #settings-view .settings-nav-item.is-active {
+  background: #f3efff;
+}
+
+#settings-view .settings-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+}
+
+#settings-view .settings-section-header {
+  padding: 16px 18px;
+}
+
+#settings-view .settings-panel {
+  padding: 18px;
+}
+
+#settings-view .settings-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--settings-line);
+}
+
+#settings-view .settings-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+#settings-view .settings-panel-title h3,
+#settings-view .settings-panel-title h2 {
+  font-size: 15px;
+  line-height: 1.2;
+  font-weight: 700;
+}
+
+#settings-view .settings-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+}
+
+#settings-view .settings-field-grid.cols-3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+#settings-view .settings-field-full {
+  grid-column: 1 / -1;
+}
+
+#settings-view label {
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--settings-muted);
+}
+
+#settings-view input:not([type="checkbox"]):not([type="radio"]),
+#settings-view textarea,
+#settings-view select {
+  margin-bottom: 0;
+  min-height: 40px;
+  border-radius: 10px;
+  background: var(--settings-surface-strong);
+}
+
+#settings-view .settings-hint {
+  margin-top: 6px;
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--settings-muted);
+}
+
+#settings-view .settings-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--settings-line);
+}
+
+#settings-view .settings-actions .btn-gradient,
+#settings-view .settings-actions .btn-secondary {
+  min-height: 36px;
+  width: auto;
+  border-radius: 9px;
+  padding: 8px 16px;
+  font-size: 12px;
+}
+
+#settings-view .settings-callout {
+  border: 1px solid var(--settings-line);
+  border-radius: 12px;
+  background: var(--settings-surface-strong);
+  padding: 14px;
+}
+
+#settings-view .settings-toggle-row {
+  border: 1px solid var(--settings-line);
+  border-radius: 12px;
+  background: var(--settings-surface-strong);
+  padding: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+@media (max-width: 1024px) {
+  #settings-view .settings-sidebar {
+    position: static;
+    overflow-x: auto;
+  }
+
+  #settings-view .settings-sidebar>div {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(180px, 1fr);
+    gap: 8px;
+  }
+}
+
+@media (max-width: 768px) {
+  #settings-view .settings-field-grid,
+  #settings-view .settings-field-grid.cols-3 {
+    grid-template-columns: 1fr;
+  }
+
+  #settings-view .settings-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  #settings-view .settings-actions .btn-gradient,
+  #settings-view .settings-actions .btn-secondary {
+    width: 100%;
+  }
+}

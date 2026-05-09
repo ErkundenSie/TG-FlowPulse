@@ -4,6 +4,8 @@
 
 [English README](README_EN.md) · [健康检查](#健康检查) · [更新日志](#更新日志)
 
+当前版本：`v0.8.5`
+
 TG-SignPulse 是一个 Telegram 自动化管理面板。你可以在网页里管理多个账号，配置自动签到任务，并让任务按固定规则每天自动执行。
 
 > AI 驱动：项目已集成 AI 能力（识图、计算题），可直接用于自动任务流程。
@@ -147,6 +149,7 @@ docker logs -f tg-signpulse
 ```
 
 说明：
+
 - `docker rm tg-signpulse` 只删除容器，不会删除 `$(pwd)/data` 里的持久化数据。
 - `APP_SECRET_KEY` 建议长期保持不变；随意更换可能导致已有登录态失效。
 - `ADMIN_PASSWORD` 主要影响首次创建 admin 用户；如果数据库中已经存在 admin，后续修改该环境变量不一定会覆盖已有密码。
@@ -157,22 +160,93 @@ docker logs -f tg-signpulse
 -p 127.0.0.1:8080:8080
 ```
 
-### Docker Compose（可选）
+### Docker Compose 本地构建部署（推荐给修改版）
+
+如果你要部署当前本地代码里的修改，直接使用项目自带的 `docker-compose.yml`。它使用 `build: .`，会从当前目录构建镜像，而不是拉取远程官方镜像。
+
+推荐先在项目根目录创建 `.env`：
+
+```env
+APP_SECRET_KEY=请替换成一串长期固定的随机密钥
+ADMIN_PASSWORD=请替换成你的管理员初始密码
+TZ=Asia/Shanghai
+HOST_PORT=8080
+```
+
+然后将 `docker-compose.yml` 配置为：
 
 ```yaml
 services:
   app:
-    image: ghcr.io/akasls/tg-signpulse:latest
+    build: .
+    image: tg-signpulse:local
     container_name: tg-signpulse
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "${HOST_PORT:-8080}:8080"
     volumes:
       - ./data:/data
     environment:
-      - TZ=Asia/Shanghai
-      - APP_SECRET_KEY=your_secret_key
+      - PORT=8080
+      - APP_DATA_DIR=/data
+      - TZ=${TZ:-Asia/Shanghai}
+      - APP_SECRET_KEY=${APP_SECRET_KEY:-tg-signpulse-change-me}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 ```
+
+启动或更新：
+
+```bash
+docker compose up -d --build
+```
+
+如果提示 `Bind for 0.0.0.0:8080 failed: port is already allocated`，说明宿主机的 `8080` 已被占用。可以二选一处理：
+
+```bash
+# 查看哪个容器占用了 8080
+docker ps --format "table {{.Names}}\t{{.Ports}}" | grep 8080
+
+# 或直接改 .env，例如改成宿主机 18080 端口
+HOST_PORT=18080
+docker compose up -d --build
+```
+
+改成 `HOST_PORT=18080` 后，访问地址就是 `http://服务器IP:18080`。
+
+查看状态和日志：
+
+```bash
+docker compose ps
+docker compose logs -f
+```
+
+如果你走 Nginx / 反向代理，建议只监听本机：
+
+```yaml
+ports:
+  - "127.0.0.1:${HOST_PORT:-8080}:8080"
+```
+
+说明：
+
+- `./data:/data` 是持久化目录，账号、任务、数据库和日志都在这里；重建容器不会丢数据。
+- `APP_SECRET_KEY` 建议长期固定，不要每次部署都换，否则可能导致已有登录态失效。
+- `ADMIN_PASSWORD` 主要影响首次创建 `admin` 用户；数据库里已有 admin 后，改环境变量不一定覆盖已有密码。
+- 面板里也可以配置“任务时区”，保存后会立即重排定时任务；`TZ` 仍建议保留为容器系统默认时区。
 
 ## 数据目录与权限说明
 
@@ -253,6 +327,16 @@ frontend/     Next.js 管理面板
 ```
 
 ## 更新日志
+
+### 2026-05-09 · v0.8.5
+
+- **签到任务启用开关**：签到脚本新增启用/停用状态，新增任务默认启用；停用后任务不会被调度执行，面板可直接切换状态。
+- **时间范围与时区优化**：签到时间范围统一改为 24 小时制显示，并在系统设置中新增任务时区配置；保存后会按配置时区重新计算随机时间段和调度任务。
+- **系统设置重构**：系统设置页改为主流“左侧分类 + 右侧配置面板”交互，压缩表单间距并统一操作区，减少配置时长距离滚动。
+- **通知与配置样式统一**：Telegram 机器人通知、全局设置、AI、Telegram API 和备份迁移配置统一为紧凑分组面板，移动端分类导航也更易操作。
+- **前端性能优化**：账号任务页减少一次性加载内容，优化会话列表与弹窗展示，降低部署后首次进入和配置任务时的卡顿感。
+- **Docker Compose 文档完善**：README 补充本地修改版构建部署流程、`.env` 示例、端口占用处理、数据持久化和时区说明。
+- **项目健康检查**：已通过前端 `npm run lint`、`npx tsc --noEmit --pretty false`、`npm run build` 和 `git diff --check`。
 
 ### 2026-05-07
 

@@ -43,7 +43,8 @@ import {
     Trash,
     Robot as BotIcon,
     Terminal,
-    GithubLogo
+    GithubLogo,
+    type Icon,
 } from "@phosphor-icons/react";
 import { ToastContainer, useToast } from "../../../components/ui/toast";
 import { ThemeLanguageToggle } from "../../../components/ThemeLanguageToggle";
@@ -62,6 +63,8 @@ const TIMEZONE_OPTIONS = [
     "Europe/London",
 ] as const;
 
+type SettingsSection = "account" | "global" | "notify" | "ai" | "telegram" | "backup";
+
 export default function SettingsPage() {
     const router = useRouter();
     const { t } = useLanguage();
@@ -72,6 +75,7 @@ export default function SettingsPage() {
     const [totpLoading, setTotpLoading] = useState(false);
     const [configLoading, setConfigLoading] = useState(false);
     const [telegramLoading, setTelegramLoading] = useState(false);
+    const [activeSection, setActiveSection] = useState<SettingsSection>("account");
 
     // 鐢ㄦ埛鍚嶄慨鏀?
     const [usernameForm, setUsernameForm] = useState({
@@ -440,6 +444,60 @@ export default function SettingsPage() {
         return null;
     }
 
+    const settingsSections: Array<{
+        id: SettingsSection;
+        label: string;
+        description: string;
+        icon: Icon;
+        color: string;
+    }> = [
+        {
+            id: "account",
+            label: t("settings_account_security"),
+            description: t("settings_account_security_desc"),
+            icon: ShieldCheck,
+            color: "text-emerald-400 bg-emerald-500/10",
+        },
+        {
+            id: "global",
+            label: t("global_settings"),
+            description: t("settings_global_desc"),
+            icon: Gear,
+            color: "text-violet-400 bg-violet-500/10",
+        },
+        {
+            id: "notify",
+            label: t("telegram_bot_notify"),
+            description: t("settings_notify_desc"),
+            icon: BotIcon,
+            color: "text-cyan-400 bg-cyan-500/10",
+        },
+        {
+            id: "ai",
+            label: t("ai_config"),
+            description: t("settings_ai_desc"),
+            icon: BotIcon,
+            color: "text-indigo-400 bg-indigo-500/10",
+        },
+        {
+            id: "telegram",
+            label: t("tg_api_config"),
+            description: t("settings_telegram_desc"),
+            icon: Cpu,
+            color: "text-sky-400 bg-sky-500/10",
+        },
+        {
+            id: "backup",
+            label: t("backup_migration"),
+            description: t("settings_backup_desc"),
+            icon: DownloadSimple,
+            color: "text-pink-400 bg-pink-500/10",
+        },
+    ];
+
+    const activeSectionMeta = settingsSections.find((section) => section.id === activeSection) || settingsSections[0];
+    const ActiveSectionIcon = activeSectionMeta.icon;
+
     return (
         <div id="settings-view" className="w-full h-full flex flex-col">
             <nav className="navbar">
@@ -475,432 +533,488 @@ export default function SettingsPage() {
                 </div>
             </nav>
 
-            <main className="main-content">
-                <div className="space-y-6 animate-float-up pb-10">
-                    {/* 鐢ㄦ埛鍚嶄慨鏀?*/}
-                    <div className="glass-panel p-4">
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="p-2 bg-blue-500/10 rounded-xl text-blue-400">
-                                <User weight="bold" size={18} />
-                            </div>
-                            <h2 className="text-lg font-bold">{t("username")}</h2>
-                        </div>
+            <main className="main-content !pt-6">
+                <div className="settings-shell grid grid-cols-1 lg:grid-cols-[248px_minmax(0,1fr)] gap-4 animate-float-up pb-10">
+                    <aside className="settings-sidebar h-fit lg:sticky lg:top-24">
+                        <div className="space-y-1">
+                            {settingsSections.map((section) => {
+                                const SectionIcon = section.icon;
+                                const isActive = activeSection === section.id;
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
-                            <div>
-                                <label className="text-[12px] mb-1.5">{t("new_username")}</label>
-                                <input
-                                    type="text"
-                                    className="!py-2.5 !px-4"
-                                    placeholder={t("new_username_placeholder")}
-                                    value={usernameForm.newUsername}
-                                    onChange={(e) => setUsernameForm({ ...usernameForm, newUsername: e.target.value })}
-                                />
-                            </div>
-                            <div>
-                                <label className="text-[12px] mb-1.5">{t("current_password")}</label>
-                                <input
-                                    type="password"
-                                    className="!py-2.5 !px-4"
-                                    placeholder={t("current_password_placeholder")}
-                                    value={usernameForm.password}
-                                    onChange={(e) => setUsernameForm({ ...usernameForm, password: e.target.value })}
-                                />
-                            </div>
+                                return (
+                                    <button
+                                        key={section.id}
+                                        type="button"
+                                        onClick={() => setActiveSection(section.id)}
+                                        className={`settings-nav-item ${isActive ? "is-active" : ""}`}
+                                    >
+                                        <span className={`settings-icon flex items-center justify-center shrink-0 ${section.color}`}>
+                                            <SectionIcon weight={isActive ? "fill" : "bold"} size={18} />
+                                        </span>
+                                        <span className="min-w-0">
+                                            <span className={`block text-sm font-bold truncate ${isActive ? "text-main" : "text-main/75"}`}>
+                                                {section.label}
+                                            </span>
+                                            <span className="block text-[10px] text-main/45 leading-relaxed truncate">
+                                                {section.description}
+                                            </span>
+                                        </span>
+                                    </button>
+                                );
+                            })}
                         </div>
-                        <button className="btn-gradient w-fit px-6 !py-2.5 !text-xs" onClick={handleChangeUsername} disabled={userLoading}>
-                            {userLoading ? <Spinner className="animate-spin" /> : t("change_username")}
-                        </button>
-                    </div>
+                    </aside>
 
-                    {/* 瀵嗙爜淇敼 */}
-                    <div className="glass-panel p-4">
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="p-2 bg-amber-500/10 rounded-xl text-amber-400">
-                                <Lock weight="bold" size={18} />
-                            </div>
-                            <h2 className="text-lg font-bold">{t("change_password")}</h2>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-5">
-                            <div>
-                                <label className="text-[12px] mb-1.5">{t("old_password")}</label>
-                                <input
-                                    type="password"
-                                    className="!py-2.5 !px-4"
-                                    value={passwordForm.oldPassword}
-                                    onChange={(e) => setPasswordForm({ ...passwordForm, oldPassword: e.target.value })}
-                                />
-                            </div>
-                            <div>
-                                <label className="text-[12px] mb-1.5">{t("new_password")}</label>
-                                <input
-                                    type="password"
-                                    className="!py-2.5 !px-4"
-                                    value={passwordForm.newPassword}
-                                    onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
-                                />
-                            </div>
-                            <div>
-                                <label className="text-[12px] mb-1.5">{t("confirm_new_password")}</label>
-                                <input
-                                    type="password"
-                                    className="!py-2.5 !px-4"
-                                    value={passwordForm.confirmPassword}
-                                    onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
-                                />
-                            </div>
-                        </div>
-                        <button className="btn-gradient w-fit px-6 !py-2.5 !text-xs" onClick={handleChangePassword} disabled={pwdLoading}>
-                            {pwdLoading ? <Spinner className="animate-spin" /> : t("change_password")}
-                        </button>
-                    </div>
-
-                    {/* 2FA 璁剧疆 */}
-                    <div className="glass-panel p-4 overflow-hidden">
-                        <div className="flex justify-between items-center mb-4">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2 bg-emerald-500/10 rounded-xl text-emerald-400">
-                                    <ShieldCheck weight="bold" size={18} />
+                    <section className="min-w-0 space-y-4">
+                        <div className="settings-section-header flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                            <div className="flex items-center gap-3 min-w-0">
+                                <div className={`settings-icon flex items-center justify-center shrink-0 ${activeSectionMeta.color}`}>
+                                    <ActiveSectionIcon weight="fill" size={20} />
                                 </div>
-                                <h2 className="text-lg font-bold">{t("2fa_settings")}</h2>
-                            </div>
-                            <div className={`shrink-0 bg-${totpEnabled ? 'emerald' : 'rose'}-500/10 border border-${totpEnabled ? 'emerald' : 'rose'}-500/20 text-${totpEnabled ? 'emerald' : 'rose'}-400 px-3 py-0.5 rounded-full text-[10px] font-bold`}>
-                                {totpEnabled ? t("status_enabled") : t("status_disabled")}
+                                <div className="min-w-0">
+                                    <h2 className="text-lg font-bold truncate">{activeSectionMeta.label}</h2>
+                                    <p className="text-[11px] text-main/50 mt-0.5">{activeSectionMeta.description}</p>
+                                </div>
                             </div>
                         </div>
 
-                        {!totpEnabled && !showTotpSetup && (
-                            <div className="bg-emerald-500/5 border border-emerald-500/10 rounded-xl p-4 flex gap-4 items-start">
-                                <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-400">
-                                    <WarningCircle weight="bold" size={18} />
+                        {activeSection === "account" && (
+                            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                                <div className="settings-panel">
+                                    <div className="settings-panel-header">
+                                        <div className="settings-panel-title">
+                                        <div className="p-2 bg-blue-500/10 rounded-xl text-blue-400">
+                                            <User weight="bold" size={18} />
+                                        </div>
+                                        <h3 className="text-base font-bold">{t("username")}</h3>
+                                        </div>
+                                    </div>
+
+                                    <div className="settings-field-grid">
+                                        <div>
+                                            <label className="text-[12px] mb-1.5">{t("new_username")}</label>
+                                            <input
+                                                type="text"
+                                                className="!py-2.5 !px-4"
+                                                placeholder={t("new_username_placeholder")}
+                                                value={usernameForm.newUsername}
+                                                onChange={(e) => setUsernameForm({ ...usernameForm, newUsername: e.target.value })}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[12px] mb-1.5">{t("current_password")}</label>
+                                            <input
+                                                type="password"
+                                                className="!py-2.5 !px-4"
+                                                placeholder={t("current_password_placeholder")}
+                                                value={usernameForm.password}
+                                                onChange={(e) => setUsernameForm({ ...usernameForm, password: e.target.value })}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="settings-actions">
+                                        <button className="btn-gradient" onClick={handleChangeUsername} disabled={userLoading}>
+                                            {userLoading ? <Spinner className="animate-spin" /> : t("change_username")}
+                                        </button>
+                                    </div>
                                 </div>
-                                <div>
-                                    <p className="text-[11px] text-main/70 leading-relaxed max-w-2xl">
-                                        {t("2fa_enable_desc")}
-                                    </p>
-                                    <button onClick={handleSetupTOTP} className="btn-secondary mt-3 w-fit h-8 px-4 text-[11px]" disabled={totpLoading}>
-                                        {totpLoading ? <Spinner className="animate-spin" /> : t("start_setup")}
+
+                                <div className="settings-panel">
+                                    <div className="settings-panel-header">
+                                        <div className="settings-panel-title">
+                                        <div className="p-2 bg-amber-500/10 rounded-xl text-amber-400">
+                                            <Lock weight="bold" size={18} />
+                                        </div>
+                                        <h3 className="text-base font-bold">{t("change_password")}</h3>
+                                        </div>
+                                    </div>
+
+                                    <div className="settings-field-grid cols-3">
+                                        <div>
+                                            <label className="text-[12px] mb-1.5">{t("old_password")}</label>
+                                            <input
+                                                type="password"
+                                                className="!py-2.5 !px-4"
+                                                value={passwordForm.oldPassword}
+                                                onChange={(e) => setPasswordForm({ ...passwordForm, oldPassword: e.target.value })}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[12px] mb-1.5">{t("new_password")}</label>
+                                            <input
+                                                type="password"
+                                                className="!py-2.5 !px-4"
+                                                value={passwordForm.newPassword}
+                                                onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[12px] mb-1.5">{t("confirm_new_password")}</label>
+                                            <input
+                                                type="password"
+                                                className="!py-2.5 !px-4"
+                                                value={passwordForm.confirmPassword}
+                                                onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="settings-actions">
+                                        <button className="btn-gradient" onClick={handleChangePassword} disabled={pwdLoading}>
+                                            {pwdLoading ? <Spinner className="animate-spin" /> : t("change_password")}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div className="settings-panel overflow-hidden xl:col-span-2">
+                                    <div className="settings-panel-header">
+                                        <div className="settings-panel-title">
+                                            <div className="p-2 bg-emerald-500/10 rounded-xl text-emerald-400">
+                                                <ShieldCheck weight="bold" size={18} />
+                                            </div>
+                                            <h3 className="text-base font-bold">{t("2fa_settings")}</h3>
+                                        </div>
+                                        <div className={`shrink-0 px-3 py-0.5 rounded-full text-[10px] font-bold border ${totpEnabled
+                                            ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500"
+                                            : "bg-rose-500/10 border-rose-500/20 text-rose-500"
+                                            }`}>
+                                            {totpEnabled ? t("status_enabled") : t("status_disabled")}
+                                        </div>
+                                    </div>
+
+                                    {!totpEnabled && !showTotpSetup && (
+                                        <div className="settings-callout flex gap-4 items-start">
+                                            <div className="p-2 bg-emerald-500/10 rounded-lg text-emerald-400">
+                                                <WarningCircle weight="bold" size={18} />
+                                            </div>
+                                            <div>
+                                                <p className="text-[11px] text-main/70 leading-relaxed max-w-2xl">
+                                                    {t("2fa_enable_desc")}
+                                                </p>
+                                                <button onClick={handleSetupTOTP} className="btn-secondary mt-3 w-fit h-8 px-4 text-[11px]" disabled={totpLoading}>
+                                                    {totpLoading ? <Spinner className="animate-spin" /> : t("start_setup")}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {showTotpSetup && (
+                                        <div className="animate-float-up space-y-4">
+                                            <div className="settings-callout flex flex-col md:flex-row gap-4 items-center md:items-start">
+                                                <div className="bg-white p-2 rounded-lg shrink-0">
+                                                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                                                    <img
+                                                        src={`/api/user/totp/qrcode?token=${token}`}
+                                                        alt={t("qr_alt")}
+                                                        className="w-28 h-28"
+                                                    />
+                                                </div>
+                                                <div className="flex-1 space-y-3">
+                                                    <div>
+                                                        <h4 className="font-bold text-xs text-main mb-1">{t("scan_qr")}</h4>
+                                                        <p className="text-[10px] text-[#9496a1]">{t("scan_qr_desc")}</p>
+                                                    </div>
+                                                    <div>
+                                                        <h4 className="font-bold text-xs text-main mb-1">{t("backup_secret")}</h4>
+                                                        <input
+                                                            readOnly
+                                                            value={totpSecret}
+                                                            className="!p-2.5 !bg-white/2 !border-white/8 !rounded-lg !text-[10px] break-all !font-mono !text-[#b57dff] !mb-0 cursor-text"
+                                                            onClick={(e) => (e.target as HTMLInputElement).select()}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="space-y-3 w-full max-w-2xl">
+                                                <label className="text-[12px] font-bold text-main/60 uppercase tracking-widest">{t("verify_code")}</label>
+                                                <div className="flex flex-col sm:flex-row gap-3">
+                                                    <input
+                                                        value={totpCode}
+                                                        onChange={(e) => setTotpCode(e.target.value)}
+                                                        placeholder={t("totp_code_placeholder")}
+                                                        className="text-center text-2xl sm:text-3xl tracking-[0.6em] h-14 !py-0 w-full min-w-0 flex-[2] border-2 border-black/10 dark:border-white/10 focus:border-[#8a3ffc]/50 bg-white/5 dark:bg-white/5 rounded-2xl font-bold transition-all shadow-inner"
+                                                    />
+                                                    <button onClick={handleEnableTOTP} className="btn-gradient px-8 shrink-0 h-14 !text-sm font-bold shadow-lg sm:flex-1" disabled={totpLoading}>
+                                                        {totpLoading ? <Spinner className="animate-spin" /> : t("verify")}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {totpEnabled && (
+                                        <div className="settings-actions">
+                                            <button onClick={handleDisableTOTP} className="btn-secondary !text-rose-400 hover:bg-rose-500/10" disabled={totpLoading}>
+                                                {totpLoading ? <Spinner className="animate-spin" /> : t("disable_2fa")}
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {activeSection === "global" && (
+                            <div className="settings-panel">
+                                <div className="settings-field-grid">
+                                    <div>
+                                        <label className="text-[11px] mb-1">{t("sign_interval")}</label>
+                                        <input
+                                            type="number"
+                                            className="!py-2 !px-4"
+                                            value={globalSettings.sign_interval === null ? "" : globalSettings.sign_interval}
+                                            onChange={(e) => setGlobalSettings({ ...globalSettings, sign_interval: e.target.value ? parseInt(e.target.value) : null })}
+                                            placeholder={t("sign_interval_placeholder")}
+                                        />
+                                        <p className="settings-hint">{t("sign_interval_desc")}</p>
+                                    </div>
+                                    <div>
+                                        <label className="text-[11px] mb-1">{t("log_retention")}</label>
+                                        <input
+                                            type="number"
+                                            className="!py-2 !px-4"
+                                            value={globalSettings.log_retention_days}
+                                            onChange={(e) => setGlobalSettings({ ...globalSettings, log_retention_days: parseInt(e.target.value) || 0 })}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[11px] mb-1">{t("timezone")}</label>
+                                        <select
+                                            className="!py-2 !px-4"
+                                            value={globalSettings.timezone || "Asia/Shanghai"}
+                                            onChange={(e) => setGlobalSettings({ ...globalSettings, timezone: e.target.value })}
+                                        >
+                                            {TIMEZONE_OPTIONS.map((timezone) => (
+                                                <option key={timezone} value={timezone}>
+                                                    {timezone}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        <p className="settings-hint">{t("timezone_desc")}</p>
+                                    </div>
+                                    <div>
+                                        <label className="text-[11px] mb-1">{t("global_proxy")}</label>
+                                        <input
+                                            className="!py-2 !px-4"
+                                            value={globalSettings.global_proxy || ""}
+                                            onChange={(e) => setGlobalSettings({ ...globalSettings, global_proxy: e.target.value || null })}
+                                            placeholder={t("global_proxy_placeholder")}
+                                        />
+                                        <p className="settings-hint">{t("global_proxy_desc")}</p>
+                                    </div>
+                                    <div className="settings-field-full">
+                                        <label className="text-[11px] mb-1">{t("data_dir")}</label>
+                                        <input
+                                            className="!py-2 !px-4"
+                                            value={globalSettings.data_dir || ""}
+                                            onChange={(e) => setGlobalSettings({ ...globalSettings, data_dir: e.target.value || null })}
+                                            placeholder={t("data_dir_placeholder")}
+                                        />
+                                        <p className="settings-hint">{t("data_dir_desc")}</p>
+                                        <p className="settings-hint !text-amber-400">{t("data_dir_restart_hint")}</p>
+                                    </div>
+                                </div>
+                                <div className="settings-actions">
+                                    <button className="btn-gradient" onClick={handleSaveGlobal} disabled={configLoading}>
+                                        {configLoading ? <Spinner className="animate-spin" /> : t("save_global_params")}
                                     </button>
                                 </div>
                             </div>
                         )}
 
-                        {showTotpSetup && (
-                            <div className="animate-float-up space-y-4">
-                                <div className="flex flex-col md:flex-row gap-4 items-center md:items-start p-4 bg-white/2 rounded-xl border border-white/5 shadow-inner">
-                                    <div className="bg-white p-2 rounded-lg shrink-0">
-                                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                                        <img
-                                            src={`/api/user/totp/qrcode?token=${token}`}
-                                            alt={t("qr_alt")}
-                                            className="w-28 h-28"
-                                        />
-                                    </div>
-                                    <div className="flex-1 space-y-3">
-                                        <div>
-                                            <h4 className="font-bold text-xs text-main mb-1">{t("scan_qr")}</h4>
-                                            <p className="text-[10px] text-[#9496a1]">{t("scan_qr_desc")}</p>
+                        {activeSection === "notify" && (
+                            <TelegramBotNotificationSettings
+                                settings={globalSettings}
+                                setSettings={setGlobalSettings}
+                                loading={configLoading}
+                                onSave={handleSaveGlobal}
+                                t={t}
+                            />
+                        )}
+
+                        {activeSection === "ai" && (
+                            <div className="settings-panel">
+                                <div className="settings-panel-header">
+                                    <div className="settings-panel-title">
+                                        <div className="p-2 bg-indigo-500/10 rounded-xl text-indigo-400">
+                                            <BotIcon weight="bold" size={18} />
                                         </div>
-                                        <div>
-                                            <h4 className="font-bold text-xs text-main mb-1">{t("backup_secret")}</h4>
-                                            <input
-                                                readOnly
-                                                value={totpSecret}
-                                                className="!p-2.5 !bg-white/2 !border-white/8 !rounded-lg !text-[10px] break-all !font-mono !text-[#b57dff] !mb-0 cursor-text"
-                                                onClick={(e) => (e.target as HTMLInputElement).select()}
-                                            />
-                                        </div>
+                                        <h3 className="text-base font-bold">{t("ai_config")}</h3>
                                     </div>
-                                </div>
-                                <div className="space-y-3 w-full max-w-2xl">
-                                    <label className="text-[12px] font-bold text-main/60 uppercase tracking-widest">{t("verify_code")}</label>
-                                    <div className="flex gap-4">
-                                        <input
-                                            value={totpCode}
-                                            onChange={(e) => setTotpCode(e.target.value)}
-                                            placeholder={t("totp_code_placeholder")}
-                                            className="text-center text-3xl tracking-[0.8em] h-14 !py-0 w-full min-w-0 flex-[2] border-2 border-black/10 dark:border-white/10 focus:border-[#8a3ffc]/50 bg-white/5 dark:bg-white/5 rounded-2xl font-bold transition-all shadow-inner"
-                                        />
-                                        <button onClick={handleEnableTOTP} className="btn-gradient px-8 shrink-0 h-14 !text-sm font-bold shadow-lg flex-1" disabled={totpLoading}>
-                                            {totpLoading ? <Spinner className="animate-spin" /> : t("verify")}
+                                    {aiConfig && (
+                                        <button onClick={handleDeleteAI} className="action-btn !w-8 !h-8 !text-rose-400" title={t("delete_ai_config")}>
+                                            <Trash weight="bold" size={16} />
                                         </button>
+                                    )}
+                                </div>
+
+                                <div className="settings-field-grid">
+                                    <div className="settings-field-full">
+                                        <label className="text-[11px] mb-1">{t("api_key")}</label>
+                                        <input
+                                            type="password"
+                                            className="!py-2 !px-4"
+                                            value={aiForm.api_key}
+                                            onChange={(e) => setAIForm({ ...aiForm, api_key: e.target.value })}
+                                            placeholder={aiConfig?.api_key_masked || t("api_key")}
+                                        />
+                                        {aiConfig?.api_key_masked && (
+                                            <p className="settings-hint">
+                                                {t("api_key_keep_hint")}
+                                            </p>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <label className="text-[11px] mb-1">{t("base_url")}</label>
+                                        <input
+                                            className="!py-2 !px-4"
+                                            value={aiForm.base_url}
+                                            onChange={(e) => setAIForm({ ...aiForm, base_url: e.target.value })}
+                                            placeholder={t("ai_base_url_placeholder")}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[11px] mb-1">{t("model")}</label>
+                                        <input
+                                            className="!py-2 !px-4"
+                                            value={aiForm.model}
+                                            onChange={(e) => setAIForm({ ...aiForm, model: e.target.value })}
+                                        />
                                     </div>
                                 </div>
-                            </div>
-                        )}
 
-                        {totpEnabled && (
-                            <button onClick={handleDisableTOTP} className="btn-secondary !text-rose-400 hover:bg-rose-500/10 w-fit px-6 !py-2.5 !text-xs" disabled={totpLoading}>
-                                {totpLoading ? <Spinner className="animate-spin" /> : t("disable_2fa")}
-                            </button>
-                        )}
-                    </div>
-
-                    {/* AI 閰嶇疆 */}
-                    <div className="glass-panel p-4">
-                        <div className="flex justify-between items-center mb-4">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2 bg-indigo-500/10 rounded-xl text-indigo-400">
-                                    <BotIcon weight="bold" size={18} />
+                                <div className="settings-actions">
+                                    <button onClick={handleSaveAI} className="btn-gradient" disabled={configLoading}>
+                                        {configLoading ? <Spinner className="animate-spin" /> : t("save")}
+                                    </button>
+                                    <button onClick={handleTestAI} className="btn-secondary" disabled={aiTesting || configLoading}>
+                                        {aiTesting ? <Spinner className="animate-spin" /> : t("test_connection")}
+                                    </button>
                                 </div>
-                                <h2 className="text-lg font-bold">{t("ai_config")}</h2>
-                            </div>
-                            {aiConfig && (
-                                <button onClick={handleDeleteAI} className="action-btn !w-8 !h-8 !text-rose-400" title={t("delete_ai_config")}>
-                                    <Trash weight="bold" size={16} />
-                                </button>
-                            )}
-                        </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                            <div className="md:col-span-2">
-                                <label className="text-[11px] mb-1">{t("api_key")}</label>
-                                <input
-                                    type="password"
-                                    className="!py-2 !px-4"
-                                    value={aiForm.api_key}
-                                    onChange={(e) => setAIForm({ ...aiForm, api_key: e.target.value })}
-                                    placeholder={aiConfig?.api_key_masked || t("api_key")}
-                                />
-                                {aiConfig?.api_key_masked && (
-                                    <p className="mt-1 text-[9px] text-main/40">
-                                        {t("api_key_keep_hint")}
-                                    </p>
+                                {aiTestResult && (
+                                    <div className={`mt-4 p-3 rounded-xl text-[11px] border ${aiTestStatus === "success" ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'} animate-float-up`}>
+                                        <div className="flex items-center gap-2 font-bold mb-0.5 uppercase tracking-wider text-[9px]">
+                                            {aiTestStatus === "success" ? t("process_successful") : t("process_error")}
+                                        </div>
+                                        {aiTestResult}
+                                    </div>
                                 )}
                             </div>
-                            <div>
-                                <label className="text-[11px] mb-1">{t("base_url")}</label>
-                                <input
-                                    className="!py-2 !px-4"
-                                    value={aiForm.base_url}
-                                    onChange={(e) => setAIForm({ ...aiForm, base_url: e.target.value })}
-                                    placeholder={t("ai_base_url_placeholder")}
-                                />
-                            </div>
-                            <div>
-                                <label className="text-[11px] mb-1">{t("model")}</label>
-                                <input
-                                    className="!py-2 !px-4"
-                                    value={aiForm.model}
-                                    onChange={(e) => setAIForm({ ...aiForm, model: e.target.value })}
-                                />
-                            </div>
-                        </div>
+                        )}
 
-                        <div className="flex gap-3">
-                            <button onClick={handleSaveAI} className="btn-gradient w-fit px-5 !py-2 !text-[11px]" disabled={configLoading}>
-                                {configLoading ? <Spinner className="animate-spin" /> : t("save")}
-                            </button>
-                            <button onClick={handleTestAI} className="btn-secondary w-fit px-5 !py-2 !text-[11px]" disabled={aiTesting || configLoading}>
-                                {aiTesting ? <Spinner className="animate-spin" /> : t("test_connection")}
-                            </button>
-                        </div>
-
-                        {aiTestResult && (
-                            <div className={`mt-4 p-3 rounded-xl text-[11px] border ${aiTestStatus === "success" ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20' : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20'} animate-float-up`}>
-                                <div className="flex items-center gap-2 font-bold mb-0.5 uppercase tracking-wider text-[9px]">
-                                    {aiTestStatus === "success" ? t("process_successful") : t("process_error")}
+                        {activeSection === "telegram" && (
+                            <div className="settings-panel">
+                                <div className="settings-panel-header">
+                                    <div className="settings-panel-title">
+                                        <div className="p-2 bg-sky-500/10 rounded-xl text-sky-400">
+                                            <Cpu weight="bold" size={18} />
+                                        </div>
+                                        <h3 className="text-base font-bold">{t("tg_api_config")}</h3>
+                                    </div>
+                                    <button onClick={handleResetTelegram} className="action-btn !w-8 !h-8" title={t("restore_default")} disabled={telegramLoading}>
+                                        {telegramLoading ? <Spinner className="animate-spin" size={14} /> : <ArrowUDownLeft weight="bold" size={16} />}
+                                    </button>
                                 </div>
-                                {aiTestResult}
+
+                                <div className="settings-field-grid">
+                                    <div>
+                                        <label className="text-[11px] mb-1">{t("api_id")}</label>
+                                        <input
+                                            className="!py-2 !px-4"
+                                            value={telegramForm.api_id}
+                                            onChange={(e) => setTelegramForm({ ...telegramForm, api_id: e.target.value })}
+                                            placeholder={t("tg_api_id_placeholder")}
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-[11px] mb-1">{t("api_hash")}</label>
+                                        <input
+                                            className="!py-2 !px-4"
+                                            value={telegramForm.api_hash}
+                                            onChange={(e) => setTelegramForm({ ...telegramForm, api_hash: e.target.value })}
+                                            placeholder={t("tg_api_hash_placeholder")}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="settings-actions">
+                                    <button className="btn-gradient" onClick={handleSaveTelegram} disabled={telegramLoading}>
+                                        {telegramLoading ? <Spinner className="animate-spin" /> : t("apply_api_config")}
+                                    </button>
+                                </div>
+                                <div className="settings-callout mt-4 text-[10px] text-amber-700 dark:text-amber-200/70 leading-relaxed font-medium">
+                                    <div className="flex items-center gap-2 mb-1.5">
+                                        <Terminal weight="bold" className="text-amber-600 dark:text-amber-400" size={12} />
+                                        <span className="font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">{t("warning_notice")}</span>
+                                    </div>
+                                    {t("tg_config_warning")}
+                                </div>
                             </div>
                         )}
-                    </div>
 
-                    {/* 鍏ㄥ眬璁剧疆 */}
-                    <div className="glass-panel p-4">
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="p-2 bg-violet-500/10 rounded-xl text-violet-400">
-                                <Gear weight="bold" size={18} />
-                            </div>
-                            <h2 className="text-lg font-bold">{t("global_settings")}</h2>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                            <div>
-                                <label className="text-[11px] mb-1">{t("sign_interval")}</label>
-                                <input
-                                    type="number"
-                                    className="!py-2 !px-4"
-                                    value={globalSettings.sign_interval === null ? "" : globalSettings.sign_interval}
-                                    onChange={(e) => setGlobalSettings({ ...globalSettings, sign_interval: e.target.value ? parseInt(e.target.value) : null })}
-                                    placeholder={t("sign_interval_placeholder")}
-                                />
-                                <p className="mt-1 text-[9px] text-[#9496a1]">{t("sign_interval_desc")}</p>
-                            </div>
-                            <div>
-                                <label className="text-[11px] mb-1">{t("log_retention")}</label>
-                                <input
-                                    type="number"
-                                    className="!py-2 !px-4"
-                                    value={globalSettings.log_retention_days}
-                                    onChange={(e) => setGlobalSettings({ ...globalSettings, log_retention_days: parseInt(e.target.value) || 0 })}
-                                />
-                            </div>
-                            <div className="md:col-span-2">
-                                <label className="text-[11px] mb-1">{t("timezone")}</label>
-                                <select
-                                    className="!py-2 !px-4"
-                                    value={globalSettings.timezone || "Asia/Shanghai"}
-                                    onChange={(e) => setGlobalSettings({ ...globalSettings, timezone: e.target.value })}
-                                >
-                                    {TIMEZONE_OPTIONS.map((timezone) => (
-                                        <option key={timezone} value={timezone}>
-                                            {timezone}
-                                        </option>
-                                    ))}
-                                </select>
-                                <p className="mt-1 text-[9px] text-[#9496a1]">{t("timezone_desc")}</p>
-                            </div>
-                            <div className="md:col-span-2">
-                                <label className="text-[11px] mb-1">{t("data_dir")}</label>
-                                <input
-                                    className="!py-2 !px-4"
-                                    value={globalSettings.data_dir || ""}
-                                    onChange={(e) => setGlobalSettings({ ...globalSettings, data_dir: e.target.value || null })}
-                                    placeholder={t("data_dir_placeholder")}
-                                />
-                                <p className="mt-1 text-[9px] text-[#9496a1]">{t("data_dir_desc")}</p>
-                                <p className="mt-1 text-[9px] text-amber-400">{t("data_dir_restart_hint")}</p>
-                            </div>
-                            <div className="md:col-span-2">
-                                <label className="text-[11px] mb-1">{t("global_proxy")}</label>
-                                <input
-                                    className="!py-2 !px-4"
-                                    value={globalSettings.global_proxy || ""}
-                                    onChange={(e) => setGlobalSettings({ ...globalSettings, global_proxy: e.target.value || null })}
-                                    placeholder={t("global_proxy_placeholder")}
-                                />
-                                <p className="mt-1 text-[9px] text-[#9496a1]">{t("global_proxy_desc")}</p>
-                            </div>
-                        </div>
-                        <button className="btn-gradient w-fit px-5 !py-2 !text-[11px]" onClick={handleSaveGlobal} disabled={configLoading}>
-                            {configLoading ? <Spinner className="animate-spin" /> : t("save_global_params")}
-                        </button>
-                    </div>
-
-                    <TelegramBotNotificationSettings
-                        settings={globalSettings}
-                        setSettings={setGlobalSettings}
-                        loading={configLoading}
-                        onSave={handleSaveGlobal}
-                        t={t}
-                    />
-
-                    {/* Telegram API 閰嶇疆 */}
-                    <div className="glass-panel p-4">
-                        <div className="flex justify-between items-center mb-4">
-                            <div className="flex items-center gap-3">
-                                <div className="p-2 bg-sky-500/10 rounded-xl text-sky-400">
-                                    <Cpu weight="bold" size={18} />
-                                </div>
-                                <h2 className="text-lg font-bold">{t("tg_api_config")}</h2>
-                            </div>
-                            <button onClick={handleResetTelegram} className="action-btn !w-8 !h-8" title={t("restore_default")} disabled={telegramLoading}>
-                                {telegramLoading ? <Spinner className="animate-spin" size={14} /> : <ArrowUDownLeft weight="bold" size={16} />}
-                            </button>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                            <div>
-                                <label className="text-[11px] mb-1">{t("api_id")}</label>
-                                <input
-                                    className="!py-2 !px-4"
-                                    value={telegramForm.api_id}
-                                    onChange={(e) => setTelegramForm({ ...telegramForm, api_id: e.target.value })}
-                                    placeholder={t("tg_api_id_placeholder")}
-                                />
-                            </div>
-                            <div>
-                                <label className="text-[11px] mb-1">{t("api_hash")}</label>
-                                <input
-                                    className="!py-2 !px-4"
-                                    value={telegramForm.api_hash}
-                                    onChange={(e) => setTelegramForm({ ...telegramForm, api_hash: e.target.value })}
-                                    placeholder={t("tg_api_hash_placeholder")}
-                                />
-                            </div>
-                        </div>
-                        <button className="btn-gradient w-fit px-5 !py-2 !text-[11px]" onClick={handleSaveTelegram} disabled={telegramLoading}>
-                            {telegramLoading ? <Spinner className="animate-spin" /> : t("apply_api_config")}
-                        </button>
-                        <div className="mt-4 p-3.5 rounded-xl bg-amber-500/10 dark:bg-amber-500/10 border border-amber-500/30 dark:border-amber-500/20 text-[10px] text-amber-700 dark:text-amber-200/60 leading-relaxed shadow-sm font-medium">
-                            <div className="flex items-center gap-2 mb-1.5">
-                                <Terminal weight="bold" className="text-amber-600 dark:text-amber-400" size={12} />
-                                <span className="font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">{t("warning_notice")}</span>
-                            </div>
-                            {t("tg_config_warning")}
-                        </div>
-                    </div>
-
-                    {/* 閰嶇疆瀵煎嚭瀵煎叆 */}
-                    <div className="glass-panel p-4">
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="p-2 bg-pink-500/10 rounded-xl text-pink-400">
-                                <DownloadSimple weight="bold" size={18} />
-                            </div>
-                            <h2 className="text-lg font-bold">{t("backup_migration")}</h2>
-                        </div>
-
-                        <div className="flex flex-col md:flex-row gap-6">
-                            <div className="flex-1">
-                                <label className="mb-2 text-[11px]">{t("export_config")}</label>
-                                <p className="text-[10px] text-[#9496a1] mb-3 leading-relaxed">{t("export_desc")}</p>
-                                <button onClick={handleExport} className="btn-secondary w-full flex items-center justify-center gap-2 h-9 !text-[11px]" disabled={configLoading}>
-                                    {configLoading ? <Spinner className="animate-spin" /> : <FloppyDisk weight="bold" />}
-                                    {t("download_json")}
-                                </button>
-                            </div>
-
-                            <div className="w-px bg-white/5 self-stretch hidden md:block"></div>
-
-                            <div className="flex-1 flex flex-col">
-                                <div className="flex justify-between items-center mb-2">
-                                    <label className="text-[11px]">{t("import_config")}</label>
-                                    <label className="text-[10px] text-[#8a3ffc] dark:text-[#b57dff] cursor-pointer hover:underline font-bold">
-                                        {t("upload_json")}
-                                        <input
-                                            type="file"
-                                            accept=".json"
-                                            className="hidden"
-                                            onChange={(e) => {
-                                                const file = e.target.files?.[0];
-                                                if (file) {
-                                                    const reader = new FileReader();
-                                                    reader.onload = (ev) => {
-                                                        const content = ev.target?.result as string;
-                                                        setImportConfig(content);
-                                                    };
-                                                    reader.readAsText(file);
-                                                }
-                                            }}
-                                        />
-                                    </label>
-                                </div>
-                                <textarea
-                                    className="w-full flex-1 min-h-[80px] bg-white/2 rounded-xl p-3 text-[10px] font-mono text-main/60 border border-white/5 focus:border-[#8a3ffc]/30 outline-none transition-all placeholder:text-main/20 custom-scrollbar"
-                                    placeholder={t("paste_json")}
-                                    value={importConfig}
-                                    onChange={(e) => setImportConfig(e.target.value)}
-                                ></textarea>
-
-                                <div className="flex items-center gap-3 mt-3 mb-4 group cursor-pointer" onClick={() => setOverwriteConfig(!overwriteConfig)}>
-                                    <div
-                                        className={`w-12 h-7 rounded-full relative transition-all shadow-sm border-2 ${overwriteConfig ? 'bg-[#8a3ffc] border-[#8a3ffc]' : 'bg-black/20 dark:bg-white/10 border-black/10 dark:border-white/30'}`}
-                                    >
-                                        <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all shadow-md ${overwriteConfig ? 'left-6' : 'left-0.5'}`}></div>
+                        {activeSection === "backup" && (
+                            <div className="settings-panel">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="settings-callout">
+                                        <label className="mb-2 text-[11px]">{t("export_config")}</label>
+                                        <p className="settings-hint mb-3">{t("export_desc")}</p>
+                                        <div className="settings-actions !mt-3 !pt-3">
+                                            <button onClick={handleExport} className="btn-secondary" disabled={configLoading}>
+                                                {configLoading ? <Spinner className="animate-spin" /> : <FloppyDisk weight="bold" />}
+                                                {t("download_json")}
+                                            </button>
+                                        </div>
                                     </div>
-                                    <span className={`text-[13px] cursor-pointer select-none transition-colors ${overwriteConfig ? 'text-main font-bold' : 'text-main/40'}`}>
-                                        {t("overwrite_conflict")}
-                                    </span>
-                                </div>
 
-                                <button onClick={handleImport} className="btn-gradient w-full h-10 !text-xs" disabled={configLoading}>
-                                    {configLoading ? <Spinner className="animate-spin" /> : t("execute_import")}
-                                </button>
+                                    <div className="settings-callout flex flex-col">
+                                        <div className="flex justify-between items-center mb-2">
+                                            <label className="text-[11px]">{t("import_config")}</label>
+                                            <label className="text-[10px] text-[#8a3ffc] dark:text-[#b57dff] cursor-pointer hover:underline font-bold">
+                                                {t("upload_json")}
+                                                <input
+                                                    type="file"
+                                                    accept=".json"
+                                                    className="hidden"
+                                                    onChange={(e) => {
+                                                        const file = e.target.files?.[0];
+                                                        if (file) {
+                                                            const reader = new FileReader();
+                                                            reader.onload = (ev) => {
+                                                                const content = ev.target?.result as string;
+                                                                setImportConfig(content);
+                                                            };
+                                                            reader.readAsText(file);
+                                                        }
+                                                    }}
+                                                />
+                                            </label>
+                                        </div>
+                                        <textarea
+                                            className="w-full flex-1 min-h-[120px] p-3 text-[10px] font-mono text-main/60 outline-none transition-all placeholder:text-main/20 custom-scrollbar"
+                                            placeholder={t("paste_json")}
+                                            value={importConfig}
+                                            onChange={(e) => setImportConfig(e.target.value)}
+                                        ></textarea>
+
+                                        <div className="flex items-center gap-3 mt-3 mb-4 group cursor-pointer" onClick={() => setOverwriteConfig(!overwriteConfig)}>
+                                            <div
+                                                className={`w-12 h-7 rounded-full relative transition-all shadow-sm border-2 ${overwriteConfig ? 'bg-[#8a3ffc] border-[#8a3ffc]' : 'bg-black/20 dark:bg-white/10 border-black/10 dark:border-white/30'}`}
+                                            >
+                                                <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all shadow-md ${overwriteConfig ? 'left-6' : 'left-0.5'}`}></div>
+                                            </div>
+                                            <span className={`text-[13px] cursor-pointer select-none transition-colors ${overwriteConfig ? 'text-main font-bold' : 'text-main/40'}`}>
+                                                {t("overwrite_conflict")}
+                                            </span>
+                                        </div>
+
+                                        <div className="settings-actions !mt-3 !pt-3">
+                                            <button onClick={handleImport} className="btn-gradient" disabled={configLoading}>
+                                                {configLoading ? <Spinner className="animate-spin" /> : t("execute_import")}
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
-                        </div>
-                    </div>
+                        )}
+                    </section>
                 </div>
             </main>
 
