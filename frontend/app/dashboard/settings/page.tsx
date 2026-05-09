@@ -535,7 +535,7 @@ export default function SettingsPage() {
 
             <main className="main-content !pt-6">
                 <div className="settings-shell grid grid-cols-1 lg:grid-cols-[248px_minmax(0,1fr)] gap-4 animate-float-up pb-10">
-                    <aside className="settings-sidebar h-fit lg:sticky lg:top-6 lg:self-start">
+                    <aside className="settings-sidebar h-fit lg:self-start">
                         <div className="space-y-1">
                             {settingsSections.map((section) => {
                                 const SectionIcon = section.icon;
