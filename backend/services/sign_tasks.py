@@ -276,23 +276,28 @@ class SignTaskService:
         if not isinstance(text, str) or not text:
             return "" if text is None else str(text)
 
-        suspicious_tokens = (
-            "绛",
-            "璐",
-            "浠",
-            "鐧",
-            "鏃",
-            "閰",
-            "杩",
-            "鍙",
-            "鍦",
-            "娑",
-            "妫",
-            "瀛",
-            "�",
+        # Common UTF-8-as-GBK mojibake lead characters, written as code
+        # points so the source file itself stays visually clean.
+        suspicious_tokens = tuple(
+            chr(codepoint)
+            for codepoint in (
+                0x7EDB,
+                0x7490,
+                0x6D60,
+                0x9427,
+                0x93C3,
+                0x95B0,
+                0x6769,
+                0x9359,
+                0x9366,
+                0x5A11,
+                0x59AB,
+                0x701B,
+                0xFFFD,
+            )
         )
         suspicious_count = sum(text.count(token) for token in suspicious_tokens)
-        if suspicious_count < 2 and "�" not in text:
+        if suspicious_count < 2 and "\ufffd" not in text:
             return text
 
         try:
@@ -449,7 +454,7 @@ class SignTaskService:
         return all_history
 
     def clear_account_history_logs(self, account_name: str) -> Dict[str, int]:
-        """娓呯悊鏌愯处鍙风殑鍘嗗彶鏃ュ織锛屼笉褰卞搷鍏朵粬璐﹀彿"""
+        """清理某账号的历史日志，不影响其他账号"""
         removed_files = 0
         removed_entries = 0
 

@@ -104,11 +104,11 @@ export default function SettingsPage() {
     const [totpCode, setTotpCode] = useState("");
     const [showTotpSetup, setShowTotpSetup] = useState(false);
 
-    // 閰嶇疆瀵煎叆瀵煎嚭
+    // Config import/export
     const [importConfig, setImportConfig] = useState("");
     const [overwriteConfig, setOverwriteConfig] = useState(false);
 
-    // AI 閰嶇疆
+    // AI config
     const [aiConfig, setAIConfigState] = useState<AIConfig | null>(null);
     const [aiForm, setAIForm] = useState({
         api_key: "",
@@ -119,7 +119,7 @@ export default function SettingsPage() {
     const [aiTestStatus, setAITestStatus] = useState<"success" | "error" | null>(null);
     const [aiTesting, setAITesting] = useState(false);
 
-    // 鍏ㄥ眬璁剧疆
+    // Global settings
     const [globalSettings, setGlobalSettings] = useState<GlobalSettings>({
         sign_interval: null,
         log_retention_days: 7,
@@ -134,7 +134,7 @@ export default function SettingsPage() {
         telegram_bot_message_thread_id: null,
     });
 
-    // Telegram API 閰嶇疆
+    // Telegram API config
     const [telegramConfig, setTelegramConfig] = useState<TelegramConfig | null>(null);
     const [telegramForm, setTelegramForm] = useState({
         api_id: "",
@@ -166,6 +166,16 @@ export default function SettingsPage() {
         const date = new Date(value);
         if (Number.isNaN(date.getTime())) return value;
         return date.toLocaleString();
+    };
+
+    const shortSectionDesc: Record<SettingsSection, string> = {
+        account: t("username") + " / 2FA",
+        global: t("timezone") + " / " + t("global_proxy"),
+        notify: "Bot " + t("settings_notify_desc").replace(/^Telegram Bot\s*/i, ""),
+        ai: "API / Model",
+        telegram: "API ID / Hash",
+        logs: t("logs"),
+        backup: t("import_config") + " / " + t("export_config"),
     };
 
     useEffect(() => {
@@ -526,49 +536,49 @@ export default function SettingsPage() {
         {
             id: "account",
             label: t("settings_account_security"),
-            description: t("settings_account_security_desc"),
+            description: shortSectionDesc.account,
             icon: ShieldCheck,
             color: "text-emerald-400 bg-emerald-500/10",
         },
         {
             id: "global",
             label: t("global_settings"),
-            description: t("settings_global_desc"),
+            description: shortSectionDesc.global,
             icon: Gear,
             color: "text-violet-400 bg-violet-500/10",
         },
         {
             id: "notify",
             label: t("telegram_bot_notify"),
-            description: t("settings_notify_desc"),
+            description: shortSectionDesc.notify,
             icon: BotIcon,
             color: "text-cyan-400 bg-cyan-500/10",
         },
         {
             id: "ai",
             label: t("ai_config"),
-            description: t("settings_ai_desc"),
+            description: shortSectionDesc.ai,
             icon: BotIcon,
             color: "text-indigo-400 bg-indigo-500/10",
         },
         {
             id: "telegram",
             label: t("tg_api_config"),
-            description: t("settings_telegram_desc"),
+            description: shortSectionDesc.telegram,
             icon: Cpu,
             color: "text-sky-400 bg-sky-500/10",
         },
         {
             id: "logs",
             label: t("system_logs"),
-            description: t("system_logs_desc"),
+            description: shortSectionDesc.logs,
             icon: Terminal,
             color: "text-slate-400 bg-slate-500/10",
         },
         {
             id: "backup",
             label: t("backup_migration"),
-            description: t("settings_backup_desc"),
+            description: shortSectionDesc.backup,
             icon: DownloadSimple,
             color: "text-pink-400 bg-pink-500/10",
         },
@@ -652,7 +662,7 @@ export default function SettingsPage() {
                                 </div>
                                 <div className="min-w-0">
                                     <h2 className="text-lg font-bold truncate">{activeSectionMeta.label}</h2>
-                                    <p className="text-[11px] text-main/50 mt-0.5">{activeSectionMeta.description}</p>
+                                    <p className="text-[11px] text-main/50 mt-0.5 truncate">{activeSectionMeta.description}</p>
                                 </div>
                             </div>
                         </div>

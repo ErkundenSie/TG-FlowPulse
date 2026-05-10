@@ -43,7 +43,8 @@ import {
     DotsThreeVertical,
     Lightning,
     Copy,
-    ClipboardText
+    ClipboardText,
+    MagnifyingGlass
 } from "@phosphor-icons/react";
 import { ToastContainer, useToast } from "../../../components/ui/toast";
 import { useLanguage } from "../../../context/LanguageContext";
@@ -172,6 +173,61 @@ const LogLine = memo(({ line, index }: { line: string; index: number }) => {
 });
 
 LogLine.displayName = "LogLine";
+
+type TaskComponentProps = {
+    task: SignTask;
+    loading: boolean;
+    running: boolean;
+    onEdit: (task: SignTask) => void;
+    onRun: (task: SignTask) => void;
+    onToggleEnabled: (task: SignTask) => void;
+    onViewLogs: (task: SignTask) => void;
+    onCopy: (name: string) => void;
+    onDelete: (name: string) => void;
+    t: (key: string) => string;
+    language: string;
+};
+
+const TaskActions = memo(function TaskActions({
+    task,
+    loading,
+    running,
+    onEdit,
+    onRun,
+    onToggleEnabled,
+    onViewLogs,
+    onCopy,
+    onDelete,
+    t,
+    compact = false,
+}: TaskComponentProps & { compact?: boolean }) {
+    const copyTaskTitle = t("copy_task") === "copy_task" ? t("copy_config") : t("copy_task");
+    const sizeClass = compact ? "!w-7 !h-7" : "!w-8 !h-8";
+    const iconSize = compact ? 13 : 14;
+
+    return (
+        <div className="flex items-center gap-1 rounded-lg bg-black/5 dark:bg-white/[0.035] p-1 border border-black/5 dark:border-white/5">
+            <button onClick={() => onRun(task)} disabled={loading || running} className={`action-btn ${sizeClass} !text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-40 disabled:cursor-not-allowed`} title={t("run_now")}>
+                {running ? <Spinner className="animate-spin" size={iconSize} /> : <Play weight="fill" size={iconSize} />}
+            </button>
+            <button onClick={() => onToggleEnabled(task)} disabled={loading || running} className={`action-btn ${sizeClass} disabled:opacity-40 disabled:cursor-not-allowed ${task.enabled === false ? "!text-rose-400 hover:bg-rose-500/10" : "!text-emerald-400 hover:bg-emerald-500/10"}`} title={task.enabled === false ? t("enable_task") : t("disable_task")}>
+                <Power weight={task.enabled === false ? "regular" : "fill"} size={iconSize} />
+            </button>
+            <button onClick={() => onEdit(task)} disabled={loading} className={`action-btn ${sizeClass}`} title={t("edit")}>
+                <PencilSimple weight="bold" size={iconSize} />
+            </button>
+            <button onClick={() => onViewLogs(task)} disabled={loading} className={`action-btn ${sizeClass} !text-[#8a3ffc] hover:bg-[#8a3ffc]/10`} title={t("task_history_logs")}>
+                <ListDashes weight="bold" size={iconSize} />
+            </button>
+            <button onClick={() => onCopy(task.name)} disabled={loading} className={`action-btn ${sizeClass} !text-sky-400 hover:bg-sky-500/10`} title={copyTaskTitle}>
+                <Copy weight="bold" size={iconSize} />
+            </button>
+            <button onClick={() => onDelete(task.name)} disabled={loading} className={`action-btn ${sizeClass} !text-rose-400 hover:bg-rose-500/10`} title={t("delete")}>
+                <Trash weight="bold" size={iconSize} />
+            </button>
+        </div>
+    );
+});
 
 // Memoized Task Item Component
 const TaskItem = memo(({ task, loading, running, onEdit, onRun, onToggleEnabled, onViewLogs, onCopy, onDelete, t, language }: {
@@ -325,62 +381,79 @@ const TaskItem = memo(({ task, loading, running, onEdit, onRun, onToggleEnabled,
                     <div className="text-[10px] text-main/20 font-bold uppercase tracking-widest italic">{t("no_data")}</div>
                 )}
 
-                <div className="flex items-center gap-1 bg-black/10 rounded-xl p-1 border border-white/5">
-                    <button
-                        onClick={() => onRun(task)}
-                        disabled={loading || running}
-                        className="action-btn !w-8 !h-8 !text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-40 disabled:cursor-not-allowed"
-                        title={t("run_now")}
-                    >
-                        {running ? <Spinner className="animate-spin" size={14} /> : <Play weight="fill" size={14} />}
-                    </button>
-                    <button
-                        onClick={() => onToggleEnabled(task)}
-                        disabled={loading || running}
-                        className={`action-btn !w-8 !h-8 disabled:opacity-40 disabled:cursor-not-allowed ${task.enabled === false ? "!text-rose-400 hover:bg-rose-500/10" : "!text-emerald-400 hover:bg-emerald-500/10"}`}
-                        title={task.enabled === false ? t("enable_task") : t("disable_task")}
-                    >
-                        <Power weight={task.enabled === false ? "regular" : "fill"} size={14} />
-                    </button>
-                    <button
-                        onClick={() => onEdit(task)}
-                        disabled={loading}
-                        className="action-btn !w-8 !h-8"
-                        title={t("edit")}
-                    >
-                        <PencilSimple weight="bold" size={14} />
-                    </button>
-                    <button
-                        onClick={() => onViewLogs(task)}
-                        disabled={loading}
-                        className="action-btn !w-8 !h-8 !text-[#8a3ffc] hover:bg-[#8a3ffc]/10"
-                        title={t("task_history_logs")}
-                    >
-                        <ListDashes weight="bold" size={14} />
-                    </button>
-                    <button
-                        onClick={() => onCopy(task.name)}
-                        disabled={loading}
-                        className="action-btn !w-8 !h-8 !text-sky-400 hover:bg-sky-500/10"
-                        title={copyTaskTitle}
-                    >
-                        <Copy weight="bold" size={14} />
-                    </button>
-                    <button
-                        onClick={() => onDelete(task.name)}
-                        disabled={loading}
-                        className="action-btn !w-8 !h-8 !text-rose-400 hover:bg-rose-500/10"
-                        title={t("delete")}
-                    >
-                        <Trash weight="bold" size={14} />
-                    </button>
-                </div>
+                <TaskActions
+                    task={task}
+                    loading={loading}
+                    running={running}
+                    onEdit={onEdit}
+                    onRun={onRun}
+                    onToggleEnabled={onToggleEnabled}
+                    onViewLogs={onViewLogs}
+                    onCopy={onCopy}
+                    onDelete={onDelete}
+                    t={t}
+                    language={language}
+                />
             </div>
         </div>
     );
 });
 
 TaskItem.displayName = "TaskItem";
+
+const DesktopTaskRow = memo(function DesktopTaskRow(props: TaskComponentProps) {
+    const { task, running, t, language } = props;
+    const chatId = task.chats[0]?.chat_id || "-";
+    const schedule = task.execution_mode === "range" && task.range_start && task.range_end
+        ? `${task.range_start} - ${task.range_end}`
+        : task.sign_at;
+    const lastRunText = task.last_run
+        ? new Date(task.last_run.time).toLocaleString(language === "zh" ? "zh-CN" : "en-US", {
+            month: "2-digit",
+            day: "2-digit",
+            hour: "2-digit",
+            minute: "2-digit",
+        })
+        : t("no_data");
+
+    return (
+        <div className={`grid min-w-[860px] grid-cols-[minmax(220px,1.4fr)_minmax(120px,0.8fr)_minmax(130px,0.7fr)_minmax(150px,0.9fr)_auto] items-center gap-4 px-4 py-2.5 border-b border-black/5 dark:border-white/5 last:border-b-0 hover:bg-black/[0.025] dark:hover:bg-white/[0.035] transition-colors ${running ? "bg-emerald-500/[0.04]" : ""} ${task.enabled === false ? "opacity-65" : ""}`}>
+            <div className="min-w-0 flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-[#8a3ffc]/10 flex items-center justify-center text-[#b57dff] shrink-0">
+                    {running ? <Spinner className="animate-spin" size={15} /> : <ChatCircleText weight="bold" size={16} />}
+                </div>
+                <div className="min-w-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                        <span className="font-bold text-sm truncate" title={task.name}>{task.name}</span>
+                        {task.chats.length > 1 && (
+                            <span className="shrink-0 text-[9px] font-bold text-[#8a3ffc]/70 bg-[#8a3ffc]/10 px-1.5 py-0.5 rounded">+{task.chats.length - 1}</span>
+                        )}
+                    </div>
+                    <div className="mt-0.5 text-[10px] font-mono text-main/35 truncate">{chatId}</div>
+                </div>
+            </div>
+            <div className="min-w-0 flex items-center gap-1.5 text-main/50">
+                <Clock weight="bold" size={12} />
+                <span className="truncate font-mono text-[11px] font-bold">{schedule}</span>
+                {task.random_seconds > 0 && (
+                    <span className="shrink-0 inline-flex items-center gap-1 rounded bg-[#8a3ffc]/10 px-1.5 py-0.5 text-[10px] font-bold text-[#8a3ffc]">
+                        <Hourglass weight="bold" size={10} />{Math.round(task.random_seconds / 60)}m
+                    </span>
+                )}
+            </div>
+            <div className={`inline-flex w-fit items-center rounded-md px-2 py-1 text-[10px] font-bold ${task.enabled === false ? "bg-rose-500/10 text-rose-400" : "bg-emerald-500/10 text-emerald-400"}`}>
+                {task.enabled === false ? t("task_disabled") : t("task_enabled")}
+            </div>
+            <div className="min-w-0">
+                <div className={`text-[10px] font-bold ${task.last_run?.success ? "text-emerald-400" : task.last_run ? "text-rose-400" : "text-main/25"}`}>
+                    {task.last_run ? (task.last_run.success ? t("success") : t("failure")) : t("no_data")}
+                </div>
+                <div className="text-[10px] text-main/35 font-mono truncate">{lastRunText}</div>
+            </div>
+            <TaskActions {...props} compact />
+        </div>
+    );
+});
 
 export default function AccountTasksContent() {
     const router = useRouter();
@@ -410,6 +483,8 @@ export default function AccountTasksContent() {
     const [liveLogTaskName, setLiveLogTaskName] = useState<string | null>(null);
     const [liveLogs, setLiveLogs] = useState<string[]>([]);
     const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+    const [activeGroupFilter, setActiveGroupFilter] = useState<string>("__all__");
+    const [taskSearch, setTaskSearch] = useState("");
 
     const addToastRef = useRef(addToast);
     const tRef = useRef(t);
@@ -548,6 +623,14 @@ export default function AccountTasksContent() {
     const groupLabel = isZh ? "\u5206\u7EC4" : "Group";
     const groupPlaceholder = isZh ? "\u4F8B\u5982\uFF1A\u5E7F\u544A / \u7B7E\u5230 / \u76D1\u542C" : "e.g. Ads / Check-in / Monitor";
     const ungroupedLabel = isZh ? "\u672A\u5206\u7EC4" : "Ungrouped";
+    const allGroupsLabel = isZh ? "\u5168\u90E8" : "All";
+    const taskSearchPlaceholder = isZh ? "\u641C\u7D22\u4EFB\u52A1 / Chat ID / \u65F6\u95F4" : "Search task / Chat ID / time";
+    const taskColumnLabel = isZh ? "\u4EFB\u52A1" : "Task";
+    const scheduleColumnLabel = isZh ? "\u65F6\u95F4" : "Schedule";
+    const statusColumnLabel = isZh ? "\u72B6\u6001" : "Status";
+    const lastRunColumnLabel = isZh ? "\u4E0A\u6B21\u6267\u884C" : "Last Run";
+    const actionsColumnLabel = isZh ? "\u64CD\u4F5C" : "Actions";
+    const noMatchedTasksLabel = isZh ? "\u6CA1\u6709\u5339\u914D\u7684\u4EFB\u52A1" : "No matching tasks";
     const scheduleFixedTimeLabel = isZh ? "\u56FA\u5B9A\u65F6\u95F4" : "Fixed Time";
     const scheduleRangeLabel = isZh ? "\u968F\u673A\u65F6\u95F4\u6BB5" : "Random Range";
     const scheduleCronLabel = isZh ? "Cron \u9AD8\u7EA7" : "Cron Advanced";
@@ -754,7 +837,23 @@ export default function AccountTasksContent() {
         }
     }, [accountName, formatErrorMessage, handleAccountSessionInvalid]);
 
-    const groupedTasks = tasks.reduce<Array<{ name: string; tasks: SignTask[] }>>((groups, task) => {
+    const taskSearchLower = taskSearch.trim().toLowerCase();
+    const filteredTasks = tasks.filter((task) => {
+        const groupName = (task.group || "").trim() || ungroupedLabel;
+        if (activeGroupFilter !== "__all__" && groupName !== activeGroupFilter) return false;
+        if (!taskSearchLower) return true;
+        const haystack = [
+            task.name,
+            task.group || "",
+            task.sign_at,
+            task.range_start || "",
+            task.range_end || "",
+            ...(task.chats || []).map((chat) => `${chat.name || ""} ${chat.chat_id}`),
+        ].join(" ").toLowerCase();
+        return haystack.includes(taskSearchLower);
+    });
+
+    const groupedTasks = filteredTasks.reduce<Array<{ name: string; tasks: SignTask[] }>>((groups, task) => {
         const groupName = (task.group || "").trim() || ungroupedLabel;
         const existing = groups.find((group) => group.name === groupName);
         if (existing) {
@@ -764,6 +863,20 @@ export default function AccountTasksContent() {
         }
         return groups;
     }, []);
+
+    const groupSummaries = tasks.reduce<Array<{ name: string; total: number; enabled: number }>>((groups, task) => {
+        const groupName = (task.group || "").trim() || ungroupedLabel;
+        const existing = groups.find((group) => group.name === groupName);
+        if (existing) {
+            existing.total += 1;
+            existing.enabled += task.enabled === false ? 0 : 1;
+        } else {
+            groups.push({ name: groupName, total: 1, enabled: task.enabled === false ? 0 : 1 });
+        }
+        return groups;
+    }, []);
+
+    const totalEnabledTasks = tasks.filter((task) => task.enabled !== false).length;
 
     const toggleGroupCollapsed = useCallback((groupName: string) => {
         setCollapsedGroups((prev) => {
@@ -1563,7 +1676,53 @@ export default function AccountTasksContent() {
                         <p className="text-sm text-[#9496a1]">{t("no_tasks_desc")}</p>
                     </div>
                 ) : (
-                    <div className="flex flex-col gap-5">
+                    <div className="flex flex-col gap-4">
+                        <div className="glass-panel p-3 md:p-4 flex flex-col gap-3 sticky top-[74px] z-20">
+                            <div className="flex flex-col xl:flex-row xl:items-center gap-3">
+                                <div className="relative flex-1 min-w-0">
+                                    <MagnifyingGlass weight="bold" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-main/30" />
+                                    <input
+                                        className="!mb-0 !h-10 !pl-9 !text-sm"
+                                        value={taskSearch}
+                                        onChange={(e) => setTaskSearch(e.target.value)}
+                                        placeholder={taskSearchPlaceholder}
+                                    />
+                                </div>
+                                <div className="flex items-center gap-2 text-[11px] font-bold text-main/45 shrink-0">
+                                    <span>{filteredTasks.length}/{tasks.length}</span>
+                                    <span>{totalEnabledTasks}/{tasks.length} {taskEnabledLabel}</span>
+                                </div>
+                            </div>
+                            <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar pb-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setActiveGroupFilter("__all__")}
+                                    className={`shrink-0 rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${activeGroupFilter === "__all__" ? "border-[#8a3ffc]/30 bg-[#8a3ffc]/12 text-[#8a3ffc]" : "border-white/5 bg-black/5 text-main/55 hover:text-main"}`}
+                                >
+                                    {allGroupsLabel}
+                                    <span className="ml-2 rounded-full bg-black/10 px-1.5 py-0.5 text-[10px]">{tasks.length}</span>
+                                </button>
+                                {groupSummaries.map((group) => (
+                                    <button
+                                        key={group.name}
+                                        type="button"
+                                        onClick={() => setActiveGroupFilter(group.name)}
+                                        className={`shrink-0 rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${activeGroupFilter === group.name ? "border-[#8a3ffc]/30 bg-[#8a3ffc]/12 text-[#8a3ffc]" : "border-white/5 bg-black/5 text-main/55 hover:text-main"}`}
+                                    >
+                                        <span>{group.name}</span>
+                                        <span className="ml-2 rounded-full bg-black/10 px-1.5 py-0.5 text-[10px]">{group.enabled}/{group.total}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        {groupedTasks.length === 0 ? (
+                            <div className="glass-panel p-12 flex flex-col items-center justify-center text-main/35">
+                                <MagnifyingGlass weight="bold" size={28} className="mb-3" />
+                                <div className="font-bold">{noMatchedTasksLabel}</div>
+                            </div>
+                        ) : null}
+
                         {groupedTasks.map((group) => {
                             const collapsed = collapsedGroups.has(group.name);
                             const enabledCount = group.tasks.filter((task) => task.enabled !== false).length;
@@ -1590,7 +1749,33 @@ export default function AccountTasksContent() {
                                         </span>
                                     </button>
                                     {!collapsed ? (
-                                        <div className="flex flex-col gap-3">
+                                        <>
+                                        <div className="hidden md:block overflow-x-auto rounded-xl border border-white/5 bg-white/70 dark:bg-white/[0.035] custom-scrollbar">
+                                            <div className="grid min-w-[860px] grid-cols-[minmax(220px,1.4fr)_minmax(120px,0.8fr)_minmax(130px,0.7fr)_minmax(150px,0.9fr)_auto] gap-4 px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-main/35 border-b border-black/5 dark:border-white/5 bg-black/[0.025] dark:bg-white/[0.035]">
+                                                <span>{taskColumnLabel}</span>
+                                                <span>{scheduleColumnLabel}</span>
+                                                <span>{statusColumnLabel}</span>
+                                                <span>{lastRunColumnLabel}</span>
+                                                <span className="text-right">{actionsColumnLabel}</span>
+                                            </div>
+                                            {group.tasks.map((task) => (
+                                                <DesktopTaskRow
+                                                    key={task.name}
+                                                    task={task}
+                                                    loading={loading}
+                                                    running={runningTaskNames.has(task.name)}
+                                                    onEdit={handleEditTask}
+                                                    onRun={handleRunTask}
+                                                    onToggleEnabled={handleToggleTaskEnabled}
+                                                    onViewLogs={handleShowTaskHistory}
+                                                    onCopy={handleCopyTask}
+                                                    onDelete={handleDeleteTask}
+                                                    t={t}
+                                                    language={language}
+                                                />
+                                            ))}
+                                        </div>
+                                        <div className="flex flex-col gap-3 md:hidden">
                                             {group.tasks.map((task) => (
                                                 <TaskItem
                                                     key={task.name}
@@ -1608,6 +1793,7 @@ export default function AccountTasksContent() {
                                                 />
                                             ))}
                                         </div>
+                                        </>
                                     ) : null}
                                 </section>
                             );
