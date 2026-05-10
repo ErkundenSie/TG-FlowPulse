@@ -120,7 +120,7 @@ export default function LoginForm() {
         <div className="login-footer-icons !mt-6 !pt-4 border-t border-black/5 dark:border-white/5 flex items-center justify-center gap-6">
           <ThemeLanguageToggle />
           <a
-            href="https://github.com/akasls/TG-SignPulse"
+            href="https://github.com/ErkundenSie/TG-SignPulse"
             target="_blank"
             rel="noreferrer"
             className="action-btn !w-9 !h-9 !text-xl"

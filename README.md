@@ -74,7 +74,7 @@ docker run -d \
 上面的命令使用的是远程官方镜像 `ghcr.io/akasls/tg-signpulse:latest`，不会包含你本地修改过的代码。若要部署自己的修改版，推荐在服务器拉取代码后本地构建镜像：
 
 ```bash
-git clone 你的仓库地址 TG-SignPulse
+git clone https://github.com/ErkundenSie/TG-SignPulse.git TG-SignPulse
 cd TG-SignPulse
 ```
 

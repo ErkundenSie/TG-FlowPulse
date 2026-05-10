@@ -1677,7 +1677,7 @@ export default function AccountTasksContent() {
                     </div>
                 ) : (
                     <div className="flex flex-col gap-4">
-                        <div className="glass-panel p-3 md:p-4 flex flex-col gap-3 sticky top-[74px] z-20">
+                        <div className="glass-panel p-3 md:p-4 flex flex-col gap-3">
                             <div className="flex flex-col xl:flex-row xl:items-center gap-3">
                                 <div className="relative flex-1 min-w-0">
                                     <MagnifyingGlass weight="bold" size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-main/30" />
@@ -1727,10 +1727,10 @@ export default function AccountTasksContent() {
                             const collapsed = collapsedGroups.has(group.name);
                             const enabledCount = group.tasks.filter((task) => task.enabled !== false).length;
                             return (
-                                <section key={group.name} className="flex flex-col gap-3">
+                                <section key={group.name} className="flex flex-col gap-3 scroll-mt-4">
                                     <button
                                         type="button"
-                                        className="flex items-center justify-between gap-3 px-2 py-1 text-left"
+                                        className="flex items-center justify-between gap-3 px-2 pt-1 pb-2 text-left"
                                         onClick={() => toggleGroupCollapsed(group.name)}
                                     >
                                         <div className="flex items-center gap-2 min-w-0">
@@ -1750,7 +1750,7 @@ export default function AccountTasksContent() {
                                     </button>
                                     {!collapsed ? (
                                         <>
-                                        <div className="hidden md:block overflow-x-auto rounded-xl border border-white/5 bg-white/70 dark:bg-white/[0.035] custom-scrollbar">
+                                        <div className="hidden md:block overflow-x-auto rounded-xl border border-black/5 dark:border-white/5 bg-white/80 dark:bg-white/[0.035] custom-scrollbar shadow-sm">
                                             <div className="grid min-w-[860px] grid-cols-[minmax(220px,1.4fr)_minmax(120px,0.8fr)_minmax(130px,0.7fr)_minmax(150px,0.9fr)_auto] gap-4 px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-main/35 border-b border-black/5 dark:border-white/5 bg-black/[0.025] dark:bg-white/[0.035]">
                                                 <span>{taskColumnLabel}</span>
                                                 <span>{scheduleColumnLabel}</span>
