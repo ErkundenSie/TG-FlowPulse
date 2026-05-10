@@ -41,7 +41,7 @@ def _is_callback_data_invalid(exc: BaseException) -> bool:
 class KeywordMonitorRule:
     account_name: str
     task_name: str
-    chat_id: int
+    chat_id: Union[int, str]
     chat_name: str
     message_thread_id: Optional[int]
     action: Dict[str, Any]
@@ -121,6 +121,20 @@ def _parse_forward_chat_id(value: Any) -> Optional[Union[int, str]]:
         return int(text)
     except ValueError:
         return text
+
+
+def _parse_monitor_chat_id(value: Any) -> Optional[Union[int, str]]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.startswith("@"):
+        return text
+    try:
+        return int(text)
+    except ValueError:
+        return None
 
 
 _TEMPLATE_PATTERN = re.compile(r"(?:\$\{|\{)([a-zA-Z_][a-zA-Z0-9_]*)\}")
@@ -480,10 +494,8 @@ class KeywordMonitorService:
             if not account_name or not task_name or not task.get("enabled", True):
                 continue
             for chat in task.get("chats") or []:
-                chat_id = chat.get("chat_id")
-                try:
-                    chat_id_int = int(chat_id)
-                except (TypeError, ValueError):
+                chat_id = _parse_monitor_chat_id(chat.get("chat_id"))
+                if chat_id is None:
                     continue
                 for action in chat.get("actions") or []:
                     try:
@@ -499,8 +511,8 @@ class KeywordMonitorService:
                         KeywordMonitorRule(
                             account_name=account_name,
                             task_name=task_name,
-                            chat_id=chat_id_int,
-                            chat_name=str(chat.get("name") or chat_id_int),
+                            chat_id=chat_id,
+                            chat_name=str(chat.get("name") or chat_id),
                             message_thread_id=_as_int_or_none(
                                 chat.get("message_thread_id")
                             ),
@@ -1190,7 +1202,16 @@ class KeywordMonitorService:
                 rule
                 for rule in self._rules
                 if rule.account_name == account_name
-                and rule.chat_id == message.chat.id
+                and (
+                    rule.chat_id == message.chat.id
+                    or (
+                        isinstance(rule.chat_id, str)
+                        and rule.chat_id.startswith("@")
+                        and getattr(message.chat, "username", None)
+                        and rule.chat_id[1:].lower()
+                        == str(getattr(message.chat, "username")).lower()
+                    )
+                )
                 and (
                     rule.message_thread_id is None
                     or rule.message_thread_id == message_thread_id

@@ -33,7 +33,8 @@ import {
   X,
   PencilSimple,
   PaperPlaneRight,
-  Trash
+  Trash,
+  Eye
 } from "@phosphor-icons/react";
 import { ToastContainer, useToast } from "../../components/ui/toast";
 import { ThemeLanguageToggle } from "../../components/ThemeLanguageToggle";
@@ -854,6 +855,9 @@ export default function Dashboard() {
         </div>
         <div className="top-right-actions">
           <ThemeLanguageToggle />
+          <Link href="/dashboard/monitors" title={t("keyword_monitor")} className="action-btn">
+            <Eye weight="bold" />
+          </Link>
           <Link href="/dashboard/settings" title={t("sidebar_settings")} className="action-btn">
             <Gear weight="bold" />
           </Link>

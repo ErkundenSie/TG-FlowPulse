@@ -336,6 +336,12 @@ async def sync_jobs() -> None:
             if not account_name or not task_name:
                 print(f"Skip scheduling sign task with missing account/name: {st}")
                 continue
+            if st.get("monitor_only"):
+                job_id = f"sign-{account_name}-{task_name}"
+                desired_ids.discard(job_id)
+                if job_id in existing_ids:
+                    scheduler.remove_job(job_id)
+                continue
 
             job_id = f"sign-{account_name}-{task_name}"
             desired_ids.add(job_id)

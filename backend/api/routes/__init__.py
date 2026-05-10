@@ -5,6 +5,7 @@ from backend.api.routes import (
     auth,
     config,
     events,
+    monitors,
     sign_tasks,
     system_logs,
     tasks,
@@ -17,6 +18,7 @@ router.include_router(user.router, prefix="/user", tags=["user"])
 router.include_router(accounts.router, prefix="/accounts", tags=["accounts"])
 router.include_router(tasks.router, prefix="/tasks", tags=["tasks"])
 router.include_router(sign_tasks.router, prefix="/sign-tasks", tags=["sign-tasks"])
+router.include_router(monitors.router, prefix="/monitors", tags=["monitors"])
 router.include_router(config.router, prefix="/config", tags=["config"])
 router.include_router(events.router, prefix="/events", tags=["events"])
 router.include_router(system_logs.router, prefix="/system-logs", tags=["system-logs"])

@@ -220,7 +220,7 @@ def list_sign_tasks(
         account_name=account_name,
         force_refresh=force_refresh,
     )
-    return tasks
+    return [task for task in tasks if not task.get("monitor_only")]
 
 
 @router.post("", response_model=SignTaskOut, status_code=status.HTTP_201_CREATED)
@@ -271,7 +271,7 @@ def get_sign_task(
 ):
     """获取单个签到任务的详细信息"""
     task = get_sign_task_service().get_task(task_name, account_name=account_name)
-    if not task:
+    if not task or task.get("monitor_only"):
         raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
     return task
 
@@ -287,7 +287,7 @@ async def update_sign_task(
     try:
         # 检查任务是否存在
         existing = get_sign_task_service().get_task(task_name, account_name=account_name)
-        if not existing:
+        if not existing or existing.get("monitor_only"):
             raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
 
         # 转换 chats 为字典列表
@@ -334,6 +334,9 @@ async def delete_sign_task(
     current_user=Depends(get_current_user),
 ):
     """删除签到任务"""
+    existing = get_sign_task_service().get_task(task_name, account_name=account_name)
+    if not existing or existing.get("monitor_only"):
+        raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
     success = get_sign_task_service().delete_task(task_name, account_name=account_name)
     if not success:
         raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
@@ -356,7 +359,7 @@ async def run_sign_task(
     """手动运行签到任务"""
     # 检查任务是否存在
     task = get_sign_task_service().get_task(task_name, account_name=account_name)
-    if not task:
+    if not task or task.get("monitor_only"):
         raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
 
     result = await get_sign_task_service().run_task_with_logs(account_name, task_name)
@@ -382,7 +385,7 @@ def get_sign_task_history(
     current_user=Depends(get_current_user),
 ):
     task = get_sign_task_service().get_task(task_name, account_name=account_name)
-    if not task:
+    if not task or task.get("monitor_only"):
         raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
 
     return get_sign_task_service().get_task_history_logs(

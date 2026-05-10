@@ -752,3 +752,95 @@ export const getSignTaskHistory = (
     token
   );
 };
+
+// ============ Monitor task management ============
+
+export type MonitorChatId = number | string;
+
+export interface MonitorRule {
+  id?: string;
+  account_name?: string;
+  chat_id: MonitorChatId;
+  chat_name?: string;
+  message_thread_id?: number | null;
+  keywords: string[];
+  match_mode: "contains" | "exact" | "regex";
+  ignore_case: boolean;
+  push_channel: "telegram" | "forward" | "bark" | "custom" | "continue";
+  bark_url?: string | null;
+  custom_url?: string | null;
+  forward_chat_id?: MonitorChatId | null;
+  forward_message_thread_id?: number | null;
+  auto_reply_text?: string | null;
+  continue_chat_id?: MonitorChatId | null;
+  continue_message_thread_id?: number | null;
+  continue_action_interval?: number;
+  continue_actions?: any[];
+}
+
+export interface MonitorTask {
+  name: string;
+  account_name: string;
+  group?: string;
+  enabled: boolean;
+  rules: MonitorRule[];
+}
+
+export interface CreateMonitorTaskRequest {
+  name: string;
+  account_name: string;
+  group?: string;
+  enabled?: boolean;
+  rules: MonitorRule[];
+}
+
+export interface UpdateMonitorTaskRequest {
+  account_name?: string;
+  group?: string;
+  enabled?: boolean;
+  rules?: MonitorRule[];
+}
+
+export const listMonitorTasks = (token: string, accountName?: string) => {
+  const params = new URLSearchParams();
+  if (accountName) params.append("account_name", accountName);
+  return request<MonitorTask[]>(
+    `/monitors${params.toString() ? `?${params.toString()}` : ""}`,
+    {},
+    token
+  );
+};
+
+export const createMonitorTask = (token: string, data: CreateMonitorTaskRequest) =>
+  request<MonitorTask>("/monitors", {
+    method: "POST",
+    body: JSON.stringify(data),
+  }, token);
+
+export const updateMonitorTask = (
+  token: string,
+  name: string,
+  data: UpdateMonitorTaskRequest,
+  accountName?: string
+) => {
+  const params = new URLSearchParams();
+  if (accountName) params.append("account_name", accountName);
+  return request<MonitorTask>(
+    `/monitors/${name}${params.toString() ? `?${params.toString()}` : ""}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(data),
+    },
+    token
+  );
+};
+
+export const deleteMonitorTask = (token: string, name: string, accountName?: string) => {
+  const params = new URLSearchParams();
+  if (accountName) params.append("account_name", accountName);
+  return request<{ ok: boolean }>(
+    `/monitors/${name}${params.toString() ? `?${params.toString()}` : ""}`,
+    { method: "DELETE" },
+    token
+  );
+};
