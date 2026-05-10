@@ -1805,8 +1805,8 @@ export default function AccountTasksContent() {
             {/* Create/Edit task dialog */}
             {(showCreateDialog || showEditDialog) && (
                 <div className="modal-overlay active">
-                    <div className="glass-panel modal-content !max-w-xl flex flex-col" onClick={e => e.stopPropagation()}>
-                        <header className="modal-header border-b border-white/5 pb-3 mb-2 !items-start gap-3">
+                    <div className="glass-panel modal-content !w-[min(96vw,1120px)] !max-w-[1120px] !h-[min(92vh,900px)] !p-0 flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+                        <header className="modal-header border-b border-white/5 px-6 py-4 !mb-0 !items-start gap-3 shrink-0">
                             <div className="modal-title flex flex-wrap items-center gap-2 !text-base min-w-0 flex-1">
                                 <div className="p-2 bg-[#8a3ffc]/10 rounded-lg text-[#b57dff]">
                                     <Lightning weight="fill" size={20} />
@@ -1851,7 +1851,7 @@ export default function AccountTasksContent() {
                             </div>
                         </header>
 
-                        <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar">
+                        <div className="flex-1 min-h-0 overflow-y-auto p-5 md:p-6 space-y-4 custom-scrollbar">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
                                 {showCreateDialog ? (
                                     <div className="space-y-2">
@@ -2418,7 +2418,7 @@ export default function AccountTasksContent() {
                                                 )}
                                                 {(action.action === 4 || action.action === 6) && (
                                                     <select
-                                                        className="!mb-0 !h-10 !py-0 !text-xs !w-[220px] max-w-full"
+                                                        className="!mb-0 !h-10 !py-0 !text-xs !w-full max-w-full"
                                                         value={action.action === 4 ? "click" : "send"}
                                                         onChange={(e) => {
                                                             const nextActionId = e.target.value === "click" ? 4 : 6;
@@ -2434,7 +2434,7 @@ export default function AccountTasksContent() {
                                                 )}
                                                 {(action.action === 5 || action.action === 7) && (
                                                     <select
-                                                        className="!mb-0 !h-10 !py-0 !text-xs !w-[220px] max-w-full"
+                                                        className="!mb-0 !h-10 !py-0 !text-xs !w-full max-w-full"
                                                         value={action.action === 7 ? "click" : "send"}
                                                         onChange={(e) => {
                                                             const nextActionId = e.target.value === "click" ? 7 : 5;
@@ -2463,7 +2463,7 @@ export default function AccountTasksContent() {
                                                                 placeholder={keywordPlaceholder}
                                                             />
                                                         </div>
-                                                        <div className="grid grid-cols-1 md:grid-cols-[120px_minmax(0,1fr)] gap-2 md:gap-3 items-center">
+                                                                <div className="grid grid-cols-1 md:grid-cols-[150px_minmax(0,1fr)] gap-2 md:gap-3 items-center">
                                                             <label className="text-[10px] uppercase tracking-wider text-main/40">{t("match_mode")}</label>
                                                             <select
                                                                 className="!mb-0 !h-10 !py-0 !text-xs"
@@ -2625,7 +2625,7 @@ export default function AccountTasksContent() {
                                                                         />
                                                                     </div>
                                                                 </div>
-                                                                <div className="grid grid-cols-1 md:grid-cols-[120px_minmax(0,220px)] gap-2 md:gap-3 items-center">
+                                                                <div className="grid grid-cols-1 md:grid-cols-[150px_minmax(0,1fr)] gap-2 md:gap-3 items-center">
                                                                     <label className="text-[10px] uppercase tracking-wider text-main/40">{continueIntervalLabel}</label>
                                                                     <input
                                                                         inputMode="decimal"
@@ -2650,7 +2650,7 @@ export default function AccountTasksContent() {
                                                                                         {continueIndex + 1}
                                                                                     </div>
                                                                                     <select
-                                                                                        className="!h-9 !mb-0 max-w-[230px]"
+                                                                                        className="!h-9 !mb-0 max-w-full"
                                                                                         value={toActionTypeOption(continueAction) === "keyword_notify" ? "1" : toActionTypeOption(continueAction)}
                                                                                         onChange={(e) => {
                                                                                             const selectedType = e.target.value as ActionTypeOption;
@@ -2739,7 +2739,7 @@ export default function AccountTasksContent() {
                                                                                 )}
                                                                                 {(continueActionId === 4 || continueActionId === 6) && (
                                                                                     <select
-                                                                                        className="!mb-0 !h-10 !py-0 !text-xs !w-[220px] max-w-full"
+                                                                                        className="!mb-0 !h-10 !py-0 !text-xs !w-full max-w-full"
                                                                                         value={continueActionId === 4 ? "click" : "send"}
                                                                                         onChange={(e) => {
                                                                                             const nextActionId = e.target.value === "click" ? 4 : 6;
@@ -2755,7 +2755,7 @@ export default function AccountTasksContent() {
                                                                                 )}
                                                                                 {(continueActionId === 5 || continueActionId === 7) && (
                                                                                     <select
-                                                                                        className="!mb-0 !h-10 !py-0 !text-xs !w-[220px] max-w-full"
+                                                                                        className="!mb-0 !h-10 !py-0 !text-xs !w-full max-w-full"
                                                                                         value={continueActionId === 7 ? "click" : "send"}
                                                                                         onChange={(e) => {
                                                                                             const nextActionId = e.target.value === "click" ? 7 : 5;
@@ -2793,7 +2793,7 @@ export default function AccountTasksContent() {
                             </div>
                         </div>
 
-                        <footer className="p-6 border-t border-white/5 flex gap-3">
+                        <footer className="p-5 md:p-6 border-t border-white/5 flex gap-3 bg-[var(--glass-bg)] shrink-0">
                             <button
                                 className="btn-secondary flex-1"
                                 onClick={() => {

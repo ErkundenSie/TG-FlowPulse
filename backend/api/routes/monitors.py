@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import re
 from typing import Any, Literal, Optional, Union
 
@@ -12,17 +14,45 @@ from backend.models.user import User
 from backend.services.sign_tasks import get_sign_task_service
 
 router = APIRouter()
+logger = logging.getLogger("backend.api.monitors")
 
 MonitorChatId = Union[int, str]
+_keyword_monitor_restart_task: Optional[asyncio.Task] = None
+_keyword_monitor_restart_pending = False
 
 
-async def _restart_keyword_monitors() -> None:
+async def _run_keyword_monitor_restart() -> None:
+    global _keyword_monitor_restart_pending, _keyword_monitor_restart_task
     try:
         from backend.services.keyword_monitor import get_keyword_monitor_service
 
-        await get_keyword_monitor_service().restart_from_tasks()
+        while True:
+            _keyword_monitor_restart_pending = False
+            try:
+                await asyncio.wait_for(
+                    get_keyword_monitor_service().restart_from_tasks(),
+                    timeout=30,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Keyword monitor restart timed out")
+            except Exception:
+                logger.warning("Keyword monitor restart failed", exc_info=True)
+            if not _keyword_monitor_restart_pending:
+                break
+    except asyncio.TimeoutError:
+        logger.warning("Keyword monitor restart timed out")
     except Exception:
-        pass
+        logger.warning("Keyword monitor restart failed", exc_info=True)
+    finally:
+        _keyword_monitor_restart_task = None
+
+
+async def _restart_keyword_monitors() -> None:
+    global _keyword_monitor_restart_pending, _keyword_monitor_restart_task
+    if _keyword_monitor_restart_task and not _keyword_monitor_restart_task.done():
+        _keyword_monitor_restart_pending = True
+        return
+    _keyword_monitor_restart_task = asyncio.create_task(_run_keyword_monitor_restart())
 
 
 def _validate_task_name(value: str) -> str:
@@ -46,13 +76,28 @@ def _keyword_action_from_rule(rule: "MonitorRule") -> dict[str, Any]:
     auto_reply_text = _normalize_optional_text(rule.auto_reply_text)
     if auto_reply_text:
         push_channel = "continue"
+    thread_ids = [
+        int(item)
+        for item in (rule.message_thread_ids or [])
+        if item is not None
+    ]
+    if not thread_ids and rule.message_thread_id is not None:
+        thread_ids = [rule.message_thread_id]
     action: dict[str, Any] = {
         "action": 8,
+        "monitor_scope": "private" if rule.monitor_scope == "private" else "selected",
         "keywords": rule.keywords,
         "match_mode": rule.match_mode,
         "ignore_case": rule.ignore_case,
         "push_channel": push_channel,
+        "include_self_messages": rule.include_self_messages,
+        "message_thread_ids": thread_ids,
+        "time_window_enabled": rule.time_window_enabled,
     }
+    if rule.active_time_start:
+        action["active_time_start"] = rule.active_time_start
+    if rule.active_time_end:
+        action["active_time_end"] = rule.active_time_end
     if rule.bark_url:
         action["bark_url"] = rule.bark_url
     if rule.custom_url:
@@ -102,9 +147,21 @@ def _rule_from_chat(task_name: str, account_name: str, chat: dict[str, Any]) -> 
                 "chat_id": chat.get("chat_id"),
                 "chat_name": chat.get("name") or str(chat.get("chat_id") or ""),
                 "message_thread_id": chat.get("message_thread_id"),
+                "message_thread_ids": action.get("message_thread_ids") or (
+                    [chat.get("message_thread_id")]
+                    if chat.get("message_thread_id") is not None
+                    else []
+                ),
+                "monitor_scope": "private"
+                if action.get("monitor_scope") == "private"
+                else "selected",
                 "keywords": action.get("keywords") or [],
                 "match_mode": action.get("match_mode") or "contains",
                 "ignore_case": bool(action.get("ignore_case", True)),
+                "include_self_messages": bool(action.get("include_self_messages", False)),
+                "time_window_enabled": bool(action.get("time_window_enabled", False)),
+                "active_time_start": action.get("active_time_start"),
+                "active_time_end": action.get("active_time_end"),
                 "push_channel": action.get("push_channel") or "telegram",
                 "bark_url": action.get("bark_url"),
                 "custom_url": action.get("custom_url"),
@@ -121,12 +178,18 @@ def _rule_from_chat(task_name: str, account_name: str, chat: dict[str, Any]) -> 
 
 
 class MonitorRule(BaseModel):
-    chat_id: MonitorChatId = Field(..., description="Source chat ID or @username")
+    chat_id: Optional[MonitorChatId] = Field(None, description="Source chat ID or @username")
     chat_name: str = ""
     message_thread_id: Optional[int] = None
+    message_thread_ids: list[int] = Field(default_factory=list)
+    monitor_scope: Literal["selected", "private"] = "selected"
     keywords: list[str] = Field(default_factory=list)
     match_mode: Literal["contains", "exact", "regex"] = "contains"
     ignore_case: bool = True
+    include_self_messages: bool = False
+    time_window_enabled: bool = False
+    active_time_start: Optional[str] = None
+    active_time_end: Optional[str] = None
     push_channel: Literal["telegram", "forward", "bark", "custom", "continue"] = "telegram"
     bark_url: Optional[str] = None
     custom_url: Optional[str] = None
@@ -141,14 +204,44 @@ class MonitorRule(BaseModel):
     @validator("chat_id", "forward_chat_id", "continue_chat_id", pre=True)
     def chat_id_must_be_number_or_username(cls, value):
         if value is None or value == "":
-            return value
+            return None
         text = str(value).strip()
+        if text == "private":
+            return text
         if text.startswith("@"):
             return text
         try:
             return int(text)
         except ValueError as exc:
             raise ValueError("chat id must be a number or @username") from exc
+
+    @validator("message_thread_ids", pre=True)
+    def thread_ids_must_be_numbers(cls, value):
+        if value is None or value == "":
+            return []
+        if not isinstance(value, list):
+            value = [value]
+        cleaned: list[int] = []
+        for item in value:
+            if item is None or item == "":
+                continue
+            try:
+                cleaned.append(int(item))
+            except (TypeError, ValueError) as exc:
+                raise ValueError("topic id must be a number") from exc
+        return cleaned
+
+    @validator("active_time_start", "active_time_end", pre=True)
+    def time_must_be_hhmm(cls, value):
+        text = _normalize_optional_text(value)
+        if text is None:
+            return None
+        if not re.fullmatch(r"\d{2}:\d{2}", text):
+            raise ValueError("time must use HH:MM format")
+        hour, minute = [int(part) for part in text.split(":", 1)]
+        if hour > 23 or minute > 59:
+            raise ValueError("time must use HH:MM format")
+        return text
 
     @validator("keywords")
     def keywords_required(cls, value):
@@ -185,6 +278,13 @@ class MonitorTaskOut(BaseModel):
     rules: list[dict[str, Any]]
 
 
+class MonitorStatusOut(BaseModel):
+    time: str = ""
+    active: bool = False
+    message: str = ""
+    logs: list[str] = Field(default_factory=list)
+
+
 def _task_to_monitor(task: dict[str, Any]) -> Optional[MonitorTaskOut]:
     chats = task.get("chats") or []
     rules: list[dict[str, Any]] = []
@@ -213,16 +313,24 @@ def _is_standalone_monitor(task: dict[str, Any]) -> bool:
 
 
 def _build_chats(rules: list[MonitorRule]) -> list[dict[str, Any]]:
-    return [
-        {
-            "chat_id": rule.chat_id,
-            "name": rule.chat_name or str(rule.chat_id),
-            "message_thread_id": rule.message_thread_id,
-            "action_interval": 1,
-            "actions": [_keyword_action_from_rule(rule)],
-        }
-        for rule in rules
-    ]
+    chats: list[dict[str, Any]] = []
+    for rule in rules:
+        if rule.monitor_scope == "selected" and rule.chat_id in (None, ""):
+            raise HTTPException(status_code=400, detail="selected monitor requires a source chat")
+        chat_id = rule.chat_id if rule.monitor_scope == "selected" else rule.monitor_scope
+        thread_ids = rule.message_thread_ids or (
+            [rule.message_thread_id] if rule.message_thread_id is not None else []
+        )
+        chats.append(
+            {
+                "chat_id": chat_id,
+                "name": rule.chat_name or str(chat_id),
+                "message_thread_id": thread_ids[0] if len(thread_ids) == 1 else None,
+                "action_interval": 1,
+                "actions": [_keyword_action_from_rule(rule)],
+            }
+        )
+    return chats
 
 
 def _mark_monitor_only(account_name: str, task_name: str) -> None:
@@ -370,6 +478,36 @@ async def delete_monitor(
         raise HTTPException(status_code=404, detail=f"monitor {task_name} not found")
     await _restart_keyword_monitors()
     return {"ok": True}
+
+
+@router.get("/{task_name}/status", response_model=MonitorStatusOut)
+def get_monitor_status(
+    task_name: str,
+    account_name: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+):
+    existing = get_sign_task_service().get_task(task_name, account_name=account_name)
+    if not existing or not _is_standalone_monitor(existing):
+        raise HTTPException(status_code=404, detail=f"monitor {task_name} not found")
+
+    try:
+        from backend.services.keyword_monitor import get_keyword_monitor_service
+
+        service = get_keyword_monitor_service()
+        entry = service.get_task_history_entry(
+            task_name,
+            str(existing.get("account_name") or account_name or ""),
+        )
+        if not entry:
+            return MonitorStatusOut(message="monitor not started or no runtime logs yet")
+        return MonitorStatusOut(
+            time=str(entry.get("time") or ""),
+            active=bool(entry.get("success", False)),
+            message=str(entry.get("message") or ""),
+            logs=list(entry.get("flow_logs") or []),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"failed to read monitor status: {exc}") from exc
 
 
 @router.get("/{task_name}/export")

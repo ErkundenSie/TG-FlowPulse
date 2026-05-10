@@ -37,7 +37,20 @@ async function request<T>(
     try {
       const errorData = await res.json();
       if (errorData && typeof errorData === "object") {
-        errorMessage = errorData.detail || errorData.message || JSON.stringify(errorData);
+        const detail = errorData.detail || errorData.message;
+        if (Array.isArray(detail)) {
+          errorMessage = detail
+            .map((item) => {
+              const loc = Array.isArray(item?.loc) ? item.loc.join(".") : "";
+              const msg = item?.msg || JSON.stringify(item);
+              return loc ? `${loc}: ${msg}` : msg;
+            })
+            .join("; ");
+        } else if (detail && typeof detail === "object") {
+          errorMessage = JSON.stringify(detail);
+        } else {
+          errorMessage = detail || JSON.stringify(errorData);
+        }
         errorCode = errorData.code;
       } else {
         errorMessage = JSON.stringify(errorData);
@@ -760,12 +773,18 @@ export type MonitorChatId = number | string;
 export interface MonitorRule {
   id?: string;
   account_name?: string;
-  chat_id: MonitorChatId;
+  chat_id?: MonitorChatId | null;
   chat_name?: string;
   message_thread_id?: number | null;
+  message_thread_ids?: number[];
+  monitor_scope?: "selected" | "private";
   keywords: string[];
   match_mode: "contains" | "exact" | "regex";
   ignore_case: boolean;
+  include_self_messages?: boolean;
+  time_window_enabled?: boolean;
+  active_time_start?: string | null;
+  active_time_end?: string | null;
   push_channel: "telegram" | "forward" | "bark" | "custom" | "continue";
   bark_url?: string | null;
   custom_url?: string | null;
@@ -784,6 +803,13 @@ export interface MonitorTask {
   group?: string;
   enabled: boolean;
   rules: MonitorRule[];
+}
+
+export interface MonitorStatus {
+  time: string;
+  active: boolean;
+  message: string;
+  logs: string[];
 }
 
 export interface CreateMonitorTaskRequest {
@@ -841,6 +867,16 @@ export const deleteMonitorTask = (token: string, name: string, accountName?: str
   return request<{ ok: boolean }>(
     `/monitors/${name}${params.toString() ? `?${params.toString()}` : ""}`,
     { method: "DELETE" },
+    token
+  );
+};
+
+export const getMonitorStatus = (token: string, name: string, accountName?: string) => {
+  const params = new URLSearchParams();
+  if (accountName) params.append("account_name", accountName);
+  return request<MonitorStatus>(
+    `/monitors/${name}/status${params.toString() ? `?${params.toString()}` : ""}`,
+    {},
     token
   );
 };

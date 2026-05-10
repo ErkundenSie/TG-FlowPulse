@@ -30,6 +30,7 @@ settings = get_settings()
 
 DEFAULT_CONTINUE_TIMEOUT = 25
 DEFAULT_HISTORY_LIMIT = 10
+DEFAULT_CLIENT_START_TIMEOUT = 20
 
 
 def _is_callback_data_invalid(exc: BaseException) -> bool:
@@ -107,6 +108,28 @@ def _as_int_or_none(value: Any) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _as_int_list(value: Any) -> list[int]:
+    if value is None or value == "":
+        return []
+    raw_items = value if isinstance(value, list) else [value]
+    result: list[int] = []
+    for item in raw_items:
+        parsed = _as_int_or_none(item)
+        if parsed is not None:
+            result.append(parsed)
+    return result
+
+
+def _parse_hhmm(value: Any) -> Optional[tuple[int, int]]:
+    text = str(value or "").strip()
+    if not re.fullmatch(r"\d{2}:\d{2}", text):
+        return None
+    hour, minute = [int(part) for part in text.split(":", 1)]
+    if hour > 23 or minute > 59:
+        return None
+    return hour, minute
 
 
 def _parse_forward_chat_id(value: Any) -> Optional[Union[int, str]]:
@@ -338,6 +361,8 @@ def _message_has_terminal_success_text(message: Message) -> bool:
 class KeywordMonitorService:
     def __init__(self) -> None:
         self._handler_refs: list[tuple[str, Any, Any]] = []
+        self._poller_tasks: list[asyncio.Task] = []
+        self._poll_seen_messages: dict[tuple[str, Union[int, str]], set[int]] = {}
         self._rules: list[KeywordMonitorRule] = []
         self._active_key = ""
         self._lock = asyncio.Lock()
@@ -432,6 +457,16 @@ class KeywordMonitorService:
             parts.append(f"话题ID={rule.message_thread_id}")
         if push_channel == "continue":
             parts.append(f"后续动作={len(continue_actions)} 步")
+        scope = str(rule.action.get("monitor_scope") or "selected")
+        if scope == "private":
+            parts.append("范围=所有私聊")
+        thread_ids = _as_int_list(rule.action.get("message_thread_ids"))
+        if thread_ids:
+            parts.append(f"话题ID={','.join(str(item) for item in thread_ids)}")
+        if bool(rule.action.get("time_window_enabled", False)):
+            start = rule.action.get("active_time_start") or "--:--"
+            end = rule.action.get("active_time_end") or "--:--"
+            parts.append(f"监控时间={start}-{end}")
         return "，".join(parts)
 
     def _describe_continue_action(self, action: Dict[str, Any]) -> str:
@@ -494,9 +529,6 @@ class KeywordMonitorService:
             if not account_name or not task_name or not task.get("enabled", True):
                 continue
             for chat in task.get("chats") or []:
-                chat_id = _parse_monitor_chat_id(chat.get("chat_id"))
-                if chat_id is None:
-                    continue
                 for action in chat.get("actions") or []:
                     try:
                         action_id = int(action.get("action"))
@@ -507,6 +539,15 @@ class KeywordMonitorService:
                         split_commas=_keyword_split_commas(action),
                     ):
                         continue
+                    scope = str(action.get("monitor_scope") or "selected").strip()
+                    if scope == "global":
+                        continue
+                    if scope == "private":
+                        chat_id: Union[int, str] = scope
+                    else:
+                        chat_id = _parse_monitor_chat_id(chat.get("chat_id"))
+                        if chat_id is None:
+                            continue
                     rules.append(
                         KeywordMonitorRule(
                             account_name=account_name,
@@ -550,11 +591,76 @@ class KeywordMonitorService:
                 return keyword
         return None
 
+    @staticmethod
+    def _is_self_message(message: Message) -> bool:
+        from_user = getattr(message, "from_user", None)
+        return bool(
+            getattr(message, "outgoing", False)
+            or (from_user is not None and getattr(from_user, "is_self", False))
+        )
+
     def _message_thread_id(self, message: Message) -> Optional[int]:
         return _as_int_or_none(
             getattr(message, "message_thread_id", None)
             or getattr(message, "reply_to_top_message_id", None)
         )
+
+    def _rule_matches_chat(self, rule: KeywordMonitorRule, message: Message) -> bool:
+        scope = str(rule.action.get("monitor_scope") or "selected").strip()
+        if scope == "private":
+            chat_type = str(getattr(message.chat, "type", "") or "").lower()
+            return "private" in chat_type
+        return bool(
+            rule.chat_id == message.chat.id
+            or (
+                isinstance(rule.chat_id, str)
+                and rule.chat_id.startswith("@")
+                and getattr(message.chat, "username", None)
+                and rule.chat_id[1:].lower()
+                == str(getattr(message.chat, "username")).lower()
+            )
+        )
+
+    def _chat_matches_scope(self, rule: KeywordMonitorRule, chat: Any) -> bool:
+        scope = str(rule.action.get("monitor_scope") or "selected").strip()
+        if scope == "private":
+            chat_type = str(getattr(chat, "type", "") or "").lower()
+            return "private" in chat_type
+        return bool(
+            rule.chat_id == getattr(chat, "id", None)
+            or (
+                isinstance(rule.chat_id, str)
+                and rule.chat_id.startswith("@")
+                and getattr(chat, "username", None)
+                and rule.chat_id[1:].lower()
+                == str(getattr(chat, "username")).lower()
+            )
+        )
+
+    def _rule_matches_thread(
+        self,
+        rule: KeywordMonitorRule,
+        message_thread_id: Optional[int],
+    ) -> bool:
+        thread_ids = _as_int_list(rule.action.get("message_thread_ids"))
+        if thread_ids:
+            return message_thread_id in thread_ids
+        return rule.message_thread_id is None or rule.message_thread_id == message_thread_id
+
+    def _rule_is_active_now(self, rule: KeywordMonitorRule) -> bool:
+        if not bool(rule.action.get("time_window_enabled", False)):
+            return True
+        start = _parse_hhmm(rule.action.get("active_time_start"))
+        end = _parse_hhmm(rule.action.get("active_time_end"))
+        if start is None or end is None:
+            return True
+        now = datetime.now()
+        current_minutes = now.hour * 60 + now.minute
+        start_minutes = start[0] * 60 + start[1]
+        end_minutes = end[0] * 60 + end[1]
+        if start_minutes <= end_minutes:
+            return start_minutes <= current_minutes <= end_minutes
+        return current_minutes >= start_minutes or current_minutes <= end_minutes
 
     def _build_variables(
         self,
@@ -1197,25 +1303,19 @@ class KeywordMonitorService:
             text = _message_text(message)
             if not text:
                 return
+            is_self_message = self._is_self_message(message)
             message_thread_id = self._message_thread_id(message)
             matched_rules = [
                 rule
                 for rule in self._rules
                 if rule.account_name == account_name
                 and (
-                    rule.chat_id == message.chat.id
-                    or (
-                        isinstance(rule.chat_id, str)
-                        and rule.chat_id.startswith("@")
-                        and getattr(message.chat, "username", None)
-                        and rule.chat_id[1:].lower()
-                        == str(getattr(message.chat, "username")).lower()
-                    )
+                    not is_self_message
+                    or bool(rule.action.get("include_self_messages", False))
                 )
-                and (
-                    rule.message_thread_id is None
-                    or rule.message_thread_id == message_thread_id
-                )
+                and self._rule_is_active_now(rule)
+                and self._rule_matches_chat(rule, message)
+                and self._rule_matches_thread(rule, message_thread_id)
             ]
             if not matched_rules:
                 return
@@ -1357,6 +1457,93 @@ class KeywordMonitorService:
         except Exception as exc:
             logger.warning("Keyword monitor handling failed: %s", exc, exc_info=True)
 
+    async def _poll_recent_messages(
+        self,
+        account_name: str,
+        client: Any,
+        rules: list[KeywordMonitorRule],
+    ) -> None:
+        interval = _read_positive_float_env(
+            "KEYWORD_MONITOR_POLL_INTERVAL",
+            3.0,
+            1.0,
+        )
+        limit = _read_positive_int_env(
+            "KEYWORD_MONITOR_POLL_HISTORY_LIMIT",
+            5,
+            1,
+        )
+        dialog_limit = _read_positive_int_env(
+            "KEYWORD_MONITOR_POLL_DIALOG_LIMIT",
+            80,
+            1,
+        )
+        startup = True
+        while True:
+            try:
+                chat_ids = sorted(
+                    {
+                        rule.chat_id
+                        for rule in rules
+                        if str(rule.action.get("monitor_scope") or "selected")
+                        == "selected"
+                    },
+                    key=str,
+                )
+                wide_rules = [
+                    rule
+                    for rule in rules
+                    if str(rule.action.get("monitor_scope") or "selected")
+                    == "private"
+                ]
+                if wide_rules:
+                    async for dialog in client.get_dialogs(limit=dialog_limit):
+                        chat = getattr(dialog, "chat", None)
+                        chat_id = getattr(chat, "id", None)
+                        if chat_id is None:
+                            continue
+                        if any(self._chat_matches_scope(rule, chat) for rule in wide_rules):
+                            chat_ids.append(chat_id)
+                    chat_ids = sorted(set(chat_ids), key=str)
+                if not chat_ids:
+                    await asyncio.sleep(interval)
+                    startup = False
+                    continue
+                for chat_id in chat_ids:
+                    seen_key = (account_name, chat_id)
+                    seen = self._poll_seen_messages.setdefault(seen_key, set())
+                    messages = []
+                    async for message in client.get_chat_history(chat_id, limit=limit):
+                        message_id = getattr(message, "id", None)
+                        if not isinstance(message_id, int):
+                            continue
+                        messages.append(message)
+                        if startup:
+                            seen.add(message_id)
+                    if startup:
+                        continue
+                    for message in reversed(messages):
+                        message_id = getattr(message, "id", None)
+                        if not isinstance(message_id, int) or message_id in seen:
+                            continue
+                        seen.add(message_id)
+                        await self._on_message(account_name, client, message)
+                        if len(seen) > 500:
+                            latest = sorted(seen)[-250:]
+                            seen.clear()
+                            seen.update(latest)
+                startup = False
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.debug(
+                    "Keyword monitor polling failed for %s: %s",
+                    account_name,
+                    exc,
+                    exc_info=True,
+                )
+            await asyncio.sleep(interval)
+
     async def restart_from_tasks(self) -> None:
         async with self._lock:
             from backend.services.config import get_config_service
@@ -1400,7 +1587,22 @@ class KeywordMonitorService:
             started_accounts: set[str] = set()
             for account_name in accounts:
                 account_rules = [rule for rule in rules if rule.account_name == account_name]
-                chat_ids = sorted({rule.chat_id for rule in account_rules})
+                wide_scope = any(
+                    str(rule.action.get("monitor_scope") or "selected")
+                    == "private"
+                    for rule in account_rules
+                )
+                chat_ids = sorted(
+                    {
+                        rule.chat_id
+                        for rule in account_rules
+                        if str(rule.action.get("monitor_scope") or "selected")
+                        == "selected"
+                    },
+                    key=str,
+                )
+                if not wide_scope and not chat_ids:
+                    continue
                 proxy_value = get_account_proxy(account_name)
                 if not proxy_value:
                     proxy_value = (global_settings.get("global_proxy") or "").strip() or None
@@ -1460,11 +1662,31 @@ class KeywordMonitorService:
                     handler_ref = client.add_handler(
                         MessageHandler(
                             handler,
-                            filters.chat(chat_ids) & (filters.text | filters.caption),
+                            (
+                                (filters.incoming | filters.outgoing)
+                                & (filters.text | filters.caption)
+                                if wide_scope
+                                else filters.chat(chat_ids)
+                                & (filters.incoming | filters.outgoing)
+                                & (filters.text | filters.caption)
+                            ),
                         )
                     )
+                    for rule in account_rules:
+                        self._append_rule_log(
+                            rule,
+                            f"关键词后台监听正在启动：Chat={rule.chat_name}({rule.chat_id})",
+                            active=False,
+                        )
                     try:
-                        await client.__aenter__()
+                        await asyncio.wait_for(
+                            client.__aenter__(),
+                            timeout=_read_positive_float_env(
+                                "KEYWORD_MONITOR_CLIENT_START_TIMEOUT",
+                                DEFAULT_CLIENT_START_TIMEOUT,
+                                1.0,
+                            ),
+                        )
                     except Exception:
                         try:
                             client.remove_handler(*handler_ref)
@@ -1478,12 +1700,21 @@ class KeywordMonitorService:
                         for rule in account_rules:
                             self._append_rule_log(
                                 rule,
-                                "关键词后台监听启动失败：Telegram client 启动失败，请检查账号登录状态、代理或 API 配置",
+                                "关键词后台监听启动失败：Telegram client 启动失败或超时，请检查账号登录状态、代理或 API 配置",
                                 active=False,
                             )
                         continue
 
                     self._handler_refs.append((account_name, client, handler_ref))
+                    self._poller_tasks.append(
+                        asyncio.create_task(
+                            self._poll_recent_messages(
+                                account_name,
+                                client,
+                                account_rules,
+                            )
+                        )
+                    )
                     started_accounts.add(account_name)
                     logger.info(
                         "Keyword monitor started for %s in %s", account_name, chat_ids
@@ -1498,6 +1729,11 @@ class KeywordMonitorService:
             self._active_key = key if started_accounts == set(accounts) else ""
 
     async def stop(self) -> None:
+        for task in self._poller_tasks:
+            task.cancel()
+        if self._poller_tasks:
+            await asyncio.gather(*self._poller_tasks, return_exceptions=True)
+        self._poller_tasks = []
         for rule in self._rules:
             self._append_rule_log(
                 rule,

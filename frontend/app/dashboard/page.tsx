@@ -34,7 +34,7 @@ import {
   PencilSimple,
   PaperPlaneRight,
   Trash,
-  Eye
+  ChatCircleText
 } from "@phosphor-icons/react";
 import { ToastContainer, useToast } from "../../components/ui/toast";
 import { ThemeLanguageToggle } from "../../components/ThemeLanguageToggle";
@@ -854,9 +854,17 @@ export default function Dashboard() {
           <span className="nav-title font-bold tracking-tight text-lg">TG SignPulse</span>
         </div>
         <div className="top-right-actions">
+          <Link
+            href="/dashboard/monitors"
+            className="!hidden"
+            title={t("keyword_monitor")}
+          >
+            <ChatCircleText weight="bold" size={16} />
+            <span>消息监控</span>
+          </Link>
           <ThemeLanguageToggle />
-          <Link href="/dashboard/monitors" title={t("keyword_monitor")} className="action-btn">
-            <Eye weight="bold" />
+          <Link href="/dashboard/monitors" title={t("keyword_monitor")} className="hidden">
+            <ChatCircleText weight="bold" />
           </Link>
           <Link href="/dashboard/settings" title={t("sidebar_settings")} className="action-btn">
             <Gear weight="bold" />
@@ -911,13 +919,22 @@ export default function Dashboard() {
                       <span className="text-[11px] font-medium">{t(statusKey)}</span>
                     </div>
                     <div className="card-actions">
-                      <div
-                        className="action-icon !w-8 !h-8"
-                        title={t("logs")}
-                        onClick={(e) => { e.stopPropagation(); handleShowLogs(acc.name); }}
+                      <Link
+                        href={`/dashboard/account-tasks?name=${encodeURIComponent(acc.name)}`}
+                        className="action-icon !w-8 !h-8 !text-[#8a3ffc] hover:bg-[#8a3ffc]/10"
+                        title="签到任务"
+                        onClick={(e) => e.stopPropagation()}
                       >
-                        <ListDashes weight="bold" size={16} />
-                      </div>
+                        <Lightning weight="bold" size={16} />
+                      </Link>
+                      <Link
+                        href={`/dashboard/monitors?account_name=${encodeURIComponent(acc.name)}`}
+                        className="action-icon !w-8 !h-8 !text-cyan-500 hover:bg-cyan-500/10"
+                        title="消息监控"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <ChatCircleText weight="bold" size={16} />
+                      </Link>
                       <div
                         className="action-icon !w-8 !h-8"
                         title={t("edit_account")}
@@ -939,6 +956,16 @@ export default function Dashboard() {
             })}
 
             {/* 添加新账号卡片 */}
+            <Link
+              href="/dashboard/monitors"
+              className="hidden"
+            >
+              <div className="add-icon-circle !w-10 !h-10 !bg-cyan-500/10 !text-cyan-500">
+                <ChatCircleText weight="bold" size={20} />
+              </div>
+              <span className="text-xs font-bold" style={{ color: 'var(--text-sub)' }}>消息监控</span>
+            </Link>
+
             <div
               className="card card-add !h-44"
               onClick={openAddDialog}
