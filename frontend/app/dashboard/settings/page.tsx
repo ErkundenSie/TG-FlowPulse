@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { getToken } from "../../../lib/auth";
@@ -143,11 +143,11 @@ export default function SettingsPage() {
 
     const [checking, setChecking] = useState(true);
 
-    const formatErrorMessage = (key: string, err?: any) => {
+    const formatErrorMessage = useCallback((key: string, err?: any) => {
         const base = t(key);
         const code = err?.code;
         return code ? `${base} (${code})` : base;
-    };
+    }, [t]);
 
     const formatBytes = (size: number) => {
         if (!Number.isFinite(size) || size <= 0) return "0 B";
@@ -477,7 +477,7 @@ export default function SettingsPage() {
         }
     };
 
-    const loadSystemLogs = async () => {
+    const loadSystemLogs = useCallback(async () => {
         if (!token) return;
         try {
             setSystemLogsLoading(true);
@@ -488,7 +488,7 @@ export default function SettingsPage() {
         } finally {
             setSystemLogsLoading(false);
         }
-    };
+    }, [addToast, formatErrorMessage, systemLogLimit, token]);
 
     const handleClearSystemLogs = async () => {
         if (!token) return;
@@ -520,7 +520,7 @@ export default function SettingsPage() {
         if (activeSection === "logs" && token && !systemLogs && !systemLogsLoading) {
             loadSystemLogs();
         }
-    }, [activeSection, token, systemLogs, systemLogsLoading, systemLogLimit]);
+    }, [activeSection, token, systemLogs, systemLogsLoading, loadSystemLogs]);
 
     if (!token || checking) {
         return null;
