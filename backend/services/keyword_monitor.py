@@ -113,7 +113,9 @@ def _as_int_or_none(value: Any) -> Optional[int]:
 def _as_int_list(value: Any) -> list[int]:
     if value is None or value == "":
         return []
-    raw_items = value if isinstance(value, list) else [value]
+    raw_items = (
+        value if isinstance(value, list) else str(value).replace("\n", ",").split(",")
+    )
     result: list[int] = []
     for item in raw_items:
         parsed = _as_int_or_none(item)
@@ -692,7 +694,7 @@ class KeywordMonitorService:
         if not isinstance(actions, list):
             return []
 
-        supported = {1, 2, 3, 4, 5, 6, 7}
+        supported = {1, 2, 3, 4, 5, 6, 7, 9, 10}
         result: list[Dict[str, Any]] = []
         for item in actions:
             if not isinstance(item, dict):
@@ -1090,6 +1092,27 @@ class KeywordMonitorService:
             await client.send_dice(target_chat_id, dice, **kwargs)
             return True
 
+        if action_id == 9:
+            photo = str(action.get("photo") or "").strip()
+            if not photo:
+                return False
+            caption = str(action.get("caption") or "").strip() or None
+            await client.send_photo(target_chat_id, photo, caption=caption, **kwargs)
+            return True
+
+        if action_id == 10:
+            from_chat_id = _parse_forward_chat_id(action.get("from_chat_id"))
+            message_ids = _as_int_list(action.get("message_ids"))
+            if from_chat_id is None or not message_ids:
+                return False
+            await client.forward_messages(
+                target_chat_id,
+                from_chat_id,
+                message_ids,
+                **kwargs,
+            )
+            return True
+
         action_timeout = timeout or _read_positive_float_env(
             "KEYWORD_MONITOR_CONTINUE_ACTION_TIMEOUT", DEFAULT_CONTINUE_TIMEOUT, 1.0
         )
@@ -1429,7 +1452,7 @@ class KeywordMonitorService:
                     await send_keyword_push(
                         push_settings,
                         {
-                            "title": "TG-SignPulse keyword matched",
+                            "title": "TG-FlowPulse keyword matched",
                             "body": forward_text,
                             "text": text,
                             "keyword": matched,

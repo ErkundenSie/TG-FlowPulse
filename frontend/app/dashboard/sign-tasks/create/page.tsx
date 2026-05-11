@@ -21,15 +21,27 @@ import {
     Trash,
     Spinner,
     Lightning,
-    Check
+    Check,
+    FastForward,
+    Image as ImageIcon
 } from "@phosphor-icons/react";
 import { ThemeLanguageToggle } from "../../../../components/ThemeLanguageToggle";
 import { useLanguage } from "../../../../context/LanguageContext";
 import { ToastContainer, useToast } from "../../../../components/ui/toast";
 
 type CreateTargetMode = "single_task" | "batch_tasks";
+type ActionTypeOption = "1" | "9" | "10";
 
 const getChatTitle = (chat: ChatInfo) => chat.title || chat.username || chat.first_name || String(chat.id);
+
+const parseMessageIdsInput = (value: string) => {
+    return value
+        .split(/[\n,]+/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .map((item) => Number(item))
+        .filter((item) => Number.isInteger(item) && item > 0);
+};
 
 export default function CreateSignTaskPage() {
     const router = useRouter();
@@ -224,7 +236,17 @@ export default function CreateSignTaskPage() {
             addToast(t("select_chat_error"), "error");
             return;
         }
-        if (editingChat.actions.length === 0) {
+        const isActionValid = (action: any) => {
+            const actionId = Number(action?.action);
+            if (actionId === 1) return Boolean((action?.text || "").trim());
+            if (actionId === 9) return Boolean((action?.photo || "").trim());
+            if (actionId === 10) {
+                const messageIds = Array.isArray(action?.message_ids) ? action.message_ids : [];
+                return Boolean((action?.from_chat_id || "").trim()) && messageIds.length > 0;
+            }
+            return false;
+        };
+        if (editingChat.actions.length === 0 || editingChat.actions.some((action) => !isActionValid(action))) {
             addToast(t("add_action_error"), "error");
             return;
         }
@@ -644,20 +666,99 @@ export default function CreateSignTaskPage() {
 
                                     <div className="max-h-[200px] overflow-y-auto space-y-3 custom-scrollbar pr-2">
                                         {editingChat.actions.map((act, i) => (
-                                            <div key={i} className="flex gap-3 items-start animate-scale-in">
+                                            <div key={i} className="grid grid-cols-[1.5rem_minmax(0,120px)_minmax(0,1fr)_2.25rem] gap-3 items-start animate-scale-in">
                                                 <div className="w-6 h-6 rounded-lg bg-white/5 flex items-center justify-center text-[10px] font-bold text-main/30 mt-2">
                                                     {i + 1}
                                                 </div>
-                                                <textarea
-                                                    rows={3}
-                                                    className="min-h-[72px] max-h-[180px] flex-1 resize-y bg-white/2 rounded-xl p-3 !text-sm text-main/70 border border-white/5 focus:border-[#8a3ffc]/30 outline-none transition-all placeholder:text-main/20 custom-scrollbar"
-                                                    value={act.text}
+                                                <select
+                                                    className="!mb-0 !h-10 !text-xs"
+                                                    value={String(act.action || 1) as ActionTypeOption}
                                                     onChange={(e) => {
+                                                        const nextType = e.target.value as ActionTypeOption;
                                                         const newActs = [...editingChat.actions];
-                                                        newActs[i] = { ...newActs[i], text: e.target.value };
+                                                        if (nextType === "9") {
+                                                            newActs[i] = { ...newActs[i], action: 9, photo: newActs[i]?.photo || "", caption: newActs[i]?.caption || "" };
+                                                        } else if (nextType === "10") {
+                                                            newActs[i] = { ...newActs[i], action: 10, from_chat_id: newActs[i]?.from_chat_id || "", message_ids: newActs[i]?.message_ids || [] };
+                                                        } else {
+                                                            newActs[i] = { ...newActs[i], action: 1, text: newActs[i]?.text || "" };
+                                                        }
                                                         setEditingChat({ ...editingChat, actions: newActs });
                                                     }}
-                                                />
+                                                >
+                                                    <option value="1">{t("action_send_text")}</option>
+                                                    <option value="9">{t("action_send_photo") || "发送图片"}</option>
+                                                    <option value="10">{t("action_forward_messages") || "转发消息"}</option>
+                                                </select>
+                                                <div className="min-w-0">
+                                                    {Number(act.action || 1) === 1 && (
+                                                        <textarea
+                                                            rows={3}
+                                                            className="min-h-[72px] max-h-[180px] w-full resize-y bg-white/2 rounded-xl p-3 !text-sm text-main/70 border border-white/5 focus:border-[#8a3ffc]/30 outline-none transition-all placeholder:text-main/20 custom-scrollbar"
+                                                            value={act.text || ""}
+                                                            onChange={(e) => {
+                                                                const newActs = [...editingChat.actions];
+                                                                newActs[i] = { ...newActs[i], text: e.target.value };
+                                                                setEditingChat({ ...editingChat, actions: newActs });
+                                                            }}
+                                                        />
+                                                    )}
+                                                    {Number(act.action) === 9 && (
+                                                        <div className="space-y-2">
+                                                            <div className="relative">
+                                                                <ImageIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-main/25" size={16} />
+                                                                <input
+                                                                    className="!mb-0 !h-10 !pl-9 !text-xs"
+                                                                    value={act.photo || ""}
+                                                                    onChange={(e) => {
+                                                                        const newActs = [...editingChat.actions];
+                                                                        newActs[i] = { ...newActs[i], photo: e.target.value };
+                                                                        setEditingChat({ ...editingChat, actions: newActs });
+                                                                    }}
+                                                                    placeholder="图片路径 / URL / file_id"
+                                                                />
+                                                            </div>
+                                                            <input
+                                                                className="!mb-0 !h-10 !text-xs"
+                                                                value={act.caption || ""}
+                                                                onChange={(e) => {
+                                                                    const newActs = [...editingChat.actions];
+                                                                    newActs[i] = { ...newActs[i], caption: e.target.value };
+                                                                    setEditingChat({ ...editingChat, actions: newActs });
+                                                                }}
+                                                                placeholder="说明文字（可选）"
+                                                            />
+                                                        </div>
+                                                    )}
+                                                    {Number(act.action) === 10 && (
+                                                        <div className="space-y-2">
+                                                            <div className="relative">
+                                                                <FastForward className="absolute left-3 top-1/2 -translate-y-1/2 text-main/25" size={16} />
+                                                                <input
+                                                                    className="!mb-0 !h-10 !pl-9 !text-xs"
+                                                                    value={act.from_chat_id || ""}
+                                                                    onChange={(e) => {
+                                                                        const newActs = [...editingChat.actions];
+                                                                        newActs[i] = { ...newActs[i], from_chat_id: e.target.value };
+                                                                        setEditingChat({ ...editingChat, actions: newActs });
+                                                                    }}
+                                                                    placeholder="来源 Chat ID / @username"
+                                                                />
+                                                            </div>
+                                                            <textarea
+                                                                rows={2}
+                                                                className="!mb-0 min-h-[58px] max-h-[120px] w-full resize-y bg-white/2 rounded-xl p-3 !text-sm text-main/70 border border-white/5 focus:border-[#8a3ffc]/30 outline-none transition-all placeholder:text-main/20 custom-scrollbar"
+                                                                value={(act.message_ids || []).join(", ")}
+                                                                onChange={(e) => {
+                                                                    const newActs = [...editingChat.actions];
+                                                                    newActs[i] = { ...newActs[i], message_ids: parseMessageIdsInput(e.target.value) };
+                                                                    setEditingChat({ ...editingChat, actions: newActs });
+                                                                }}
+                                                                placeholder="消息 ID，逗号或换行分隔"
+                                                            />
+                                                        </div>
+                                                    )}
+                                                </div>
                                                 <button
                                                     onClick={() => {
                                                         const newActs = editingChat.actions.filter((_, idx) => idx !== i);

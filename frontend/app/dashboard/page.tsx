@@ -851,7 +851,7 @@ export default function Dashboard() {
       <nav className="navbar">
         <div className="nav-brand" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <Lightning weight="fill" style={{ fontSize: '28px', color: '#fcd34d' }} />
-          <span className="nav-title font-bold tracking-tight text-lg">TG SignPulse</span>
+          <span className="nav-title font-bold tracking-tight text-lg">TG-FlowPulse</span>
         </div>
         <div className="top-right-actions">
           <Link

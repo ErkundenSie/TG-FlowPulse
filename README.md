@@ -1,12 +1,12 @@
-﻿# TG-SignPulse
+﻿# TG-FlowPulse
 
-> Telegram 多账号自动签到、消息动作编排与关键词监听面板。
+> Telegram 多账号自动化任务编排、消息监听、通知转发与签到管理面板。
 
 [English README](README_EN.md) · [健康检查](#健康检查) · [更新日志](#更新日志)
 
 当前版本：`v0.8.6`
 
-TG-SignPulse 是一个 Telegram 自动化管理面板。你可以在网页里管理多个账号，配置自动签到任务，并让任务按固定规则每天自动执行。
+TG-FlowPulse 是一个 Telegram 多账号自动化任务编排、消息监听、通知转发与签到管理面板。你可以在网页里管理多个账号，配置自动化任务，并让任务按固定规则每天自动执行。
 
 > AI 驱动：项目已集成 AI 能力（识图、计算题），可直接用于自动任务流程。
 
@@ -77,14 +77,14 @@ docker run -d \
 上面的命令使用的是远程官方镜像 `ghcr.io/akasls/tg-signpulse:latest`，不会包含你本地修改过的代码。若要部署自己的修改版，推荐在服务器拉取代码后本地构建镜像：
 
 ```bash
-git clone https://github.com/ErkundenSie/TG-SignPulse.git TG-SignPulse
-cd TG-SignPulse
+git clone https://github.com/ErkundenSie/TG-FlowPulse.git TG-FlowPulse
+cd TG-FlowPulse
 ```
 
 如果服务器上已经有代码，则进入项目目录后更新：
 
 ```bash
-cd TG-SignPulse
+cd TG-FlowPulse
 git pull
 ```
 
@@ -122,7 +122,7 @@ docker rm tg-signpulse
 如果你是按上面的 `tg-signpulse:local` 方式部署，更新流程如下：
 
 ```bash
-cd /opt/TG-SignPulse
+cd /opt/TG-FlowPulse
 git pull
 docker build -t tg-signpulse:local .
 docker stop tg-signpulse
@@ -220,7 +220,7 @@ docker compose up -d --build
 后续更新本地构建版时，推荐按下面流程执行：
 
 ```bash
-cd /opt/TG-SignPulse
+cd /opt/TG-FlowPulse
 
 # 拉取最新代码
 git pull

@@ -43,7 +43,7 @@ async def send_telegram_bot_message(
 
 async def send_keyword_push(settings: Dict[str, Any], payload: Dict[str, Any]) -> None:
     channel = (settings.get("keyword_monitor_push_channel") or "telegram").strip()
-    title = str(payload.get("title") or "TG-SignPulse 关键词命中")
+    title = str(payload.get("title") or "TG-FlowPulse 关键词命中")
     body = str(payload.get("body") or "")
     url = str(payload.get("url") or "")
 
@@ -123,7 +123,7 @@ async def send_login_notification(
         return
 
     text = (
-        "TG-SignPulse 登录通知\n"
+        "TG-FlowPulse 登录通知\n"
         f"用户: {username}\n"
         f"IP: {ip_address or 'unknown'}"
     )

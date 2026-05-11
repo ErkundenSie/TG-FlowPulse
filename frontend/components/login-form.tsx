@@ -57,7 +57,7 @@ export default function LoginForm() {
             className="inline-block"
             style={{ fontSize: '48px', color: '#fcd34d', filter: 'drop-shadow(0 0 12px rgba(252, 211, 77, 0.4))' }}
           />
-          <div className="brand-text-grad mt-1 text-xl">TG SignPulse</div>
+          <div className="brand-text-grad mt-1 text-xl">TG-FlowPulse</div>
           <p className="text-[#9496a1] text-[11px] mt-1 leading-relaxed px-4 font-medium">{t("settings_desc")}</p>
         </div>
 
@@ -120,7 +120,7 @@ export default function LoginForm() {
         <div className="login-footer-icons !mt-6 !pt-4 border-t border-black/5 dark:border-white/5 flex items-center justify-center gap-6">
           <ThemeLanguageToggle />
           <a
-            href="https://github.com/ErkundenSie/TG-SignPulse"
+            href="https://github.com/ErkundenSie/TG-FlowPulse"
             target="_blank"
             rel="noreferrer"
             className="action-btn !w-9 !h-9 !text-xl"

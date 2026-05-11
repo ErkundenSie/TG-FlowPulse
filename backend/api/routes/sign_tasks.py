@@ -60,6 +60,22 @@ class SendDiceAction(ActionBase):
     dice: str = Field(..., description="骰子表情")
 
 
+class SendPhotoAction(ActionBase):
+    """发送图片动作"""
+
+    action: int = Field(9, description="动作类型：9=发送图片")
+    photo: str = Field(..., description="图片路径、URL 或 Telegram file_id")
+    caption: Optional[str] = Field(None, description="图片说明文字")
+
+
+class ForwardMessagesAction(ActionBase):
+    """转发一条或多条消息动作"""
+
+    action: int = Field(10, description="动作类型：10=转发消息")
+    from_chat_id: Any = Field(..., description="来源 Chat ID 或 @username")
+    message_ids: List[int] = Field(..., description="来源消息 ID 列表")
+
+
 class ClickKeyboardAction(ActionBase):
     """点击键盘按钮动作"""
 

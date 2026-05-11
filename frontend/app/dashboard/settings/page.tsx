@@ -600,7 +600,7 @@ export default function SettingsPage() {
                 </div>
                 <div className="top-right-actions">
                     <a
-                        href="https://github.com/ErkundenSie/TG-SignPulse"
+                        href="https://github.com/ErkundenSie/TG-FlowPulse"
                         target="_blank"
                         rel="noreferrer"
                         className="action-btn"

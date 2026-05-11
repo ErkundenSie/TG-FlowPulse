@@ -178,6 +178,8 @@ class SupportAction(int, Enum):
     REPLY_BY_IMAGE_RECOGNITION = 6  # AI image recognition then send text
     CLICK_BUTTON_BY_CALCULATION_PROBLEM = 7  # AI calculation then click button
     KEYWORD_NOTIFY = 8  # Listen for keywords
+    SEND_PHOTO = 9  # Send photo
+    FORWARD_MESSAGES = 10  # Forward one or more messages
 
     @property
     def desc(self):
@@ -190,6 +192,8 @@ class SupportAction(int, Enum):
             SupportAction.REPLY_BY_IMAGE_RECOGNITION: "AI image recognition then send text",
             SupportAction.CLICK_BUTTON_BY_CALCULATION_PROBLEM: "AI calculation then click button",
             SupportAction.KEYWORD_NOTIFY: "关键词监听",
+            SupportAction.SEND_PHOTO: "Send photo",
+            SupportAction.FORWARD_MESSAGES: "Forward messages",
         }[self]
 
 
@@ -205,6 +209,18 @@ class SendTextAction(SignAction):
 class SendDiceAction(SignAction):
     action: Literal[SupportAction.SEND_DICE] = SupportAction.SEND_DICE
     dice: Union[Literal["🎲", "🎯", "🏀", "⚽", "🎳", "🎰"], str]
+
+
+class SendPhotoAction(SignAction):
+    action: Literal[SupportAction.SEND_PHOTO] = SupportAction.SEND_PHOTO
+    photo: str
+    caption: Optional[str] = None
+
+
+class ForwardMessagesAction(SignAction):
+    action: Literal[SupportAction.FORWARD_MESSAGES] = SupportAction.FORWARD_MESSAGES
+    from_chat_id: Union[int, str]
+    message_ids: List[int]
 
 
 class ClickKeyboardByTextAction(SignAction):
@@ -256,6 +272,8 @@ class KeywordNotifyAction(SignAction):
 ActionT: TypeAlias = Union[
     SendTextAction,
     SendDiceAction,
+    SendPhotoAction,
+    ForwardMessagesAction,
     ClickKeyboardByTextAction,
     ChooseOptionByImageAction,
     ReplyByCalculationProblemAction,
@@ -321,6 +339,13 @@ class SignChatV3(BaseJSONConfig):
                 details = f"Text: {text_preview}"
             elif isinstance(action, SendDiceAction):
                 details = f"Dice: {action.dice}"
+            elif isinstance(action, SendPhotoAction):
+                photo_preview = (
+                    action.photo[:15] + "..." if len(action.photo) > 15 else action.photo
+                )
+                details = f"Photo: {photo_preview}"
+            elif isinstance(action, ForwardMessagesAction):
+                details = f"Forward: {len(action.message_ids)} from {action.from_chat_id}"
             elif isinstance(action, ClickKeyboardByTextAction):
                 text_preview = (
                     action.text[:15] + "..." if len(action.text) > 15 else action.text

@@ -43,11 +43,13 @@ import {
     Lightning,
     Copy,
     ClipboardText,
+    FastForward,
+    Image as ImageIcon,
 } from "@phosphor-icons/react";
 import { ToastContainer, useToast } from "../../../components/ui/toast";
 import { useLanguage } from "../../../context/LanguageContext";
 
-type ActionTypeOption = "1" | "2" | "3" | "ai_vision" | "ai_logic" | "keyword_notify";
+type ActionTypeOption = "1" | "2" | "3" | "9" | "10" | "ai_vision" | "ai_logic" | "keyword_notify";
 type CreateTargetMode = "single_task" | "batch_tasks";
 type ScheduleMode = "fixed_time" | "range" | "cron";
 
@@ -66,6 +68,15 @@ const CHAT_LIST_PREVIEW_LIMIT = 80;
 const splitKeywordInput = (value: string, matchMode?: string) => {
     const splitter = matchMode === "regex" ? /\n/ : /\n|,/;
     return value.split(splitter).map((item) => item.trim()).filter(Boolean);
+};
+
+const parseMessageIdsInput = (value: string) => {
+    return value
+        .split(/[\n,]+/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .map((item) => Number(item))
+        .filter((item) => Number.isInteger(item) && item > 0);
 };
 
 const getChatTitle = (chat: ChatInfo) => chat.title || chat.username || chat.first_name || String(chat.id);
@@ -445,6 +456,8 @@ export default function AccountTasksContent() {
     const sendTextLabel = isZh ? "\u53D1\u9001\u6587\u672C\u6D88\u606F" : "Send Text Message";
     const clickTextButtonLabel = isZh ? "\u70B9\u51FB\u6587\u5B57\u6309\u94AE" : "Click Text Button";
     const sendDiceLabel = isZh ? "\u53D1\u9001\u9AB0\u5B50" : "Send Dice";
+    const sendPhotoLabel = isZh ? "\u53D1\u9001\u56FE\u7247" : "Send Photo";
+    const forwardMessagesLabel = isZh ? "\u8F6C\u53D1\u591A\u6761\u6D88\u606F" : "Forward Messages";
     const aiVisionLabel = isZh ? "AI\u8BC6\u56FE" : "AI Vision";
     const aiCalcLabel = isZh ? "AI\u8BA1\u7B97" : "AI Calculate";
     const keywordNotifyLabel = isZh ? "\u5173\u952E\u8BCD\u76D1\u542C" : "Keyword Monitor";
@@ -467,6 +480,10 @@ export default function AccountTasksContent() {
     const continueChatIdPlaceholder = isZh ? "\u7559\u7A7A\u4F7F\u7528\u547D\u4E2D\u6D88\u606F\u6765\u6E90" : "Blank uses matched chat";
     const sendTextPlaceholder = isZh ? "\u53D1\u9001\u7684\u6587\u672C\u5185\u5BB9" : "Text to send";
     const clickButtonPlaceholder = isZh ? "\u8F93\u5165\u6309\u94AE\u6587\u5B57\uFF0C\u4E0D\u8981\u8868\u60C5\uFF01" : "Button text to click, no emoji";
+    const photoPlaceholder = isZh ? "\u56FE\u7247\u8DEF\u5F84 / URL / Telegram file_id" : "Photo path / URL / Telegram file_id";
+    const photoCaptionPlaceholder = isZh ? "\u56FE\u7247\u8BF4\u660E\uFF08\u53EF\u9009\uFF09" : "Caption (optional)";
+    const forwardSourcePlaceholder = isZh ? "\u6765\u6E90 Chat ID / @username" : "Source Chat ID / @username";
+    const forwardMessageIdsPlaceholder = isZh ? "\u6D88\u606F ID\uFF0C\u7528\u9017\u53F7\u6216\u6362\u884C\u5206\u9694" : "Message IDs, comma or newline separated";
     const aiVisionSendModeLabel = isZh ? "\u8BC6\u56FE\u540E\u53D1\u6587\u672C" : "Vision -> Send Text";
     const aiVisionClickModeLabel = isZh ? "\u8BC6\u56FE\u540E\u70B9\u6309\u94AE" : "Vision -> Click Button";
     const aiCalcSendModeLabel = isZh ? "\u8BA1\u7B97\u540E\u53D1\u6587\u672C" : "Math -> Send Text";
@@ -640,6 +657,8 @@ export default function AccountTasksContent() {
         if (actionId === 1) return "1";
         if (actionId === 3) return "3";
         if (actionId === 2) return "2";
+        if (actionId === 9) return "9";
+        if (actionId === 10) return "10";
         if (actionId === 4 || actionId === 6) return "ai_vision";
         if (actionId === 5 || actionId === 7) return "ai_logic";
         if (actionId === 8) return "keyword_notify";
@@ -654,6 +673,13 @@ export default function AccountTasksContent() {
         if (actionId === 2) {
             return Boolean((action?.dice || "").trim());
         }
+        if (actionId === 9) {
+            return Boolean((action?.photo || "").trim());
+        }
+        if (actionId === 10) {
+            const messageIds = Array.isArray(action?.message_ids) ? action.message_ids : [];
+            return Boolean((action?.from_chat_id || "").trim()) && messageIds.length > 0;
+        }
         return [4, 5, 6, 7].includes(actionId);
     }, []);
 
@@ -664,6 +690,13 @@ export default function AccountTasksContent() {
         }
         if (actionId === 2) {
             return Boolean((action?.dice || "").trim());
+        }
+        if (actionId === 9) {
+            return Boolean((action?.photo || "").trim());
+        }
+        if (actionId === 10) {
+            const messageIds = Array.isArray(action?.message_ids) ? action.message_ids : [];
+            return Boolean((action?.from_chat_id || "").trim()) && messageIds.length > 0;
         }
         if (actionId === 8) {
             const keywords = Array.isArray(action?.keywords) ? action.keywords : [];
@@ -2119,6 +2152,12 @@ export default function AccountTasksContent() {
                                                             if (selectedType === "2") {
                                                                 return { ...currentAction, action: 2, dice: currentAction?.dice || DICE_OPTIONS[0] };
                                                             }
+                                                            if (selectedType === "9") {
+                                                                return { ...currentAction, action: 9, photo: currentAction?.photo || "", caption: currentAction?.caption || "" };
+                                                            }
+                                                            if (selectedType === "10") {
+                                                                return { ...currentAction, action: 10, from_chat_id: currentAction?.from_chat_id || "", message_ids: currentAction?.message_ids || [] };
+                                                            }
                                                             if (selectedType === "keyword_notify") {
                                                                 return {
                                                                     ...currentAction,
@@ -2149,6 +2188,8 @@ export default function AccountTasksContent() {
                                                     <option value="1">{sendTextLabel}</option>
                                                     <option value="3">{clickTextButtonLabel}</option>
                                                     <option value="2">{sendDiceLabel}</option>
+                                                    <option value="9">{sendPhotoLabel}</option>
+                                                    <option value="10">{forwardMessagesLabel}</option>
                                                     <option value="ai_vision">{aiVisionLabel}</option>
                                                     <option value="ai_logic">{aiCalcLabel}</option>
                                                     <option value="keyword_notify">{keywordNotifyLabel}</option>
@@ -2186,6 +2227,66 @@ export default function AccountTasksContent() {
                                                                 {d}
                                                             </button>
                                                         ))}
+                                                    </div>
+                                                )}
+                                                {action.action === 9 && (
+                                                    <div className="space-y-2">
+                                                        <div className="relative">
+                                                            <ImageIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-main/25" size={16} />
+                                                            <input
+                                                                className="!mb-0 !h-10 !pl-9 !text-xs"
+                                                                value={action.photo || ""}
+                                                                onChange={(e) => {
+                                                                    updateCurrentDialogAction(index, (currentAction) => ({
+                                                                        ...currentAction,
+                                                                        photo: e.target.value,
+                                                                    }));
+                                                                }}
+                                                                placeholder={photoPlaceholder}
+                                                            />
+                                                        </div>
+                                                        <textarea
+                                                            rows={2}
+                                                            className="!mb-0 min-h-[58px] max-h-[120px] w-full resize-y bg-white/[0.035] rounded-xl px-3 py-2.5 text-sm leading-6 text-main/75 border border-white/5 focus:border-[#8a3ffc]/40 outline-none transition-all placeholder:text-main/20 custom-scrollbar"
+                                                            value={action.caption || ""}
+                                                            onChange={(e) => {
+                                                                updateCurrentDialogAction(index, (currentAction) => ({
+                                                                    ...currentAction,
+                                                                    caption: e.target.value,
+                                                                }));
+                                                            }}
+                                                            placeholder={photoCaptionPlaceholder}
+                                                        />
+                                                    </div>
+                                                )}
+                                                {action.action === 10 && (
+                                                    <div className="space-y-2">
+                                                        <div className="relative">
+                                                            <FastForward className="absolute left-3 top-1/2 -translate-y-1/2 text-main/25" size={16} />
+                                                            <input
+                                                                className="!mb-0 !h-10 !pl-9 !text-xs"
+                                                                value={action.from_chat_id || ""}
+                                                                onChange={(e) => {
+                                                                    updateCurrentDialogAction(index, (currentAction) => ({
+                                                                        ...currentAction,
+                                                                        from_chat_id: e.target.value,
+                                                                    }));
+                                                                }}
+                                                                placeholder={forwardSourcePlaceholder}
+                                                            />
+                                                        </div>
+                                                        <textarea
+                                                            rows={2}
+                                                            className="!mb-0 min-h-[58px] max-h-[120px] w-full resize-y bg-white/[0.035] rounded-xl px-3 py-2.5 text-sm leading-6 text-main/75 border border-white/5 focus:border-[#8a3ffc]/40 outline-none transition-all placeholder:text-main/20 custom-scrollbar"
+                                                            value={(action.message_ids || []).join(", ")}
+                                                            onChange={(e) => {
+                                                                updateCurrentDialogAction(index, (currentAction) => ({
+                                                                    ...currentAction,
+                                                                    message_ids: parseMessageIdsInput(e.target.value),
+                                                                }));
+                                                            }}
+                                                            placeholder={forwardMessageIdsPlaceholder}
+                                                        />
                                                     </div>
                                                 )}
                                                 {(action.action === 4 || action.action === 6) && (
@@ -2437,6 +2538,12 @@ export default function AccountTasksContent() {
                                                                                                 if (selectedType === "2") {
                                                                                                     return { ...currentAction, action: 2, dice: currentAction?.dice || DICE_OPTIONS[0] };
                                                                                                 }
+                                                                                                if (selectedType === "9") {
+                                                                                                    return { ...currentAction, action: 9, photo: currentAction?.photo || "", caption: currentAction?.caption || "" };
+                                                                                                }
+                                                                                                if (selectedType === "10") {
+                                                                                                    return { ...currentAction, action: 10, from_chat_id: currentAction?.from_chat_id || "", message_ids: currentAction?.message_ids || [] };
+                                                                                                }
                                                                                                 if (selectedType === "ai_vision") {
                                                                                                     const nextActionId = (currentActionId === 4 || currentActionId === 6) ? currentActionId : 6;
                                                                                                     return { ...currentAction, action: nextActionId };
@@ -2449,6 +2556,8 @@ export default function AccountTasksContent() {
                                                                                         <option value="1">{sendTextLabel}</option>
                                                                                         <option value="3">{clickTextButtonLabel}</option>
                                                                                         <option value="2">{sendDiceLabel}</option>
+                                                                                        <option value="9">{sendPhotoLabel}</option>
+                                                                                        <option value="10">{forwardMessagesLabel}</option>
                                                                                         <option value="ai_vision">{aiVisionLabel}</option>
                                                                                         <option value="ai_logic">{aiCalcLabel}</option>
                                                                                     </select>
@@ -2507,6 +2616,59 @@ export default function AccountTasksContent() {
                                                                                                 {d}
                                                                                             </button>
                                                                                         ))}
+                                                                                    </div>
+                                                                                )}
+                                                                                {continueActionId === 9 && (
+                                                                                    <div className="space-y-2">
+                                                                                        <input
+                                                                                            className="!mb-0 !h-10 !text-xs"
+                                                                                            value={continueAction.photo || ""}
+                                                                                            onChange={(e) => {
+                                                                                                updateKeywordContinueAction(index, continueIndex, (currentAction) => ({
+                                                                                                    ...currentAction,
+                                                                                                    photo: e.target.value,
+                                                                                                }));
+                                                                                            }}
+                                                                                            placeholder={photoPlaceholder}
+                                                                                        />
+                                                                                        <input
+                                                                                            className="!mb-0 !h-10 !text-xs"
+                                                                                            value={continueAction.caption || ""}
+                                                                                            onChange={(e) => {
+                                                                                                updateKeywordContinueAction(index, continueIndex, (currentAction) => ({
+                                                                                                    ...currentAction,
+                                                                                                    caption: e.target.value,
+                                                                                                }));
+                                                                                            }}
+                                                                                            placeholder={photoCaptionPlaceholder}
+                                                                                        />
+                                                                                    </div>
+                                                                                )}
+                                                                                {continueActionId === 10 && (
+                                                                                    <div className="space-y-2">
+                                                                                        <input
+                                                                                            className="!mb-0 !h-10 !text-xs"
+                                                                                            value={continueAction.from_chat_id || ""}
+                                                                                            onChange={(e) => {
+                                                                                                updateKeywordContinueAction(index, continueIndex, (currentAction) => ({
+                                                                                                    ...currentAction,
+                                                                                                    from_chat_id: e.target.value,
+                                                                                                }));
+                                                                                            }}
+                                                                                            placeholder={forwardSourcePlaceholder}
+                                                                                        />
+                                                                                        <textarea
+                                                                                            rows={2}
+                                                                                            className="!mb-0 min-h-[58px] max-h-[120px] w-full resize-y bg-white/[0.035] rounded-xl px-3 py-2.5 text-sm leading-6 text-main/75 border border-white/5 focus:border-[#8a3ffc]/40 outline-none transition-all placeholder:text-main/20 custom-scrollbar"
+                                                                                            value={(continueAction.message_ids || []).join(", ")}
+                                                                                            onChange={(e) => {
+                                                                                                updateKeywordContinueAction(index, continueIndex, (currentAction) => ({
+                                                                                                    ...currentAction,
+                                                                                                    message_ids: parseMessageIdsInput(e.target.value),
+                                                                                                }));
+                                                                                            }}
+                                                                                            placeholder={forwardMessageIdsPlaceholder}
+                                                                                        />
                                                                                     </div>
                                                                                 )}
                                                                                 {(continueActionId === 4 || continueActionId === 6) && (

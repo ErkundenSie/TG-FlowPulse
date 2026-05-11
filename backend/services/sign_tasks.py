@@ -736,7 +736,7 @@ class SignTaskService:
 
             log_tail = "\n".join((flow_logs or [])[-20:])
             text = (
-                "TG-SignPulse 任务执行失败\n"
+                "TG-FlowPulse 任务执行失败\n"
                 f"账号: {account_name}\n"
                 f"任务: {task_name}\n"
                 f"错误: {message or '未知错误'}"
@@ -783,7 +783,7 @@ class SignTaskService:
                 message_thread_id = None
 
             text = (
-                "TG-SignPulse 账号登录失效\n"
+                "TG-FlowPulse 账号登录失效\n"
                 f"账号: {account_name}\n"
                 f"触发任务: {task_name}\n"
                 f"原因: {message or 'session 已失效，请重新登录'}\n\n"

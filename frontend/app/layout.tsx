@@ -7,8 +7,8 @@ import { LanguageProvider } from "../context/LanguageContext";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "TG SignPulse",
-  description: "TG SignPulse",
+  title: "TG-FlowPulse",
+  description: "Telegram 多账号自动化任务编排、消息监听、通知转发与签到管理面板",
 };
 
 export const viewport: Viewport = {

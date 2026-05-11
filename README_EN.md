@@ -1,10 +1,10 @@
-# TG-SignPulse
+# TG-FlowPulse
 
-> A Telegram multi-account automation panel for check-ins, action workflows, and keyword monitoring.
+> A Telegram multi-account automation panel for task workflows, message monitoring, notification forwarding, and check-in management.
 
 [中文说明](README.md) · [Health Checks](#health-checks) · [Changelog](#changelog)
 
-TG-SignPulse is a Telegram automation panel. It helps you manage multiple accounts, run auto check-in tasks, and monitor execution logs from a web UI.
+TG-FlowPulse is a Telegram multi-account automation panel for task workflows, message monitoring, notification forwarding, and check-in management.
 
 > AI-powered: AI actions (vision/math) are integrated and can be used directly in task workflows.
 
