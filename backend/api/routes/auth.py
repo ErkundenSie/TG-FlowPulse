@@ -19,9 +19,9 @@ logger = logging.getLogger("backend.auth")
 
 
 class ResetTOTPRequest(BaseModel):
-    """重置 TOTP 请求（通过密码验证）"""
+    """重置 TOTP 请求（需已登录并通过密码验证）"""
 
-    username: str
+    username: str | None = None
     password: str
 
 
@@ -39,20 +39,18 @@ def login(
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
-    print(f"[DEBUG] Login attempt for user: {payload.username}")
     user = authenticate_user(db, payload.username, payload.password)
     if not user:
-        print(f"[DEBUG] Authentication failed for user: {payload.username}")
+        logger.warning("Authentication failed for user: %s", payload.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid username or password",
         )
-    print(f"[DEBUG] User authenticated: {user.username}, TOTP Secret: {bool(user.totp_secret)}")
     if user.totp_secret:
         if not payload.totp_code or not verify_totp(
             user.totp_secret, payload.totp_code
         ):
-            print(f"[DEBUG] TOTP verification failed for user: {user.username}")
+            logger.warning("TOTP verification failed for user: %s", user.username)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="TOTP_REQUIRED_OR_INVALID",
@@ -89,31 +87,32 @@ def me(current_user: User = Depends(auth_core.get_current_user)):
 
 
 @router.post("/reset-totp", response_model=ResetTOTPResponse)
-def reset_totp(request: ResetTOTPRequest, db: Session = Depends(get_db)):
+def reset_totp(
+    request: ResetTOTPRequest,
+    current_user: User = Depends(auth_core.get_current_user),
+    db: Session = Depends(get_db),
+):
     """
-    强制重置 TOTP（不需要 TOTP 验证码，只需要密码）
+    重置当前登录用户的 TOTP。
 
-    用于解决用户启用了 TOTP 但无法登录的问题。
-    需要提供正确的用户名和密码。
+    该接口不再允许仅凭用户名和密码在未登录状态下关闭 2FA。
     """
-    # 验证用户名和密码
-    user = db.query(User).filter(User.username == request.username).first()
-    if not user:
+    if request.username and request.username != current_user.username:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="只能重置当前登录用户的两步验证",
+        )
+
+    if not verify_password(request.password, current_user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误"
         )
 
-    if not verify_password(request.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误"
-        )
-
-    # 如果没有启用 TOTP，提示无需重置
-    if not user.totp_secret:
+    if not current_user.totp_secret:
         return ResetTOTPResponse(success=True, message="该用户未启用两步验证，无需重置")
 
-    # 清除 TOTP secret
-    user.totp_secret = None
+    current_user.totp_secret = None
     db.commit()
+    logger.info("TOTP reset for current user: %s", current_user.username)
 
-    return ResetTOTPResponse(success=True, message="两步验证已重置，现在可以正常登录")
+    return ResetTOTPResponse(success=True, message="两步验证已重置")

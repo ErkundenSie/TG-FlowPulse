@@ -15,7 +15,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from backend.core.auth import get_current_user, get_current_user_optional
+from backend.core.auth import get_current_user, verify_totp
 from backend.core.database import get_db
 from backend.core.security import hash_password, verify_password
 from backend.models.user import User
@@ -212,35 +212,13 @@ def setup_totp(
 
 @router.get("/totp/qrcode")
 def get_totp_qrcode(
-    token: Optional[str] = None,
-    current_user: Optional[User] = Depends(get_current_user_optional),
-    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     获取2FA二维码
 
     返回二维码图片（PNG 格式）
-    支持通过 query parameter 传递 token（用于 img src）
     """
-    from jose import JWTError, jwt
-
-    from backend.core.config import get_settings
-
-    settings = get_settings()
-
-    # 如果没有通过 header 获取用户，尝试从 query param 获取
-    if current_user is None and token:
-        try:
-            payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
-            username: str = payload.get("sub")
-            if username:
-                current_user = db.query(User).filter(User.username == username).first()
-        except JWTError:
-            pass
-
-    if current_user is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="认证失败")
-
     # 优先使用待验证的 secret，否则使用已启用的 secret
     secret = _pending_totp_secrets.get(current_user.id) or current_user.totp_secret
 
@@ -289,9 +267,7 @@ def enable_totp(
             detail="请先调用 /totp/setup 设置2FA",
         )
 
-    # 验证 TOTP 码
-    totp = pyotp.TOTP(pending_secret)
-    if not totp.verify(request.totp_code):
+    if not verify_totp(pending_secret, request.totp_code):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="验证码错误"
         )
@@ -335,9 +311,7 @@ def disable_totp(
             status_code=status.HTTP_400_BAD_REQUEST, detail="2FA 未启用"
         )
 
-    # 验证 TOTP 码
-    totp = pyotp.TOTP(current_user.totp_secret)
-    if not totp.verify(request.totp_code):
+    if not verify_totp(current_user.totp_secret, request.totp_code):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST, detail="验证码错误"
         )
@@ -364,7 +338,6 @@ def reset_totp(
     db.commit()
 
     # 清除待验证的 secret
-    if current_user.id in _pending_totp_secrets:
-        del _pending_totp_secrets[current_user.id]
+    _pending_totp_secrets.pop(current_user.id, None)
 
     return DisableTOTPResponse(success=True, message="两步验证已重置")

@@ -164,14 +164,24 @@ async def import_sign_task(
 
 
 @router.get("/export/all")
-def export_all_configs(current_user: User = Depends(get_current_user)):
+def export_all_configs(
+    include_secrets: bool = False,
+    current_user: User = Depends(get_current_user),
+):
     try:
-        config_json = get_config_service().export_all_configs()
+        config_json = get_config_service().export_all_configs(
+            include_secrets=include_secrets
+        )
+        filename = (
+            "tg_signer_all_configs_full.json"
+            if include_secrets
+            else "tg_signer_all_configs_redacted.json"
+        )
         return Response(
             content=config_json.encode("utf-8"),
             media_type="application/json; charset=utf-8",
             headers={
-                "Content-Disposition": 'attachment; filename="tg_signer_all_configs.json"'
+                "Content-Disposition": f'attachment; filename="{filename}"'
             },
         )
     except Exception as e:

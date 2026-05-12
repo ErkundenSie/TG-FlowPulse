@@ -11,7 +11,7 @@ services:
       - PORT=8080
       - APP_DATA_DIR=/data
       - TZ=${TZ:-Asia/Shanghai}
-      - APP_SECRET_KEY=${APP_SECRET_KEY:-tg-signpulse-change-me}
+      - APP_SECRET_KEY=${APP_SECRET_KEY:-}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
     init: true
     read_only: true

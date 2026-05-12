@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import secrets
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
@@ -13,17 +14,40 @@ except ImportError:
     from pydantic import BaseSettings
 
 
+_DEFAULT_CORS_ORIGINS = ",".join(
+    [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8080",
+        "http://127.0.0.1:8080",
+    ]
+)
+
+
 # 生成或获取持久化的密钥
 def get_default_secret_key() -> str:
-    """获取默认密钥，优先使用环境变量，否则使用固定默认值"""
-    # 如果设置了环境变量，使用环境变量
+    """获取应用密钥，优先使用环境变量，否则生成持久化本地密钥。"""
     env_secret = os.getenv("APP_SECRET_KEY")
     if env_secret and env_secret.strip():
         return env_secret.strip()
 
-    # 否则使用固定的默认值（生产环境应该设置环境变量）
-    # 这个默认值确保应用能启动，但不够安全
-    return "tg-signer-default-secret-key-please-change-in-production-2024"
+    secret_file = os.getenv("APP_SECRET_KEY_FILE")
+    secret_path = (
+        Path(secret_file).expanduser()
+        if secret_file and secret_file.strip()
+        else get_writable_base_dir() / ".secret_key"
+    )
+    try:
+        if secret_path.exists():
+            existing = secret_path.read_text(encoding="utf-8").strip()
+            if existing:
+                return existing
+        generated = secrets.token_urlsafe(48)
+        secret_path.parent.mkdir(parents=True, exist_ok=True)
+        secret_path.write_text(generated, encoding="utf-8")
+        return generated
+    except OSError:
+        return secrets.token_urlsafe(48)
 
 
 class Settings(BaseSettings):
@@ -34,6 +58,7 @@ class Settings(BaseSettings):
     # 使用函数获取默认密钥
     secret_key: str = get_default_secret_key()
     access_token_expire_hours: int = 12
+    cors_origins: str = os.getenv("APP_CORS_ORIGINS", _DEFAULT_CORS_ORIGINS)
 
     timezone: str = os.getenv("TZ", "Asia/Hong_Kong")
     data_dir: Path = get_initial_data_dir()
@@ -50,6 +75,11 @@ class Settings(BaseSettings):
     @property
     def database_url(self) -> str:
         return f"sqlite:///{self.resolve_db_path()}?check_same_thread=False"
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        origins = [item.strip() for item in (self.cors_origins or "").split(",")]
+        return [origin for origin in origins if origin]
 
     def resolve_db_path(self) -> Path:
         return self.db_path or self.resolve_base_dir() / "db.sqlite"

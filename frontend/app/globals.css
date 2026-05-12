@@ -6,7 +6,11 @@
 :root {
   /* === 深色模式 (Dark Mode) === */
   --bg-body: #050507;
-  --bg-glow: radial-gradient(circle at 50% -20%, rgba(138, 63, 252, 0.15), transparent 60%);
+  --bg-glow: radial-gradient(
+    circle at 50% -20%,
+    rgba(138, 63, 252, 0.15),
+    transparent 60%
+  );
   --glass-bg: rgba(20, 21, 28, 0.7);
   --glass-border: rgba(255, 255, 255, 0.08);
   --glass-blur: blur(20px);
@@ -33,7 +37,11 @@
 .light,
 [data-theme="light"] {
   --bg-body: #f2f4f7;
-  --bg-glow: radial-gradient(circle at 50% -20%, rgba(138, 63, 252, 0.05), transparent 60%);
+  --bg-glow: radial-gradient(
+    circle at 50% -20%,
+    rgba(138, 63, 252, 0.05),
+    transparent 60%
+  );
   --glass-bg: #ffffff;
   --glass-border: #e5e7eb;
   --glass-blur: blur(0px);
@@ -53,7 +61,11 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
 }
 
 body {
@@ -169,7 +181,6 @@ select option {
   background-color: var(--glass-bg);
   color: var(--text-main);
 }
-
 
 /* 通用图标按钮 */
 .action-btn {
@@ -292,6 +303,11 @@ select option {
   overflow-y: auto;
   overflow-x: hidden;
   animation: floatUp 0.6s 0.1s backwards;
+}
+
+.main-content.settings-main {
+  max-width: 1180px;
+  padding-inline: 28px;
 }
 
 .card-grid {
@@ -610,9 +626,12 @@ select option {
 }
 
 #settings-view .settings-shell {
-  max-width: 1328px;
+  max-width: 1120px;
   margin: 0 auto;
   align-items: start;
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  gap: 18px;
 }
 
 #settings-view .settings-sidebar,
@@ -676,7 +695,7 @@ select option {
 }
 
 #settings-view .settings-panel {
-  padding: 18px;
+  padding: 20px;
 }
 
 #settings-view .settings-panel-header {
@@ -707,6 +726,37 @@ select option {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 14px 16px;
+}
+
+#settings-view .settings-panel-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+#settings-view .settings-status-badge {
+  flex-shrink: 0;
+  border-radius: 999px;
+  border: 1px solid var(--settings-line);
+  padding: 3px 10px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+#settings-view .settings-status-badge.is-success {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+}
+
+#settings-view .settings-status-badge.is-danger {
+  background: rgba(244, 63, 94, 0.1);
+  border-color: rgba(244, 63, 94, 0.2);
+  color: #f43f5e;
 }
 
 #settings-view .settings-field-grid.cols-3 {
@@ -776,12 +826,20 @@ select option {
 }
 
 @media (max-width: 1024px) {
+  .main-content.settings-main {
+    padding-inline: 20px;
+  }
+
+  #settings-view .settings-shell {
+    grid-template-columns: 1fr;
+  }
+
   #settings-view .settings-sidebar {
     overflow-x: auto;
     width: 100%;
   }
 
-  #settings-view .settings-sidebar>div {
+  #settings-view .settings-sidebar > div {
     display: grid;
     grid-auto-flow: column;
     grid-auto-columns: minmax(180px, 1fr);

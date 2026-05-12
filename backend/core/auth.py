@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timedelta
 from typing import Optional
@@ -18,45 +19,84 @@ from backend.models.user import User
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 settings = get_settings()
+logger = logging.getLogger("backend.auth")
+ALGORITHM = "HS256"
+
+
+class AuthService:
+    def __init__(self, secret_key: str, access_token_expire_hours: int):
+        self.secret_key = secret_key
+        self.access_token_expire_hours = access_token_expire_hours
+
+    def create_access_token(
+        self, data: dict, expires_delta: Optional[timedelta] = None
+    ) -> str:
+        to_encode = data.copy()
+        expire = datetime.utcnow() + (
+            expires_delta or timedelta(hours=self.access_token_expire_hours)
+        )
+        to_encode.update({"exp": expire})
+        return jwt.encode(to_encode, self.secret_key, algorithm=ALGORITHM)
+
+    def verify_totp(self, secret: str, code: str) -> bool:
+        try:
+            if not isinstance(code, str):
+                return False
+            normalized_code = code.strip().replace(" ", "")
+            if not normalized_code:
+                return False
+            totp = pyotp.TOTP(secret)
+            raw_window = os.getenv("APP_TOTP_VALID_WINDOW")
+            raw_window = raw_window.strip() if isinstance(raw_window, str) else ""
+            try:
+                valid_window = int(raw_window) if raw_window else 1
+            except ValueError:
+                valid_window = 1
+            if valid_window < 0:
+                valid_window = 0
+            return totp.verify(normalized_code, valid_window=valid_window)
+        except Exception:
+            logger.exception("TOTP verification failed unexpectedly")
+            return False
+
+    def authenticate_user(
+        self, db: Session, username: str, password: str
+    ) -> Optional[User]:
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            return None
+        if not verify_password(password, user.password_hash):
+            return None
+        return user
+
+    def verify_token(self, token: str, db: Session) -> Optional[User]:
+        try:
+            payload = jwt.decode(token, self.secret_key, algorithms=[ALGORITHM])
+            username: str = payload.get("sub")  # type: ignore[assignment]
+            if username is None:
+                return None
+        except JWTError:
+            return None
+        return db.query(User).filter(User.username == username).first()
+
+
+auth_service = AuthService(settings.secret_key, settings.access_token_expire_hours)
+
+
+def get_auth_service() -> AuthService:
+    return auth_service
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
-    to_encode = data.copy()
-    expire = datetime.utcnow() + (
-        expires_delta or timedelta(hours=settings.access_token_expire_hours)
-    )
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, settings.secret_key, algorithm="HS256")
+    return auth_service.create_access_token(data, expires_delta)
 
 
 def verify_totp(secret: str, code: str) -> bool:
-    try:
-        if not isinstance(code, str):
-            return False
-        code = code.strip().replace(" ", "")
-        if not code:
-            return False
-        totp = pyotp.TOTP(secret)
-        raw_window = os.getenv("APP_TOTP_VALID_WINDOW")
-        raw_window = raw_window.strip() if isinstance(raw_window, str) else ""
-        try:
-            valid_window = int(raw_window) if raw_window else 1
-        except ValueError:
-            valid_window = 1
-        if valid_window < 0:
-            valid_window = 0
-        return totp.verify(code, valid_window=valid_window)
-    except Exception:
-        return False
+    return auth_service.verify_totp(secret, code)
 
 
 def authenticate_user(db: Session, username: str, password: str) -> Optional[User]:
-    user = db.query(User).filter(User.username == username).first()
-    if not user:
-        return None
-    if not verify_password(password, user.password_hash):
-        return None
-    return user
+    return auth_service.authenticate_user(db, username, password)
 
 
 def get_current_user(
@@ -68,14 +108,10 @@ def get_current_user(
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
-        username: str = payload.get("sub")  # type: ignore[assignment]
-        if username is None:
+        user = verify_token(token, db)
+        if user is None:
             raise credentials_exception
-    except JWTError:
-        raise credentials_exception
-    user = db.query(User).filter(User.username == username).first()
-    if user is None:
+    except HTTPException:
         raise credentials_exception
     return user
 
@@ -98,12 +134,4 @@ def get_current_user_optional(
 
 def verify_token(token: str, db: Session) -> Optional[User]:
     """验证 Token 并返回用户对象"""
-    try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=["HS256"])
-        username: str = payload.get("sub")  # type: ignore[assignment]
-        if username is None:
-            return None
-    except JWTError:
-        return None
-    user = db.query(User).filter(User.username == username).first()
-    return user
+    return auth_service.verify_token(token, db)

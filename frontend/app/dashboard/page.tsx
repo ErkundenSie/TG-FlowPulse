@@ -34,7 +34,7 @@ import {
   PencilSimple,
   PaperPlaneRight,
   Trash,
-  ChatCircleText
+  ChatCircleText,
 } from "@phosphor-icons/react";
 import { ToastContainer, useToast } from "../../components/ui/toast";
 import { ThemeLanguageToggle } from "../../components/ThemeLanguageToggle";
@@ -67,7 +67,9 @@ export default function Dashboard() {
   // 添加账号对话框
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [loginData, setLoginData] = useState({ ...EMPTY_LOGIN_DATA });
-  const [reloginAccountName, setReloginAccountName] = useState<string | null>(null);
+  const [reloginAccountName, setReloginAccountName] = useState<string | null>(
+    null,
+  );
   const [loginMode, setLoginMode] = useState<"phone" | "qr">("phone");
   const [qrLogin, setQrLogin] = useState<{
     login_id: string;
@@ -75,9 +77,22 @@ export default function Dashboard() {
     qr_image?: string | null;
     expires_at: string;
   } | null>(null);
-  type QrPhase = "idle" | "loading" | "ready" | "scanning" | "password" | "success" | "expired" | "error";
+  type QrPhase =
+    | "idle"
+    | "loading"
+    | "ready"
+    | "scanning"
+    | "password"
+    | "success"
+    | "expired"
+    | "error";
   const [qrStatus, setQrStatus] = useState<
-    "waiting_scan" | "scanned_wait_confirm" | "password_required" | "success" | "expired" | "failed"
+    | "waiting_scan"
+    | "scanned_wait_confirm"
+    | "password_required"
+    | "success"
+    | "expired"
+    | "failed"
   >("waiting_scan");
   const [qrPhase, setQrPhase] = useState<QrPhase>("idle");
   const [qrMessage, setQrMessage] = useState<string>("");
@@ -89,11 +104,15 @@ export default function Dashboard() {
   const qrPasswordLoadingRef = useRef(false);
 
   const qrPollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const qrCountdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const qrCountdownTimerRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
   const qrPollDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const qrActiveLoginIdRef = useRef<string | null>(null);
   const qrPollSeqRef = useRef(0);
-  const qrToastShownRef = useRef<Record<string, { expired?: boolean; error?: boolean }>>({});
+  const qrToastShownRef = useRef<
+    Record<string, { expired?: boolean; error?: boolean }>
+  >({});
   const qrPollingActiveRef = useRef(false);
   const qrRestartingRef = useRef(false);
   const qrAutoRefreshRef = useRef(0);
@@ -119,21 +138,26 @@ export default function Dashboard() {
   const sanitizeAccountName = (name: string) =>
     name.replace(/[^A-Za-z0-9\u4e00-\u9fff]/g, "");
 
-  const isDuplicateAccountName = useCallback((name: string, allowedSameName?: string | null) => {
-    const normalized = normalizeAccountName(name).toLowerCase();
-    if (!normalized) return false;
-    const allow = normalizeAccountName(allowedSameName || "").toLowerCase();
-    return accounts.some((acc) => {
-      const current = acc.name.toLowerCase();
-      if (allow && current === allow && normalized === allow) {
-        return false;
-      }
-      return current === normalized;
-    });
-  }, [accounts, normalizeAccountName]);
+  const isDuplicateAccountName = useCallback(
+    (name: string, allowedSameName?: string | null) => {
+      const normalized = normalizeAccountName(name).toLowerCase();
+      if (!normalized) return false;
+      const allow = normalizeAccountName(allowedSameName || "").toLowerCase();
+      return accounts.some((acc) => {
+        const current = acc.name.toLowerCase();
+        if (allow && current === allow && normalized === allow) {
+          return false;
+        }
+        return current === normalized;
+      });
+    },
+    [accounts, normalizeAccountName],
+  );
 
   const [checking, setChecking] = useState(true);
-  const [accountStatusMap, setAccountStatusMap] = useState<Record<string, AccountStatusItem>>({});
+  const [accountStatusMap, setAccountStatusMap] = useState<
+    Record<string, AccountStatusItem>
+  >({});
 
   const addToastRef = useRef(addToast);
   const tRef = useRef(t);
@@ -152,39 +176,45 @@ export default function Dashboard() {
     return code ? `${base} (${code})` : base;
   }, []);
 
-  const loadData = useCallback(async (tokenStr: string) => {
-    try {
-      setLoading(true);
-      const [accountsData, tasksData] = await Promise.all([
-        listAccounts(tokenStr),
-        listSignTasks(tokenStr),
-      ]);
-      setAccounts(accountsData.accounts);
-      setAccountStatusMap(() => {
-        const next: Record<string, AccountStatusItem> = {};
-        for (const acc of accountsData.accounts) {
-          const rawStatus = acc.status || "connected";
-          const needsRelogin = Boolean(acc.needs_relogin) || rawStatus === "invalid" || rawStatus === "not_found";
-          const status = needsRelogin ? "invalid" : "connected";
-          next[acc.name] = {
-            account_name: acc.name,
-            ok: !needsRelogin,
-            status,
-            message: acc.status_message || "",
-            code: acc.status_code || undefined,
-            checked_at: acc.status_checked_at || undefined,
-            needs_relogin: needsRelogin,
-          };
-        }
-        return next;
-      });
-      setTasks(tasksData);
-    } catch (err: any) {
-      addToastRef.current(formatErrorMessage("load_failed", err), "error");
-    } finally {
-      setLoading(false);
-    }
-  }, [formatErrorMessage]);
+  const loadData = useCallback(
+    async (tokenStr: string) => {
+      try {
+        setLoading(true);
+        const [accountsData, tasksData] = await Promise.all([
+          listAccounts(tokenStr),
+          listSignTasks(tokenStr),
+        ]);
+        setAccounts(accountsData.accounts);
+        setAccountStatusMap(() => {
+          const next: Record<string, AccountStatusItem> = {};
+          for (const acc of accountsData.accounts) {
+            const rawStatus = acc.status || "connected";
+            const needsRelogin =
+              Boolean(acc.needs_relogin) ||
+              rawStatus === "invalid" ||
+              rawStatus === "not_found";
+            const status = needsRelogin ? "invalid" : "connected";
+            next[acc.name] = {
+              account_name: acc.name,
+              ok: !needsRelogin,
+              status,
+              message: acc.status_message || "",
+              code: acc.status_code || undefined,
+              checked_at: acc.status_checked_at || undefined,
+              needs_relogin: needsRelogin,
+            };
+          }
+          return next;
+        });
+        setTasks(tasksData);
+      } catch (err: any) {
+        addToastRef.current(formatErrorMessage("load_failed", err), "error");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [formatErrorMessage],
+  );
 
   useEffect(() => {
     const tokenStr = getToken();
@@ -198,7 +228,7 @@ export default function Dashboard() {
   }, [loadData]);
 
   const getAccountTaskCount = (accountName: string) => {
-    return tasks.filter(task => task.account_name === accountName).length;
+    return tasks.filter((task) => task.account_name === accountName).length;
   };
 
   const openAddDialog = () => {
@@ -226,7 +256,11 @@ export default function Dashboard() {
         account_name: trimmedAccountName,
         proxy: loginData.proxy || undefined,
       });
-      setLoginData({ ...loginData, account_name: trimmedAccountName, phone_code_hash: res.phone_code_hash });
+      setLoginData({
+        ...loginData,
+        account_name: trimmedAccountName,
+        phone_code_hash: res.phone_code_hash,
+      });
       addToast(t("code_sent"), "success");
     } catch (err: any) {
       addToast(formatErrorMessage("send_code_failed", err), "error");
@@ -344,7 +378,6 @@ export default function Dashboard() {
 
   const debugQr = useCallback((payload: Record<string, any>) => {
     if (process.env.NODE_ENV !== "production") {
-      // eslint-disable-next-line no-console
       console.debug("[qr-login]", payload);
     }
   }, []);
@@ -373,33 +406,42 @@ export default function Dashboard() {
     clearQrCountdownTimer();
   }, [clearQrPollingTimers, clearQrCountdownTimer]);
 
-  const setQrPhaseSafe = useCallback((next: QrPhase, reason: string, extra?: Record<string, any>) => {
-    setQrPhase((prev) => {
-      if (prev !== next) {
-        debugQr({
-          login_id: qrActiveLoginIdRef.current,
-          prev,
-          next,
-          reason,
-          ...extra,
-        });
+  const setQrPhaseSafe = useCallback(
+    (next: QrPhase, reason: string, extra?: Record<string, any>) => {
+      setQrPhase((prev) => {
+        if (prev !== next) {
+          debugQr({
+            login_id: qrActiveLoginIdRef.current,
+            prev,
+            next,
+            reason,
+            ...extra,
+          });
+        }
+        return next;
+      });
+    },
+    [debugQr],
+  );
+
+  const markToastShown = useCallback(
+    (loginId: string, kind: "expired" | "error") => {
+      if (!loginId) return;
+      if (!qrToastShownRef.current[loginId]) {
+        qrToastShownRef.current[loginId] = {};
       }
-      return next;
-    });
-  }, [debugQr]);
+      qrToastShownRef.current[loginId][kind] = true;
+    },
+    [],
+  );
 
-  const markToastShown = useCallback((loginId: string, kind: "expired" | "error") => {
-    if (!loginId) return;
-    if (!qrToastShownRef.current[loginId]) {
-      qrToastShownRef.current[loginId] = {};
-    }
-    qrToastShownRef.current[loginId][kind] = true;
-  }, []);
-
-  const hasToastShown = useCallback((loginId: string, kind: "expired" | "error") => {
-    if (!loginId) return false;
-    return Boolean(qrToastShownRef.current[loginId]?.[kind]);
-  }, []);
+  const hasToastShown = useCallback(
+    (loginId: string, kind: "expired" | "error") => {
+      if (!loginId) return false;
+      return Boolean(qrToastShownRef.current[loginId]?.[kind]);
+    },
+    [],
+  );
 
   const resetQrState = useCallback(() => {
     clearQrTimers();
@@ -416,320 +458,359 @@ export default function Dashboard() {
     setQrPasswordLoading(false);
   }, [clearQrTimers]);
 
-  const openReloginDialog = useCallback((acc: AccountInfo, showToast: boolean = true) => {
-    resetQrState();
-    setReloginAccountName(acc.name);
-    setLoginMode("phone");
-    setLoginData({
-      ...EMPTY_LOGIN_DATA,
-      account_name: acc.name,
-      proxy: acc.proxy || "",
-    });
-    setShowAddDialog(true);
-    if (showToast) {
-      addToast(t("account_relogin_required"), "error");
-    }
-  }, [addToast, resetQrState, t]);
-
-  const handleAccountCardClick = useCallback((acc: AccountInfo) => {
-    const statusInfo = accountStatusMap[acc.name];
-    const needsRelogin = Boolean(statusInfo?.needs_relogin || acc.needs_relogin);
-    const status = statusInfo?.status || acc.status;
-    if (needsRelogin || status === "invalid") {
-      openReloginDialog(acc);
-      return;
-    }
-    router.push(`/dashboard/account-tasks?name=${acc.name}`);
-  }, [accountStatusMap, openReloginDialog, router]);
-
-  const performQrLoginStart = useCallback(async (options?: { autoRefresh?: boolean; silent?: boolean; reason?: string }) => {
-    if (!token) return null;
-    const trimmedAccountName = normalizeAccountName(loginData.account_name);
-    if (!trimmedAccountName) {
-      if (!options?.silent) {
-        addToast(t("account_name_required"), "error");
-      }
-      return null;
-    }
-    if (isDuplicateAccountName(trimmedAccountName, reloginAccountName)) {
-      if (!options?.silent) {
-        addToast(t("account_name_duplicate"), "error");
-      }
-      return null;
-    }
-    try {
-      if (options?.autoRefresh) {
-        qrRestartingRef.current = true;
-      }
-      clearQrTimers();
-      setQrLoading(true);
-      setQrPhaseSafe("loading", options?.reason ?? "start");
-      const res = await startQrLogin(token, {
-        account_name: trimmedAccountName,
-        proxy: loginData.proxy || undefined,
-      });
-      setLoginData((prev) => ({ ...prev, account_name: trimmedAccountName }));
-      setQrLogin(res);
-      qrActiveLoginIdRef.current = res.login_id;
-      qrToastShownRef.current[res.login_id] = {};
-      setQrStatus("waiting_scan");
-      setQrPhaseSafe("ready", "qr_ready", { expires_at: res.expires_at });
-      setQrMessage("");
-      return res;
-    } catch (err: any) {
-      setQrPhaseSafe("error", "start_failed");
-      if (!options?.silent) {
-        addToast(formatErrorMessage("qr_create_failed", err), "error");
-      }
-      return null;
-    } finally {
-      setQrLoading(false);
-      qrRestartingRef.current = false;
-    }
-  }, [
-    token,
-    loginData.account_name,
-    loginData.proxy,
-    addToast,
-    clearQrTimers,
-    formatErrorMessage,
-    isDuplicateAccountName,
-    normalizeAccountName,
-    reloginAccountName,
-    setQrPhaseSafe,
-    t,
-  ]);
-
-  const handleSubmitQrPassword = useCallback(async (passwordOverride?: string) => {
-    if (!token || !qrLogin?.login_id) return;
-    const passwordValue = passwordOverride ?? qrPasswordRef.current;
-    if (!passwordValue) {
-      const msg = t("qr_password_missing");
-      addToast(msg, "error");
-      setQrMessage(msg);
-      return;
-    }
-    try {
-      setQrPasswordLoading(true);
-      await submitQrPassword(token, {
-        login_id: qrLogin.login_id,
-        password: passwordValue,
-      });
-      addToast(t("login_success"), "success");
-      const doneAccount = normalizeAccountName(loginData.account_name);
-      if (doneAccount) {
-        setAccountStatusMap((prev) => ({
-          ...prev,
-          [doneAccount]: {
-            account_name: doneAccount,
-            ok: true,
-            status: "connected",
-            message: "",
-            code: "OK",
-            checked_at: new Date().toISOString(),
-            needs_relogin: false,
-          },
-        }));
-      }
-      setReloginAccountName(null);
-      setLoginData({ ...EMPTY_LOGIN_DATA });
+  const openReloginDialog = useCallback(
+    (acc: AccountInfo, showToast: boolean = true) => {
       resetQrState();
-      setShowAddDialog(false);
-      loadData(token);
-    } catch (err: any) {
-      const errMsg = err?.message ? String(err.message) : "";
-      const fallback = formatErrorMessage("qr_login_failed", err);
-      let message = errMsg || fallback;
-      const lowerMsg = errMsg.toLowerCase();
-      if (
-        errMsg.includes("\u5bc6\u7801")
-        || errMsg.includes("\u4e24\u6b65\u9a8c\u8bc1")
-        || errMsg.includes("\u4e8c\u6b65\u9a8c\u8bc1")
-        || lowerMsg.includes("2fa")
-        || lowerMsg.includes("password")
-      ) {
-        message = t("qr_password_invalid");
+      setReloginAccountName(acc.name);
+      setLoginMode("phone");
+      setLoginData({
+        ...EMPTY_LOGIN_DATA,
+        account_name: acc.name,
+        proxy: acc.proxy || "",
+      });
+      setShowAddDialog(true);
+      if (showToast) {
+        addToast(t("account_relogin_required"), "error");
       }
-      addToast(message, "error");
-      if (message === t("qr_password_invalid")) {
-        resetQrState();
+    },
+    [addToast, resetQrState, t],
+  );
+
+  const handleAccountCardClick = useCallback(
+    (acc: AccountInfo) => {
+      const statusInfo = accountStatusMap[acc.name];
+      const needsRelogin = Boolean(
+        statusInfo?.needs_relogin || acc.needs_relogin,
+      );
+      const status = statusInfo?.status || acc.status;
+      if (needsRelogin || status === "invalid") {
+        openReloginDialog(acc);
         return;
       }
-      setQrMessage(message);
-    } finally {
-      setQrPasswordLoading(false);
-    }
-  }, [
-    token,
-    qrLogin?.login_id,
-    addToast,
-    resetQrState,
-    loadData,
-    t,
-    formatErrorMessage,
-    loginData.account_name,
-    normalizeAccountName,
-  ]);
+      router.push(`/dashboard/account-tasks?name=${acc.name}`);
+    },
+    [accountStatusMap, openReloginDialog, router],
+  );
 
-  const startQrPolling = useCallback((loginId: string, reason: string = "effect") => {
-    if (!token || !loginId) return;
-    if (loginMode !== "qr" || !showAddDialog) return;
-    if (qrPollingActiveRef.current && qrActiveLoginIdRef.current === loginId) {
-      debugQr({ login_id: loginId, poll: "skip", reason });
-      return;
-    }
-
-    clearQrPollingTimers();
-    qrActiveLoginIdRef.current = loginId;
-    qrPollingActiveRef.current = true;
-    qrPollSeqRef.current += 1;
-    const seq = qrPollSeqRef.current;
-    let stopped = false;
-
-    const stopPolling = () => {
-      if (stopped) return;
-      stopped = true;
-      clearQrPollingTimers();
-    };
-
-    const shouldAutoRefresh = () => {
-      const now = Date.now();
-      if (now - qrAutoRefreshRef.current < 1200) {
-        return false;
+  const performQrLoginStart = useCallback(
+    async (options?: {
+      autoRefresh?: boolean;
+      silent?: boolean;
+      reason?: string;
+    }) => {
+      if (!token) return null;
+      const trimmedAccountName = normalizeAccountName(loginData.account_name);
+      if (!trimmedAccountName) {
+        if (!options?.silent) {
+          addToast(t("account_name_required"), "error");
+        }
+        return null;
       }
-      qrAutoRefreshRef.current = now;
-      return true;
-    };
-
-    const poll = async () => {
+      if (isDuplicateAccountName(trimmedAccountName, reloginAccountName)) {
+        if (!options?.silent) {
+          addToast(t("account_name_duplicate"), "error");
+        }
+        return null;
+      }
       try {
-        if (qrRestartingRef.current) return;
-        const res = await getQrLoginStatus(token, loginId);
-        if (stopped) return;
-        if (qrActiveLoginIdRef.current !== loginId) return;
-        if (qrPollSeqRef.current !== seq) return;
-
-        const status = res.status as "waiting_scan" | "scanned_wait_confirm" | "password_required" | "success" | "expired" | "failed";
-        debugQr({ login_id: loginId, pollResult: status, message: res.message || "" });
-        setQrStatus(status);
-        if (status !== "password_required") {
-          setQrMessage("");
+        if (options?.autoRefresh) {
+          qrRestartingRef.current = true;
         }
-        if (res.expires_at) {
-          setQrLogin((prev) => (prev ? { ...prev, expires_at: res.expires_at } : prev));
+        clearQrTimers();
+        setQrLoading(true);
+        setQrPhaseSafe("loading", options?.reason ?? "start");
+        const res = await startQrLogin(token, {
+          account_name: trimmedAccountName,
+          proxy: loginData.proxy || undefined,
+        });
+        setLoginData((prev) => ({ ...prev, account_name: trimmedAccountName }));
+        setQrLogin(res);
+        qrActiveLoginIdRef.current = res.login_id;
+        qrToastShownRef.current[res.login_id] = {};
+        setQrStatus("waiting_scan");
+        setQrPhaseSafe("ready", "qr_ready", { expires_at: res.expires_at });
+        setQrMessage("");
+        return res;
+      } catch (err: any) {
+        setQrPhaseSafe("error", "start_failed");
+        if (!options?.silent) {
+          addToast(formatErrorMessage("qr_create_failed", err), "error");
         }
+        return null;
+      } finally {
+        setQrLoading(false);
+        qrRestartingRef.current = false;
+      }
+    },
+    [
+      token,
+      loginData.account_name,
+      loginData.proxy,
+      addToast,
+      clearQrTimers,
+      formatErrorMessage,
+      isDuplicateAccountName,
+      normalizeAccountName,
+      reloginAccountName,
+      setQrPhaseSafe,
+      t,
+    ],
+  );
 
-        if (status === "success") {
-          setQrPhaseSafe("success", "poll_success", { status });
-          addToast(t("login_success"), "success");
-          const doneAccount = normalizeAccountName(loginData.account_name);
-          if (doneAccount) {
-            setAccountStatusMap((prev) => ({
-              ...prev,
-              [doneAccount]: {
-                account_name: doneAccount,
-                ok: true,
-                status: "connected",
-                message: "",
-                code: "OK",
-                checked_at: new Date().toISOString(),
-                needs_relogin: false,
-              },
-            }));
-          }
-          setReloginAccountName(null);
-          setLoginData({ ...EMPTY_LOGIN_DATA });
-          stopPolling();
+  const handleSubmitQrPassword = useCallback(
+    async (passwordOverride?: string) => {
+      if (!token || !qrLogin?.login_id) return;
+      const passwordValue = passwordOverride ?? qrPasswordRef.current;
+      if (!passwordValue) {
+        const msg = t("qr_password_missing");
+        addToast(msg, "error");
+        setQrMessage(msg);
+        return;
+      }
+      try {
+        setQrPasswordLoading(true);
+        await submitQrPassword(token, {
+          login_id: qrLogin.login_id,
+          password: passwordValue,
+        });
+        addToast(t("login_success"), "success");
+        const doneAccount = normalizeAccountName(loginData.account_name);
+        if (doneAccount) {
+          setAccountStatusMap((prev) => ({
+            ...prev,
+            [doneAccount]: {
+              account_name: doneAccount,
+              ok: true,
+              status: "connected",
+              message: "",
+              code: "OK",
+              checked_at: new Date().toISOString(),
+              needs_relogin: false,
+            },
+          }));
+        }
+        setReloginAccountName(null);
+        setLoginData({ ...EMPTY_LOGIN_DATA });
+        resetQrState();
+        setShowAddDialog(false);
+        loadData(token);
+      } catch (err: any) {
+        const errMsg = err?.message ? String(err.message) : "";
+        const fallback = formatErrorMessage("qr_login_failed", err);
+        let message = errMsg || fallback;
+        const lowerMsg = errMsg.toLowerCase();
+        if (
+          errMsg.includes("\u5bc6\u7801") ||
+          errMsg.includes("\u4e24\u6b65\u9a8c\u8bc1") ||
+          errMsg.includes("\u4e8c\u6b65\u9a8c\u8bc1") ||
+          lowerMsg.includes("2fa") ||
+          lowerMsg.includes("password")
+        ) {
+          message = t("qr_password_invalid");
+        }
+        addToast(message, "error");
+        if (message === t("qr_password_invalid")) {
           resetQrState();
-          setShowAddDialog(false);
-          loadData(token);
           return;
         }
+        setQrMessage(message);
+      } finally {
+        setQrPasswordLoading(false);
+      }
+    },
+    [
+      token,
+      qrLogin?.login_id,
+      addToast,
+      resetQrState,
+      loadData,
+      t,
+      formatErrorMessage,
+      loginData.account_name,
+      normalizeAccountName,
+    ],
+  );
 
-        if (status === "password_required") {
-          setQrPhaseSafe("password", "poll_password_required", { status });
-          stopPolling();
-          setQrMessage(t("qr_password_required"));
-          return;
+  const startQrPolling = useCallback(
+    (loginId: string, reason: string = "effect") => {
+      if (!token || !loginId) return;
+      if (loginMode !== "qr" || !showAddDialog) return;
+      if (
+        qrPollingActiveRef.current &&
+        qrActiveLoginIdRef.current === loginId
+      ) {
+        debugQr({ login_id: loginId, poll: "skip", reason });
+        return;
+      }
+
+      clearQrPollingTimers();
+      qrActiveLoginIdRef.current = loginId;
+      qrPollingActiveRef.current = true;
+      qrPollSeqRef.current += 1;
+      const seq = qrPollSeqRef.current;
+      let stopped = false;
+
+      const stopPolling = () => {
+        if (stopped) return;
+        stopped = true;
+        clearQrPollingTimers();
+      };
+
+      const shouldAutoRefresh = () => {
+        const now = Date.now();
+        if (now - qrAutoRefreshRef.current < 1200) {
+          return false;
         }
+        qrAutoRefreshRef.current = now;
+        return true;
+      };
 
-        if (status === "scanned_wait_confirm") {
-          setQrPhaseSafe("scanning", "poll_scanned", { status });
-          return;
-        }
+      const poll = async () => {
+        try {
+          if (qrRestartingRef.current) return;
+          const res = await getQrLoginStatus(token, loginId);
+          if (stopped) return;
+          if (qrActiveLoginIdRef.current !== loginId) return;
+          if (qrPollSeqRef.current !== seq) return;
 
-        if (status === "waiting_scan") {
-          setQrPhaseSafe("ready", "poll_waiting", { status });
-          return;
-        }
-
-        if (status === "expired") {
-          stopPolling();
-          setQrPhaseSafe("loading", "auto_refresh", { status });
-          if (!shouldAutoRefresh()) {
-            return;
-          }
-          const refreshed = await performQrLoginStart({
-            autoRefresh: true,
-            silent: true,
-            reason: "auto_refresh",
+          const status = res.status as
+            | "waiting_scan"
+            | "scanned_wait_confirm"
+            | "password_required"
+            | "success"
+            | "expired"
+            | "failed";
+          debugQr({
+            login_id: loginId,
+            pollResult: status,
+            message: res.message || "",
           });
-          if (refreshed?.login_id) {
-            startQrPolling(refreshed.login_id, "auto_refresh");
+          setQrStatus(status);
+          if (status !== "password_required") {
+            setQrMessage("");
+          }
+          if (res.expires_at) {
+            setQrLogin((prev) =>
+              prev ? { ...prev, expires_at: res.expires_at } : prev,
+            );
+          }
+
+          if (status === "success") {
+            setQrPhaseSafe("success", "poll_success", { status });
+            addToast(t("login_success"), "success");
+            const doneAccount = normalizeAccountName(loginData.account_name);
+            if (doneAccount) {
+              setAccountStatusMap((prev) => ({
+                ...prev,
+                [doneAccount]: {
+                  account_name: doneAccount,
+                  ok: true,
+                  status: "connected",
+                  message: "",
+                  code: "OK",
+                  checked_at: new Date().toISOString(),
+                  needs_relogin: false,
+                },
+              }));
+            }
+            setReloginAccountName(null);
+            setLoginData({ ...EMPTY_LOGIN_DATA });
+            stopPolling();
+            resetQrState();
+            setShowAddDialog(false);
+            loadData(token);
             return;
           }
-          setQrPhaseSafe("expired", "auto_refresh_failed", { status });
-          if (!hasToastShown(loginId, "expired")) {
-            addToast(t("qr_expired_not_found"), "error");
-            markToastShown(loginId, "expired");
-          }
-          return;
-        }
 
-        if (status === "failed") {
-          setQrPhaseSafe("error", "poll_terminal", { status });
-          stopPolling();
+          if (status === "password_required") {
+            setQrPhaseSafe("password", "poll_password_required", { status });
+            stopPolling();
+            setQrMessage(t("qr_password_required"));
+            return;
+          }
+
+          if (status === "scanned_wait_confirm") {
+            setQrPhaseSafe("scanning", "poll_scanned", { status });
+            return;
+          }
+
+          if (status === "waiting_scan") {
+            setQrPhaseSafe("ready", "poll_waiting", { status });
+            return;
+          }
+
+          if (status === "expired") {
+            stopPolling();
+            setQrPhaseSafe("loading", "auto_refresh", { status });
+            if (!shouldAutoRefresh()) {
+              return;
+            }
+            const refreshed = await performQrLoginStart({
+              autoRefresh: true,
+              silent: true,
+              reason: "auto_refresh",
+            });
+            if (refreshed?.login_id) {
+              startQrPolling(refreshed.login_id, "auto_refresh");
+              return;
+            }
+            setQrPhaseSafe("expired", "auto_refresh_failed", { status });
+            if (!hasToastShown(loginId, "expired")) {
+              addToast(t("qr_expired_not_found"), "error");
+              markToastShown(loginId, "expired");
+            }
+            return;
+          }
+
+          if (status === "failed") {
+            setQrPhaseSafe("error", "poll_terminal", { status });
+            stopPolling();
+            if (!hasToastShown(loginId, "error")) {
+              addToast(t("qr_login_failed"), "error");
+              markToastShown(loginId, "error");
+            }
+          }
+        } catch (err: any) {
+          if (stopped) return;
+          if (qrActiveLoginIdRef.current !== loginId) return;
+          if (qrPollSeqRef.current !== seq) return;
+          debugQr({
+            login_id: loginId,
+            pollError: err?.message || String(err),
+          });
           if (!hasToastShown(loginId, "error")) {
-            addToast(t("qr_login_failed"), "error");
+            addToast(formatErrorMessage("qr_status_failed", err), "error");
             markToastShown(loginId, "error");
           }
         }
-      } catch (err: any) {
-        if (stopped) return;
-        if (qrActiveLoginIdRef.current !== loginId) return;
-        if (qrPollSeqRef.current !== seq) return;
-        debugQr({ login_id: loginId, pollError: err?.message || String(err) });
-        if (!hasToastShown(loginId, "error")) {
-          addToast(formatErrorMessage("qr_status_failed", err), "error");
-          markToastShown(loginId, "error");
-        }
-      }
-    };
+      };
 
-    qrPollDelayRef.current = setTimeout(() => {
-      poll();
-      qrPollTimerRef.current = setInterval(poll, 1500);
-    }, 0);
+      qrPollDelayRef.current = setTimeout(() => {
+        poll();
+        qrPollTimerRef.current = setInterval(poll, 1500);
+      }, 0);
 
-    return stopPolling;
-  }, [
-    token,
-    loginMode,
-    showAddDialog,
-    addToast,
-    clearQrPollingTimers,
-    debugQr,
-    formatErrorMessage,
-    hasToastShown,
-    loadData,
-    markToastShown,
-    loginData.account_name,
-    normalizeAccountName,
-    performQrLoginStart,
-    resetQrState,
-    setQrPhaseSafe,
-    t,
-  ]);
+      return stopPolling;
+    },
+    [
+      token,
+      loginMode,
+      showAddDialog,
+      addToast,
+      clearQrPollingTimers,
+      debugQr,
+      formatErrorMessage,
+      hasToastShown,
+      loadData,
+      markToastShown,
+      loginData.account_name,
+      normalizeAccountName,
+      performQrLoginStart,
+      resetQrState,
+      setQrPhaseSafe,
+      t,
+    ],
+  );
 
   const handleStartQrLogin = async () => {
     const res = await performQrLoginStart();
@@ -753,7 +834,6 @@ export default function Dashboard() {
       resetQrState();
     }
   };
-
 
   // 手动提交 2FA（避免自动重试导致重复请求）
 
@@ -784,7 +864,8 @@ export default function Dashboard() {
 
   const handleClearLogs = async () => {
     if (!token || !logsAccountName) return;
-    if (!confirm(t("clear_logs_confirm").replace("{name}", logsAccountName))) return;
+    if (!confirm(t("clear_logs_confirm").replace("{name}", logsAccountName)))
+      return;
     try {
       setLoading(true);
       await clearAccountLogs(token, logsAccountName);
@@ -833,14 +914,28 @@ export default function Dashboard() {
   }, [qrLogin?.expires_at, qrPhase, clearQrTimers]);
 
   useEffect(() => {
-    if (!token || !qrLogin?.login_id || loginMode !== "qr" || !showAddDialog) return;
-    if (qrPhase === "success" || qrPhase === "expired" || qrPhase === "error" || qrPhase === "password") return;
+    if (!token || !qrLogin?.login_id || loginMode !== "qr" || !showAddDialog)
+      return;
+    if (
+      qrPhase === "success" ||
+      qrPhase === "expired" ||
+      qrPhase === "error" ||
+      qrPhase === "password"
+    )
+      return;
     if (qrRestartingRef.current) return;
     const stop = startQrPolling(qrLogin.login_id, "effect");
     return () => {
       if (stop) stop();
     };
-  }, [token, qrLogin?.login_id, loginMode, showAddDialog, qrPhase, startQrPolling]);
+  }, [
+    token,
+    qrLogin?.login_id,
+    loginMode,
+    showAddDialog,
+    qrPhase,
+    startQrPolling,
+  ]);
 
   if (!token || checking) {
     return null;
@@ -849,9 +944,17 @@ export default function Dashboard() {
   return (
     <div id="dashboard-view" className="w-full h-full flex flex-col">
       <nav className="navbar">
-        <div className="nav-brand" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <Lightning weight="fill" style={{ fontSize: '28px', color: '#fcd34d' }} />
-          <span className="nav-title font-bold tracking-tight text-lg">TG-FlowPulse</span>
+        <div
+          className="nav-brand"
+          style={{ display: "flex", alignItems: "center", gap: "12px" }}
+        >
+          <Lightning
+            weight="fill"
+            style={{ fontSize: "28px", color: "#fcd34d" }}
+          />
+          <span className="nav-title font-bold tracking-tight text-lg">
+            TG-FlowPulse
+          </span>
         </div>
         <div className="top-right-actions">
           <Link
@@ -863,10 +966,18 @@ export default function Dashboard() {
             <span>消息监控</span>
           </Link>
           <ThemeLanguageToggle />
-          <Link href="/dashboard/monitors" title={t("keyword_monitor")} className="hidden">
+          <Link
+            href="/dashboard/monitors"
+            title={t("keyword_monitor")}
+            className="hidden"
+          >
             <ChatCircleText weight="bold" />
           </Link>
-          <Link href="/dashboard/settings" title={t("sidebar_settings")} className="action-btn">
+          <Link
+            href="/dashboard/settings"
+            title={t("sidebar_settings")}
+            className="action-btn"
+          >
             <Gear weight="bold" />
           </Link>
         </div>
@@ -884,10 +995,19 @@ export default function Dashboard() {
               const initial = acc.name.charAt(0).toUpperCase();
               const statusInfo = accountStatusMap[acc.name];
               const rawStatus = statusInfo?.status || acc.status || "connected";
-              const needsRelogin = Boolean(statusInfo?.needs_relogin || acc.needs_relogin);
-              const isInvalid = needsRelogin || rawStatus === "invalid" || rawStatus === "not_found";
-              const statusKey = isInvalid ? "account_status_invalid" : "connected";
-              const statusIconClass = isInvalid ? "text-rose-400" : "text-emerald-400";
+              const needsRelogin = Boolean(
+                statusInfo?.needs_relogin || acc.needs_relogin,
+              );
+              const isInvalid =
+                needsRelogin ||
+                rawStatus === "invalid" ||
+                rawStatus === "not_found";
+              const statusKey = isInvalid
+                ? "account_status_invalid"
+                : "connected";
+              const statusIconClass = isInvalid
+                ? "text-rose-400"
+                : "text-emerald-400";
               return (
                 <div
                   key={acc.name}
@@ -898,7 +1018,9 @@ export default function Dashboard() {
                     <div className="account-name">
                       <div className="account-avatar">{initial}</div>
                       <div className="min-w-0">
-                        <div className="font-bold leading-tight truncate">{acc.name}</div>
+                        <div className="font-bold leading-tight truncate">
+                          {acc.name}
+                        </div>
                         {acc.remark ? (
                           <div className="text-xs text-main/40 leading-tight truncate">
                             {acc.remark}
@@ -914,9 +1036,14 @@ export default function Dashboard() {
                   <div className="flex-1"></div>
 
                   <div className="card-bottom !pt-3">
-                    <div className="create-time" title={statusInfo?.message || acc.status_message || ""}>
+                    <div
+                      className="create-time"
+                      title={statusInfo?.message || acc.status_message || ""}
+                    >
                       <Clock weight="fill" className={statusIconClass} />
-                      <span className="text-[11px] font-medium">{t(statusKey)}</span>
+                      <span className="text-[11px] font-medium">
+                        {t(statusKey)}
+                      </span>
                     </div>
                     <div className="card-actions">
                       <Link
@@ -938,14 +1065,20 @@ export default function Dashboard() {
                       <div
                         className="action-icon !w-8 !h-8"
                         title={t("edit_account")}
-                        onClick={(e) => { e.stopPropagation(); handleEditAccount(acc); }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleEditAccount(acc);
+                        }}
                       >
                         <PencilSimple weight="bold" size={16} />
                       </div>
                       <div
                         className="action-icon delete !w-8 !h-8"
                         title={t("remove")}
-                        onClick={(e) => { e.stopPropagation(); handleDeleteAccount(acc.name); }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteAccount(acc.name);
+                        }}
                       >
                         <Trash weight="bold" size={16} />
                       </div>
@@ -956,24 +1089,28 @@ export default function Dashboard() {
             })}
 
             {/* 添加新账号卡片 */}
-            <Link
-              href="/dashboard/monitors"
-              className="hidden"
-            >
+            <Link href="/dashboard/monitors" className="hidden">
               <div className="add-icon-circle !w-10 !h-10 !bg-cyan-500/10 !text-cyan-500">
                 <ChatCircleText weight="bold" size={20} />
               </div>
-              <span className="text-xs font-bold" style={{ color: 'var(--text-sub)' }}>消息监控</span>
+              <span
+                className="text-xs font-bold"
+                style={{ color: "var(--text-sub)" }}
+              >
+                消息监控
+              </span>
             </Link>
 
-            <div
-              className="card card-add !h-44"
-              onClick={openAddDialog}
-            >
+            <div className="card card-add !h-44" onClick={openAddDialog}>
               <div className="add-icon-circle !w-10 !h-10">
                 <Plus weight="bold" size={20} />
               </div>
-              <span className="text-xs font-bold" style={{ color: 'var(--text-sub)' }}>{t("add_account")}</span>
+              <span
+                className="text-xs font-bold"
+                style={{ color: "var(--text-sub)" }}
+              >
+                {t("add_account")}
+              </span>
             </div>
           </div>
         )}
@@ -981,12 +1118,17 @@ export default function Dashboard() {
 
       {showAddDialog && (
         <div className="modal-overlay active">
-          <div className="glass-panel modal-content modal-content-fit !max-w-[420px] !p-6" onClick={e => e.stopPropagation()}>
+          <div
+            className="glass-panel modal-content modal-content-fit !max-w-[420px] !p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="modal-header !mb-5">
               <div className="modal-title !text-lg">
                 {reloginAccountName ? t("relogin_account") : t("add_account")}
               </div>
-              <div className="modal-close" onClick={handleCloseAddDialog}><X weight="bold" /></div>
+              <div className="modal-close" onClick={handleCloseAddDialog}>
+                <X weight="bold" />
+              </div>
             </div>
 
             <div className="animate-float-up space-y-4">
@@ -1013,7 +1155,9 @@ export default function Dashboard() {
               {loginMode === "phone" ? (
                 <>
                   <div>
-                    <label className="text-[11px] mb-1">{t("session_name")}</label>
+                    <label className="text-[11px] mb-1">
+                      {t("session_name")}
+                    </label>
                     <input
                       type="text"
                       className="!py-2.5 !px-4 !mb-4"
@@ -1025,36 +1169,63 @@ export default function Dashboard() {
                       }}
                     />
 
-                    <label className="text-[11px] mb-1">{t("phone_number")}</label>
+                    <label className="text-[11px] mb-1">
+                      {t("phone_number")}
+                    </label>
                     <input
                       type="text"
                       className="!py-2.5 !px-4 !mb-4"
                       placeholder={t("phone_number_placeholder")}
                       value={loginData.phone_number}
-                      onChange={(e) => setLoginData({ ...loginData, phone_number: e.target.value })}
+                      onChange={(e) =>
+                        setLoginData({
+                          ...loginData,
+                          phone_number: e.target.value,
+                        })
+                      }
                     />
 
-                    <label className="text-[11px] mb-1">{t("login_code")}</label>
+                    <label className="text-[11px] mb-1">
+                      {t("login_code")}
+                    </label>
                     <div className="input-group !mb-4">
                       <input
                         type="text"
                         className="!py-2.5 !px-4"
                         placeholder={t("login_code_placeholder")}
                         value={loginData.phone_code}
-                        onChange={(e) => setLoginData({ ...loginData, phone_code: e.target.value })}
+                        onChange={(e) =>
+                          setLoginData({
+                            ...loginData,
+                            phone_code: e.target.value,
+                          })
+                        }
                       />
-                      <button className="btn-code !h-[42px] !w-[42px] !text-lg" onClick={handleStartLogin} disabled={loading} title={t("send_code")}>
-                        {loading ? <Spinner className="animate-spin" size={16} /> : <PaperPlaneRight weight="bold" />}
+                      <button
+                        className="btn-code !h-[42px] !w-[42px] !text-lg"
+                        onClick={handleStartLogin}
+                        disabled={loading}
+                        title={t("send_code")}
+                      >
+                        {loading ? (
+                          <Spinner className="animate-spin" size={16} />
+                        ) : (
+                          <PaperPlaneRight weight="bold" />
+                        )}
                       </button>
                     </div>
 
-                    <label className="text-[11px] mb-1">{t("two_step_pass")}</label>
+                    <label className="text-[11px] mb-1">
+                      {t("two_step_pass")}
+                    </label>
                     <input
                       type="password"
                       className="!py-2.5 !px-4 !mb-4"
                       placeholder={t("two_step_placeholder")}
                       value={loginData.password}
-                      onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
+                      onChange={(e) =>
+                        setLoginData({ ...loginData, password: e.target.value })
+                      }
                     />
 
                     <label className="text-[11px] mb-1">{t("proxy")}</label>
@@ -1064,25 +1235,38 @@ export default function Dashboard() {
                       placeholder={t("proxy_placeholder")}
                       style={{ marginBottom: 0 }}
                       value={loginData.proxy}
-                      onChange={(e) => setLoginData({ ...loginData, proxy: e.target.value })}
+                      onChange={(e) =>
+                        setLoginData({ ...loginData, proxy: e.target.value })
+                      }
                     />
                   </div>
 
                   <div className="flex gap-3 mt-6">
-                    <button className="btn-secondary flex-1 h-10 !py-0 !text-xs" onClick={handleCloseAddDialog}>{t("cancel")}</button>
+                    <button
+                      className="btn-secondary flex-1 h-10 !py-0 !text-xs"
+                      onClick={handleCloseAddDialog}
+                    >
+                      {t("cancel")}
+                    </button>
                     <button
                       className="btn-gradient flex-1 h-10 !py-0 !text-xs"
                       onClick={handleVerifyLogin}
                       disabled={loading || !loginData.phone_code.trim()}
                     >
-                      {loading ? <Spinner className="animate-spin" /> : t("confirm_connect")}
+                      {loading ? (
+                        <Spinner className="animate-spin" />
+                      ) : (
+                        t("confirm_connect")
+                      )}
                     </button>
                   </div>
                 </>
               ) : (
                 <>
                   <div>
-                    <label className="text-[11px] mb-1">{t("session_name")}</label>
+                    <label className="text-[11px] mb-1">
+                      {t("session_name")}
+                    </label>
                     <input
                       type="text"
                       className="!py-2.5 !px-4 !mb-4"
@@ -1094,7 +1278,9 @@ export default function Dashboard() {
                       }}
                     />
 
-                    <label className="text-[11px] mb-1">{t("two_step_pass")}</label>
+                    <label className="text-[11px] mb-1">
+                      {t("two_step_pass")}
+                    </label>
                     <input
                       type="password"
                       className="!py-2.5 !px-4 !mb-4"
@@ -1115,7 +1301,9 @@ export default function Dashboard() {
                       className="!py-2.5 !px-4 !mb-4"
                       placeholder={t("proxy_placeholder")}
                       value={loginData.proxy}
-                      onChange={(e) => setLoginData({ ...loginData, proxy: e.target.value })}
+                      onChange={(e) =>
+                        setLoginData({ ...loginData, proxy: e.target.value })
+                      }
                     />
                   </div>
 
@@ -1127,25 +1315,42 @@ export default function Dashboard() {
                         onClick={handleStartQrLogin}
                         disabled={qrLoading}
                       >
-                        {qrLoading ? <Spinner className="animate-spin" /> : (qrLogin ? t("qr_refresh") : t("qr_start"))}
+                        {qrLoading ? (
+                          <Spinner className="animate-spin" />
+                        ) : qrLogin ? (
+                          t("qr_refresh")
+                        ) : (
+                          t("qr_start")
+                        )}
                       </button>
                     </div>
                     <div className="flex items-center justify-center">
                       {qrLogin?.qr_image ? (
-                        <Image src={qrLogin.qr_image} alt={t("qr_alt")} width={160} height={160} className="rounded-lg bg-white p-2" />
+                        <Image
+                          src={qrLogin.qr_image}
+                          alt={t("qr_alt")}
+                          width={160}
+                          height={160}
+                          className="rounded-lg bg-white p-2"
+                        />
                       ) : (
                         <div className="w-40 h-40 rounded-lg bg-white/5 flex items-center justify-center text-xs text-main/40">
                           {t("qr_start")}
                         </div>
                       )}
                     </div>
-                    {qrLogin && (qrPhase === "ready" || qrPhase === "scanning") ? (
+                    {qrLogin &&
+                    (qrPhase === "ready" || qrPhase === "scanning") ? (
                       <div className="text-[11px] text-main/40 font-mono text-center">
-                        {t("qr_expires_in").replace("{seconds}", qrCountdown.toString())}
+                        {t("qr_expires_in").replace(
+                          "{seconds}",
+                          qrCountdown.toString(),
+                        )}
                       </div>
                     ) : null}
                     <div className="text-xs text-center font-bold">
-                      {(qrPhase === "loading" || qrPhase === "ready") && t("qr_waiting")}
+                      {(qrPhase === "loading" || qrPhase === "ready") &&
+                        t("qr_waiting")}
                       {qrPhase === "scanning" && t("qr_scanned")}
                       {qrPhase === "password" && t("qr_password_required")}
                       {qrPhase === "success" && t("qr_success")}
@@ -1153,7 +1358,9 @@ export default function Dashboard() {
                       {qrPhase === "error" && t("qr_failed")}
                     </div>
                     {qrMessage ? (
-                      <div className="text-[11px] text-rose-400 text-center">{qrMessage}</div>
+                      <div className="text-[11px] text-rose-400 text-center">
+                        {qrMessage}
+                      </div>
                     ) : null}
                   </div>
 
@@ -1167,9 +1374,17 @@ export default function Dashboard() {
                     <button
                       className="btn-gradient flex-1 h-10 !py-0 !text-xs"
                       onClick={() => handleSubmitQrPassword(qrPassword)}
-                      disabled={qrPhase !== "password" || !qrPassword || qrPasswordLoading}
+                      disabled={
+                        qrPhase !== "password" ||
+                        !qrPassword ||
+                        qrPasswordLoading
+                      }
                     >
-                      {qrPasswordLoading ? <Spinner className="animate-spin" /> : t("confirm_connect")}
+                      {qrPasswordLoading ? (
+                        <Spinner className="animate-spin" />
+                      ) : (
+                        t("confirm_connect")
+                      )}
                     </button>
                   </div>
                 </>
@@ -1181,10 +1396,18 @@ export default function Dashboard() {
 
       {showEditDialog && (
         <div className="modal-overlay active">
-          <div className="glass-panel modal-content !max-w-[420px] !p-6" onClick={e => e.stopPropagation()}>
+          <div
+            className="glass-panel modal-content !max-w-[420px] !p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="modal-header !mb-5">
               <div className="modal-title !text-lg">{t("edit_account")}</div>
-              <div className="modal-close" onClick={() => setShowEditDialog(false)}><X weight="bold" /></div>
+              <div
+                className="modal-close"
+                onClick={() => setShowEditDialog(false)}
+              >
+                <X weight="bold" />
+              </div>
             </div>
 
             <div className="animate-float-up space-y-4">
@@ -1203,7 +1426,9 @@ export default function Dashboard() {
                   className="!py-2.5 !px-4 !mb-4"
                   placeholder={t("remark_placeholder")}
                   value={editData.remark}
-                  onChange={(e) => setEditData({ ...editData, remark: e.target.value })}
+                  onChange={(e) =>
+                    setEditData({ ...editData, remark: e.target.value })
+                  }
                 />
 
                 <label className="text-[11px] mb-1">{t("proxy")}</label>
@@ -1213,22 +1438,39 @@ export default function Dashboard() {
                   placeholder={t("proxy_placeholder")}
                   style={{ marginBottom: 0 }}
                   value={editData.proxy}
-                  onChange={(e) => setEditData({ ...editData, proxy: e.target.value })}
+                  onChange={(e) =>
+                    setEditData({ ...editData, proxy: e.target.value })
+                  }
                 />
               </div>
 
               <div className="flex gap-3 mt-6">
-                <button 
-                  className="btn-secondary flex-1 h-10 !py-0 !text-xs !bg-amber-500/10 !text-amber-500 hover:!bg-amber-500/20" 
+                <button
+                  className="btn-secondary flex-1 h-10 !py-0 !text-xs !bg-amber-500/10 !text-amber-500 hover:!bg-amber-500/20"
                   onClick={() => {
                     setShowEditDialog(false);
-                    openReloginDialog({ name: editData.account_name, proxy: editData.proxy } as any, false);
+                    openReloginDialog(
+                      {
+                        name: editData.account_name,
+                        proxy: editData.proxy,
+                      } as any,
+                      false,
+                    );
                   }}
                 >
                   {t("relogin") || "Re-login"}
                 </button>
-                <button className="btn-secondary flex-1 h-10 !py-0 !text-xs" onClick={() => setShowEditDialog(false)}>{t("cancel")}</button>
-                <button className="btn-gradient flex-1 h-10 !py-0 !text-xs" onClick={handleSaveEdit} disabled={loading}>
+                <button
+                  className="btn-secondary flex-1 h-10 !py-0 !text-xs"
+                  onClick={() => setShowEditDialog(false)}
+                >
+                  {t("cancel")}
+                </button>
+                <button
+                  className="btn-gradient flex-1 h-10 !py-0 !text-xs"
+                  onClick={handleSaveEdit}
+                  disabled={loading}
+                >
                   {loading ? <Spinner className="animate-spin" /> : t("save")}
                 </button>
               </div>
@@ -1239,15 +1481,25 @@ export default function Dashboard() {
 
       {showLogsDialog && (
         <div className="modal-overlay active">
-          <div className="glass-panel modal-content !max-w-4xl max-h-[90vh] flex flex-col overflow-hidden !p-0" onClick={e => e.stopPropagation()}>
+          <div
+            className="glass-panel modal-content !max-w-4xl max-h-[90vh] flex flex-col overflow-hidden !p-0"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-5 border-b border-white/5 flex justify-between items-center bg-white/2">
               <div className="flex items-center gap-3">
                 <div className="p-2 bg-[#8a3ffc]/10 rounded-lg text-[#8a3ffc]">
                   <ListDashes weight="bold" size={18} />
                 </div>
-                <div className="font-bold text-lg">{logsAccountName} {t("running_logs")}</div>
+                <div className="font-bold text-lg">
+                  {logsAccountName} {t("running_logs")}
+                </div>
               </div>
-              <div className="modal-close" onClick={() => setShowLogsDialog(false)}><X weight="bold" /></div>
+              <div
+                className="modal-close"
+                onClick={() => setShowLogsDialog(false)}
+              >
+                <X weight="bold" />
+              </div>
             </div>
 
             <div className="px-5 py-3 border-b border-white/5 flex justify-between items-center bg-white/2">
@@ -1275,14 +1527,23 @@ export default function Dashboard() {
                   {t("loading")}
                 </div>
               ) : accountLogs.length === 0 ? (
-                <div className="text-center py-20 text-main/20 font-sans">{t("no_logs")}</div>
+                <div className="text-center py-20 text-main/20 font-sans">
+                  {t("no_logs")}
+                </div>
               ) : (
                 <div className="space-y-3">
                   {accountLogs.map((log, i) => (
-                    <div key={i} className="p-4 rounded-xl bg-white/2 border border-white/5 group hover:border-white/10 transition-colors">
+                    <div
+                      key={i}
+                      className="p-4 rounded-xl bg-white/2 border border-white/5 group hover:border-white/10 transition-colors"
+                    >
                       <div className="flex justify-between items-center mb-2.5 text-[10px] uppercase tracking-wider font-bold">
-                        <span className="text-main/20 group-hover:text-main/40 transition-colors">{new Date(log.created_at).toLocaleString()}</span>
-                        <span className={`px-2 py-0.5 rounded-md ${log.success ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                        <span className="text-main/20 group-hover:text-main/40 transition-colors">
+                          {new Date(log.created_at).toLocaleString()}
+                        </span>
+                        <span
+                          className={`px-2 py-0.5 rounded-md ${log.success ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"}`}
+                        >
                           {log.success ? t("success") : t("failure")}
                         </span>
                       </div>
@@ -1291,11 +1552,19 @@ export default function Dashboard() {
                       </div>
                       {log.bot_message ? (
                         <div className="text-main/60 leading-relaxed whitespace-pre-wrap break-words mb-2">
-                          <span className="text-main/35">{t("bot_reply")}: </span>
+                          <span className="text-main/35">
+                            {t("bot_reply")}:{" "}
+                          </span>
                           {log.bot_message}
                         </div>
                       ) : null}
-                      {log.message && !["Success", "Failed", t("task_exec_success"), t("task_exec_failed")].includes(log.message.trim()) ? (
+                      {log.message &&
+                      ![
+                        "Success",
+                        "Failed",
+                        t("task_exec_success"),
+                        t("task_exec_failed"),
+                      ].includes(log.message.trim()) ? (
                         <pre className="whitespace-pre-wrap text-main/45 leading-relaxed overflow-x-auto max-h-[120px] scrollbar-none font-medium">
                           {log.message}
                         </pre>
@@ -1307,7 +1576,10 @@ export default function Dashboard() {
             </div>
 
             <div className="p-4 border-t border-white/5 text-center bg-white/2">
-              <button className="btn-secondary px-8 h-9 !py-0 mx-auto !text-xs" onClick={() => setShowLogsDialog(false)}>
+              <button
+                className="btn-secondary px-8 h-9 !py-0 mx-auto !text-xs"
+                onClick={() => setShowLogsDialog(false)}
+              >
                 {t("close")}
               </button>
             </div>

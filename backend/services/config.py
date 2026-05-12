@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -19,6 +20,8 @@ from backend.utils.storage import (
 )
 
 settings = get_settings()
+REDACTED_SECRET = "__REDACTED__"
+logger = logging.getLogger("backend.config")
 
 
 def validate_timezone(timezone: Optional[str]) -> str:
@@ -271,7 +274,10 @@ class ConfigService:
         except (json.JSONDecodeError, KeyError):
             return False
 
-    def export_all_configs(self) -> str:
+    def _drop_redacted_values(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        return {key: value for key, value in data.items() if value != REDACTED_SECRET}
+
+    def export_all_configs(self, include_secrets: bool = False) -> str:
         """
         导出所有配置
         Returns:
@@ -280,7 +286,7 @@ class ConfigService:
         all_configs = {
             "signs": {},
             "monitors": {},
-            "settings": {}, # 新增 settings 字段
+            "settings": {},  # 新增 settings 字段
         }
 
         # 导出所有签到任务
@@ -335,10 +341,23 @@ class ConfigService:
                     pass
 
         # 导出设置 (新增)
+        global_settings = dict(self.get_global_settings())
+        ai_config = self.get_ai_config()
+        telegram_config = dict(self.get_telegram_config())
+
+        if not include_secrets:
+            if global_settings.get("telegram_bot_token"):
+                global_settings["telegram_bot_token"] = REDACTED_SECRET
+            if ai_config and ai_config.get("api_key"):
+                ai_config = dict(ai_config)
+                ai_config["api_key"] = REDACTED_SECRET
+            if telegram_config.get("api_hash"):
+                telegram_config["api_hash"] = REDACTED_SECRET
+
         all_configs["settings"] = {
-            "global": self.get_global_settings(),
-            "ai": self.get_ai_config(),
-            "telegram": self.get_telegram_config(),
+            "global": global_settings,
+            "ai": ai_config,
+            "telegram": telegram_config,
         }
 
         return json.dumps(all_configs, ensure_ascii=False, indent=2)
@@ -411,7 +430,10 @@ class ConfigService:
             # 导入全局设置
             if "global" in settings_data:
                 try:
-                    self.save_global_settings(settings_data["global"])
+                    global_settings = self._drop_redacted_values(
+                        dict(settings_data["global"])
+                    )
+                    self.save_global_settings(global_settings)
                     result["settings_imported"] += 1
                 except Exception as e:
                     result["errors"].append(f"Failed to import global settings: {e}")
@@ -423,7 +445,7 @@ class ConfigService:
                     # 注意：如果 masking 处理过 api_key (e.g. ****)，这里需要处理吗？
                     # 当前 export_ai_config 直接读取文件，应该包含完整 key（文件里是明文）。前端展示才 mask。
                     # 所以这里导出的是完整 key，可以直接导入。
-                    if ai_conf.get("api_key"):
+                    if ai_conf.get("api_key") and ai_conf.get("api_key") != REDACTED_SECRET:
                         self.save_ai_config(ai_conf["api_key"], ai_conf.get("base_url"), ai_conf.get("model"))
                         result["settings_imported"] += 1
                 except Exception as e:
@@ -433,7 +455,7 @@ class ConfigService:
             if "telegram" in settings_data:
                 try:
                     tg_conf = settings_data["telegram"]
-                    if tg_conf.get("is_custom") and tg_conf.get("api_id") and tg_conf.get("api_hash"):
+                    if tg_conf.get("is_custom") and tg_conf.get("api_id") and tg_conf.get("api_hash") and tg_conf.get("api_hash") != REDACTED_SECRET:
                          self.save_telegram_config(str(tg_conf["api_id"]), tg_conf["api_hash"])
                          result["settings_imported"] += 1
                 except Exception as e:
@@ -454,7 +476,7 @@ class ConfigService:
                 # 这里的职责主要是文件操作。清理 cache 是必须的。
                 pass
             except Exception as e:
-                 print(f"Failed to clear cache: {e}")
+                logger.warning("Failed to clear config cache: %s", e)
 
         except (json.JSONDecodeError, KeyError) as e:
             result["errors"].append(f"Invalid JSON format: {str(e)}")

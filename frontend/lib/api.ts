@@ -2,6 +2,9 @@ import { Account, Task, TaskLog, TokenResponse } from "./types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "/api";
 
+const pathSegment = (value: string | number) =>
+  encodeURIComponent(String(value));
+
 const toRecord = (headers?: HeadersInit): Record<string, string> => {
   if (!headers) return {};
   if (headers instanceof Headers) {
@@ -13,81 +16,125 @@ const toRecord = (headers?: HeadersInit): Record<string, string> => {
   return headers as Record<string, string>;
 };
 
-async function request<T>(
+const hasHeader = (headers: Record<string, string>, name: string) =>
+  Object.keys(headers).some((key) => key.toLowerCase() === name.toLowerCase());
+
+async function parseErrorResponse(res: Response) {
+  let errorMessage = "请求失败";
+  let errorCode: string | undefined;
+  try {
+    const errorData = await res.json();
+    if (errorData && typeof errorData === "object") {
+      const detail = errorData.detail || errorData.message;
+      if (Array.isArray(detail)) {
+        errorMessage = detail
+          .map((item) => {
+            const loc = Array.isArray(item?.loc) ? item.loc.join(".") : "";
+            const msg = item?.msg || JSON.stringify(item);
+            return loc ? `${loc}: ${msg}` : msg;
+          })
+          .join("; ");
+      } else if (detail && typeof detail === "object") {
+        errorMessage = JSON.stringify(detail);
+      } else {
+        errorMessage = detail || JSON.stringify(errorData);
+      }
+      errorCode = errorData.code;
+    } else {
+      errorMessage = JSON.stringify(errorData);
+    }
+  } catch {
+    try {
+      errorMessage = (await res.text()) || "请求失败";
+    } catch {
+      // ignore
+    }
+  }
+  return { errorMessage, errorCode };
+}
+
+function handleUnauthorized(status: number, token?: string | null) {
+  if (status !== 401 || !token || typeof window === "undefined") return;
+  const currentToken = localStorage.getItem("tg-signer-token");
+  if (currentToken === token) {
+    localStorage.removeItem("tg-signer-token");
+    window.location.href = "/";
+  }
+}
+
+async function fetchApi(
   path: string,
   options: RequestInit = {},
-  token?: string | null
-): Promise<T> {
-  const mergedHeaders: Record<string, string> = {
-    ...toRecord(options.headers),
-    "Content-Type": "application/json",
-  };
+  token?: string | null,
+) {
+  const mergedHeaders: Record<string, string> = toRecord(options.headers);
+  const hasFormBody =
+    typeof FormData !== "undefined" && options.body instanceof FormData;
+  if (
+    options.body !== undefined &&
+    !hasFormBody &&
+    !hasHeader(mergedHeaders, "Content-Type")
+  ) {
+    mergedHeaders["Content-Type"] = "application/json";
+  }
   if (token) {
     mergedHeaders["Authorization"] = `Bearer ${token}`;
   }
+
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: mergedHeaders,
-    cache: "no-store", // 禁用缓存，确保获取最新数据
+    cache: "no-store",
   });
+
   if (!res.ok) {
-    // 尝试解析 JSON 错误响应
-    let errorMessage = "请求失败";
-    let errorCode: string | undefined;
-    try {
-      const errorData = await res.json();
-      if (errorData && typeof errorData === "object") {
-        const detail = errorData.detail || errorData.message;
-        if (Array.isArray(detail)) {
-          errorMessage = detail
-            .map((item) => {
-              const loc = Array.isArray(item?.loc) ? item.loc.join(".") : "";
-              const msg = item?.msg || JSON.stringify(item);
-              return loc ? `${loc}: ${msg}` : msg;
-            })
-            .join("; ");
-        } else if (detail && typeof detail === "object") {
-          errorMessage = JSON.stringify(detail);
-        } else {
-          errorMessage = detail || JSON.stringify(errorData);
-        }
-        errorCode = errorData.code;
-      } else {
-        errorMessage = JSON.stringify(errorData);
-      }
-    } catch {
-      // 如果不是 JSON，使用文本
-      try {
-        errorMessage = await res.text() || "请求失败";
-      } catch {
-        // 忽略
-      }
-    }
-
-    // 如果是认证失败 (401) 且请求携带了 token，清除 token 并跳转到登录页
-    // 注意：登录相关请求（不带 token）不应触发跳转
-    if (res.status === 401 && token) {
-      if (typeof window !== "undefined") {
-        const currentToken = localStorage.getItem("tg-signer-token");
-        if (currentToken === token) {
-          localStorage.removeItem("tg-signer-token");
-          window.location.href = "/";
-        }
-      }
-    }
-
+    const { errorMessage, errorCode } = await parseErrorResponse(res);
+    handleUnauthorized(res.status, token);
     const err: any = new Error(errorMessage);
     err.status = res.status;
-    if (errorCode) {
-      err.code = errorCode;
-    }
+    if (errorCode) err.code = errorCode;
     throw err;
   }
-  if (res.status === 204) {
-    return {} as T;
-  }
-  return res.json();
+
+  return res;
 }
+
+async function request<T>(
+  path: string,
+  options: RequestInit = {},
+  token?: string | null,
+): Promise<T> {
+  const res = await fetchApi(path, options, token);
+  if (res.status === 204) return {} as T;
+  const text = await res.text();
+  return text ? JSON.parse(text) : ({} as T);
+}
+
+const requestText = async (
+  path: string,
+  options: RequestInit = {},
+  token?: string | null,
+) => (await fetchApi(path, options, token)).text();
+
+const requestBlob = async (
+  path: string,
+  options: RequestInit = {},
+  token?: string | null,
+) => (await fetchApi(path, options, token)).blob();
+
+const downloadBlob = (blob: Blob, filename: string) => {
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.URL.revokeObjectURL(url);
+};
+
+const safeFilenamePart = (value: string) =>
+  value.replace(/[\\/:*?"<>|]+/g, "_");
 
 // ============ 认证 ============
 
@@ -101,15 +148,20 @@ export const login = (payload: {
     body: JSON.stringify(payload),
   });
 
-export const getMe = (token: string) =>
-  request("/auth/me", {}, token);
+export const getMe = (token: string) => request("/auth/me", {}, token);
 
-export const resetTOTP = (payload: { username: string; password: string }) =>
-  request<{ success: boolean; message: string }>("/auth/reset-totp", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
-
+export const resetTOTP = (
+  token: string,
+  payload: { username?: string; password: string },
+) =>
+  request<{ success: boolean; message: string }>(
+    "/auth/reset-totp",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+    token,
+  );
 
 // ============ 账号管理（重构版）============
 
@@ -219,64 +271,107 @@ export interface AccountStatusCheckResponse {
 }
 
 export const startAccountLogin = (token: string, data: LoginStartRequest) =>
-  request<LoginStartResponse>("/accounts/login/start", {
-    method: "POST",
-    body: JSON.stringify(data),
-  }, token);
+  request<LoginStartResponse>(
+    "/accounts/login/start",
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+    token,
+  );
 
 export const verifyAccountLogin = (token: string, data: LoginVerifyRequest) =>
-  request<LoginVerifyResponse>("/accounts/login/verify", {
-    method: "POST",
-    body: JSON.stringify(data),
-  }, token);
+  request<LoginVerifyResponse>(
+    "/accounts/login/verify",
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+    token,
+  );
 
 export const listAccounts = (token: string) =>
   request<{ accounts: AccountInfo[]; total: number }>("/accounts", {}, token);
 
-export const checkAccountsStatus = (token: string, data: AccountStatusCheckRequest) =>
-  request<AccountStatusCheckResponse>("/accounts/status/check", {
-    method: "POST",
-    body: JSON.stringify(data),
-  }, token);
+export const checkAccountsStatus = (
+  token: string,
+  data: AccountStatusCheckRequest,
+) =>
+  request<AccountStatusCheckResponse>(
+    "/accounts/status/check",
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+    token,
+  );
 
 export const deleteAccount = (token: string, accountName: string) =>
-  request<{ success: boolean; message: string }>(`/accounts/${accountName}`, {
-    method: "DELETE",
-  }, token);
+  request<{ success: boolean; message: string }>(
+    `/accounts/${pathSegment(accountName)}`,
+    {
+      method: "DELETE",
+    },
+    token,
+  );
 
 export const checkAccountExists = (token: string, accountName: string) =>
-  request<{ exists: boolean; account_name: string }>(`/accounts/${accountName}/exists`, {}, token);
+  request<{ exists: boolean; account_name: string }>(
+    `/accounts/${pathSegment(accountName)}/exists`,
+    {},
+    token,
+  );
 
 export const updateAccount = (
   token: string,
   accountName: string,
-  data: { remark?: string | null; proxy?: string | null }
+  data: { remark?: string | null; proxy?: string | null },
 ) =>
-  request<{ success: boolean; message: string; account?: AccountInfo | null }>(`/accounts/${accountName}`, {
-    method: "PATCH",
-    body: JSON.stringify(data),
-  }, token);
+  request<{ success: boolean; message: string; account?: AccountInfo | null }>(
+    `/accounts/${pathSegment(accountName)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    },
+    token,
+  );
 
 export const startQrLogin = (token: string, data: QrLoginStartRequest) =>
-  request<QrLoginStartResponse>("/accounts/qr/start", {
-    method: "POST",
-    body: JSON.stringify(data),
-  }, token);
+  request<QrLoginStartResponse>(
+    "/accounts/qr/start",
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+    token,
+  );
 
 export const getQrLoginStatus = (token: string, loginId: string) =>
-  request<QrLoginStatusResponse>(`/accounts/qr/status?login_id=${encodeURIComponent(loginId)}`, {}, token);
+  request<QrLoginStatusResponse>(
+    `/accounts/qr/status?login_id=${encodeURIComponent(loginId)}`,
+    {},
+    token,
+  );
 
 export const cancelQrLogin = (token: string, loginId: string) =>
-  request<QrLoginCancelResponse>("/accounts/qr/cancel", {
-    method: "POST",
-    body: JSON.stringify({ login_id: loginId }),
-  }, token);
+  request<QrLoginCancelResponse>(
+    "/accounts/qr/cancel",
+    {
+      method: "POST",
+      body: JSON.stringify({ login_id: loginId }),
+    },
+    token,
+  );
 
 export const submitQrPassword = (token: string, data: QrLoginPasswordRequest) =>
-  request<QrLoginPasswordResponse>("/accounts/qr/password", {
-    method: "POST",
-    body: JSON.stringify(data),
-  }, token);
+  request<QrLoginPasswordResponse>(
+    "/accounts/qr/password",
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+    token,
+  );
 
 // ============ 任务管理 ============
 
@@ -285,7 +380,7 @@ export const fetchTasks = (token: string) =>
 
 export const createTask = (
   token: string,
-  payload: { name: string; cron: string; account_id: number; enabled: boolean }
+  payload: { name: string; cron: string; account_id: number; enabled: boolean },
 ) =>
   request<Task>(
     "/tasks",
@@ -293,13 +388,18 @@ export const createTask = (
       method: "POST",
       body: JSON.stringify(payload),
     },
-    token
+    token,
   );
 
 export const updateTask = (
   token: string,
   id: number,
-  payload: Partial<{ name: string; cron: string; enabled: boolean; account_id: number }>
+  payload: Partial<{
+    name: string;
+    cron: string;
+    enabled: boolean;
+    account_id: number;
+  }>,
 ) =>
   request<Task>(
     `/tasks/${id}`,
@@ -307,7 +407,7 @@ export const updateTask = (
       method: "PUT",
       body: JSON.stringify(payload),
     },
-    token
+    token,
   );
 
 export const deleteTask = (token: string, id: number) =>
@@ -322,57 +422,57 @@ export const fetchTaskLogs = (token: string, id: number, limit = 50) =>
 // ============ 配置管理 ============
 
 export const listConfigTasks = (token: string) =>
-  request<{ sign_tasks: string[]; monitor_tasks: string[]; total: number }>("/config/tasks", {}, token);
+  request<{ sign_tasks: string[]; monitor_tasks: string[]; total: number }>(
+    "/config/tasks",
+    {},
+    token,
+  );
 
-export const exportSignTask = async (token: string, taskName: string, accountName?: string) => {
+export const exportSignTask = (
+  token: string,
+  taskName: string,
+  accountName?: string,
+) => {
   const params = new URLSearchParams();
   if (accountName) params.append("account_name", accountName);
-  const url = `${API_BASE}/config/export/sign/${taskName}${params.toString() ? `?${params.toString()}` : ""}`;
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) {
-    let errorMessage = "Export failed";
-    try {
-      const errorData = await res.json();
-      errorMessage = errorData.detail || errorData.message || JSON.stringify(errorData);
-    } catch {
-      errorMessage = await res.text() || "Export failed";
-    }
-    throw new Error(errorMessage);
-  }
-  return res.text();
+  return requestText(
+    `/config/export/sign/${pathSegment(taskName)}${params.toString() ? `?${params.toString()}` : ""}`,
+    {},
+    token,
+  );
 };
 
 export const importSignTask = (
   token: string,
   configJson: string,
   taskName?: string,
-  accountName?: string
+  accountName?: string,
 ) =>
-  request<{ success: boolean; task_name: string; message: string }>("/config/import/sign", {
-    method: "POST",
-    body: JSON.stringify({ config_json: configJson, task_name: taskName, account_name: accountName }),
-  }, token);
+  request<{ success: boolean; task_name: string; message: string }>(
+    "/config/import/sign",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        config_json: configJson,
+        task_name: taskName,
+        account_name: accountName,
+      }),
+    },
+    token,
+  );
 
-export const exportAllConfigs = async (token: string) => {
-  const res = await fetch(`${API_BASE}/config/export/all`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) {
-    let errorMessage = "Export failed";
-    try {
-      const errorData = await res.json();
-      errorMessage = errorData.detail || errorData.message || JSON.stringify(errorData);
-    } catch {
-      errorMessage = await res.text() || "Export failed";
-    }
-    throw new Error(errorMessage);
-  }
-  return res.text();
-};
+export const exportAllConfigs = (token: string, includeSecrets = false) =>
+  requestText(
+    `/config/export/all${includeSecrets ? "?include_secrets=true" : ""}`,
+    {},
+    token,
+  );
 
-export const importAllConfigs = (token: string, configJson: string, overwrite = false) =>
+export const importAllConfigs = (
+  token: string,
+  configJson: string,
+  overwrite = false,
+) =>
   request<{
     signs_imported: number;
     signs_skipped: number;
@@ -381,56 +481,103 @@ export const importAllConfigs = (token: string, configJson: string, overwrite = 
     settings_imported: number;
     errors: string[];
     message: string;
-  }>("/config/import/all", {
-    method: "POST",
-    body: JSON.stringify({ config_json: configJson, overwrite }),
-  }, token);
+  }>(
+    "/config/import/all",
+    {
+      method: "POST",
+      body: JSON.stringify({ config_json: configJson, overwrite }),
+    },
+    token,
+  );
 
-export const deleteSignConfig = (token: string, taskName: string, accountName?: string) => {
+export const deleteSignConfig = (
+  token: string,
+  taskName: string,
+  accountName?: string,
+) => {
   const params = new URLSearchParams();
   if (accountName) params.append("account_name", accountName);
   const url = `/config/sign/${taskName}${params.toString() ? `?${params.toString()}` : ""}`;
-  return request<{ success: boolean; message: string }>(url, {
-    method: "DELETE",
-  }, token);
+  return request<{ success: boolean; message: string }>(
+    url,
+    {
+      method: "DELETE",
+    },
+    token,
+  );
 };
 
 // ============ 用户设置 ============
 
-export const changePassword = (token: string, oldPassword: string, newPassword: string) =>
-  request<{ success: boolean; message: string }>("/user/password", {
-    method: "PUT",
-    body: JSON.stringify({ old_password: oldPassword, new_password: newPassword }),
-  }, token);
+export const changePassword = (
+  token: string,
+  oldPassword: string,
+  newPassword: string,
+) =>
+  request<{ success: boolean; message: string }>(
+    "/user/password",
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        old_password: oldPassword,
+        new_password: newPassword,
+      }),
+    },
+    token,
+  );
 
 export const getTOTPStatus = (token: string) =>
-  request<{ enabled: boolean; secret?: string }>("/user/totp/status", {}, token);
+  request<{ enabled: boolean; secret?: string }>(
+    "/user/totp/status",
+    {},
+    token,
+  );
 
 export const setupTOTP = (token: string) =>
-  request<{ enabled: boolean; secret: string }>("/user/totp/setup", {
-    method: "POST",
-  }, token);
+  request<{ enabled: boolean; secret: string }>(
+    "/user/totp/setup",
+    {
+      method: "POST",
+    },
+    token,
+  );
 
 export const getTOTPQRCode = (token: string) =>
-  `${API_BASE}/user/totp/qrcode?token=${token}`;
+  requestBlob("/user/totp/qrcode", {}, token);
 
 export const enableTOTP = (token: string, totpCode: string) =>
-  request<{ success: boolean; message: string }>("/user/totp/enable", {
-    method: "POST",
-    body: JSON.stringify({ totp_code: totpCode }),
-  }, token);
+  request<{ success: boolean; message: string }>(
+    "/user/totp/enable",
+    {
+      method: "POST",
+      body: JSON.stringify({ totp_code: totpCode }),
+    },
+    token,
+  );
 
 export const disableTOTP = (token: string, totpCode: string) =>
-  request<{ success: boolean; message: string }>("/user/totp/disable", {
-    method: "POST",
-    body: JSON.stringify({ totp_code: totpCode }),
-  }, token);
+  request<{ success: boolean; message: string }>(
+    "/user/totp/disable",
+    {
+      method: "POST",
+      body: JSON.stringify({ totp_code: totpCode }),
+    },
+    token,
+  );
 
-export const changeUsername = (token: string, newUsername: string, password: string) =>
-  request<ChangeUsernameResponse>("/user/username", {
-    method: "PUT",
-    body: JSON.stringify({ new_username: newUsername, password: password }),
-  }, token);
+export const changeUsername = (
+  token: string,
+  newUsername: string,
+  password: string,
+) =>
+  request<ChangeUsernameResponse>(
+    "/user/username",
+    {
+      method: "PUT",
+      body: JSON.stringify({ new_username: newUsername, password: password }),
+    },
+    token,
+  );
 
 // ============ AI 配置 ============
 
@@ -458,28 +605,40 @@ export const getAIConfig = (token: string) =>
 
 export const saveAIConfig = (
   token: string,
-  config: { api_key?: string; base_url?: string; model?: string }
+  config: { api_key?: string; base_url?: string; model?: string },
 ) =>
-  request<{ success: boolean; message: string }>("/config/ai", {
-    method: "POST",
-    body: JSON.stringify(config),
-  }, token);
+  request<{ success: boolean; message: string }>(
+    "/config/ai",
+    {
+      method: "POST",
+      body: JSON.stringify(config),
+    },
+    token,
+  );
 
 export const testAIConnection = (token: string) =>
-  request<AITestResult>("/config/ai/test", {
-    method: "POST",
-  }, token);
+  request<AITestResult>(
+    "/config/ai/test",
+    {
+      method: "POST",
+    },
+    token,
+  );
 
 export const deleteAIConfig = (token: string) =>
-  request<{ success: boolean; message: string }>("/config/ai", {
-    method: "DELETE",
-  }, token);
+  request<{ success: boolean; message: string }>(
+    "/config/ai",
+    {
+      method: "DELETE",
+    },
+    token,
+  );
 
 // ============ 全局设置 ============
 
 export interface GlobalSettings {
-  sign_interval?: number | null;  // null 表示随机 1-120 秒
-  log_retention_days?: number;    // 日志保留天数，默认 7
+  sign_interval?: number | null; // null 表示随机 1-120 秒
+  log_retention_days?: number; // 日志保留天数，默认 7
   timezone?: string;
   data_dir?: string | null;
   global_proxy?: string | null;
@@ -495,10 +654,14 @@ export const getGlobalSettings = (token: string) =>
   request<GlobalSettings>("/config/settings", {}, token);
 
 export const saveGlobalSettings = (token: string, settings: GlobalSettings) =>
-  request<{ success: boolean; message: string }>("/config/settings", {
-    method: "POST",
-    body: JSON.stringify(settings),
-  }, token);
+  request<{ success: boolean; message: string }>(
+    "/config/settings",
+    {
+      method: "POST",
+      body: JSON.stringify(settings),
+    },
+    token,
+  );
 
 // ============ Telegram API 配置 ============
 
@@ -515,17 +678,25 @@ export const getTelegramConfig = (token: string) =>
 
 export const saveTelegramConfig = (
   token: string,
-  config: { api_id: string; api_hash: string }
+  config: { api_id: string; api_hash: string },
 ) =>
-  request<{ success: boolean; message: string }>("/config/telegram", {
-    method: "POST",
-    body: JSON.stringify(config),
-  }, token);
+  request<{ success: boolean; message: string }>(
+    "/config/telegram",
+    {
+      method: "POST",
+      body: JSON.stringify(config),
+    },
+    token,
+  );
 
 export const resetTelegramConfig = (token: string) =>
-  request<{ success: boolean; message: string }>("/config/telegram", {
-    method: "DELETE",
-  }, token);
+  request<{ success: boolean; message: string }>(
+    "/config/telegram",
+    {
+      method: "DELETE",
+    },
+    token,
+  );
 
 // ============ 账号日志 ============
 
@@ -540,32 +711,36 @@ export interface AccountLog {
   created_at: string;
 }
 
-export const getAccountLogs = (token: string, accountName: string, limit: number = 100) =>
-  request<AccountLog[]>(`/accounts/${accountName}/logs?limit=${limit}`, {}, token);
+export const getAccountLogs = (
+  token: string,
+  accountName: string,
+  limit: number = 100,
+) =>
+  request<AccountLog[]>(
+    `/accounts/${pathSegment(accountName)}/logs?limit=${limit}`,
+    {},
+    token,
+  );
 
 export const clearAccountLogs = (token: string, accountName: string) =>
-  request<{ success: boolean; cleared: number; message: string; code?: string }>(
-    `/accounts/${accountName}/logs/clear`,
+  request<{
+    success: boolean;
+    cleared: number;
+    message: string;
+    code?: string;
+  }>(
+    `/accounts/${pathSegment(accountName)}/logs/clear`,
     { method: "POST" },
-    token
+    token,
   );
 
 export const exportAccountLogs = async (token: string, accountName: string) => {
-  const res = await fetch(`${API_BASE}/accounts/${accountName}/logs/export`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
-  if (!res.ok) throw new Error("Export failed");
-  const blob = await res.blob();
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `logs_${accountName}.txt`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.URL.revokeObjectURL(url);
+  const blob = await requestBlob(
+    `/accounts/${pathSegment(accountName)}/logs/export`,
+    {},
+    token,
+  );
+  downloadBlob(blob, `logs_${safeFilenamePart(accountName)}.txt`);
 };
 
 export interface SystemLogsResponse {
@@ -581,28 +756,18 @@ export const getSystemLogs = (token: string, limit: number = 500) =>
   request<SystemLogsResponse>(`/system-logs?limit=${limit}`, {}, token);
 
 export const clearSystemLogs = (token: string) =>
-  request<{ success: boolean; message: string }>("/system-logs", {
-    method: "DELETE",
-  }, token);
+  request<{ success: boolean; message: string }>(
+    "/system-logs",
+    {
+      method: "DELETE",
+    },
+    token,
+  );
 
 export const exportSystemLogs = async (token: string) => {
-  const res = await fetch(`${API_BASE}/system-logs/export`, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-    },
-  });
-  if (!res.ok) throw new Error("Export failed");
-  const blob = await res.blob();
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "tg-signpulse-system.log";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.URL.revokeObjectURL(url);
+  const blob = await requestBlob("/system-logs/export", {}, token);
+  downloadBlob(blob, "tg-signpulse-system.log");
 };
-
 
 // ============ 签到任务管理 ============
 
@@ -680,65 +845,114 @@ export interface ChatSearchResponse {
   offset: number;
 }
 
-export async function listSignTasks(token: string, accountName?: string, forceRefresh?: boolean): Promise<SignTask[]> {
+export async function listSignTasks(
+  token: string,
+  accountName?: string,
+  forceRefresh?: boolean,
+): Promise<SignTask[]> {
   const params = new URLSearchParams();
-  if (accountName) params.append('account_name', accountName);
-  if (forceRefresh) params.append('force_refresh', 'true');
-  const url = `/sign-tasks${params.toString() ? `?${params.toString()}` : ''}`;
+  if (accountName) params.append("account_name", accountName);
+  if (forceRefresh) params.append("force_refresh", "true");
+  const url = `/sign-tasks${params.toString() ? `?${params.toString()}` : ""}`;
   return request<SignTask[]>(url, {}, token);
 }
 
-export const getSignTask = (token: string, name: string, accountName?: string) => {
+export const getSignTask = (
+  token: string,
+  name: string,
+  accountName?: string,
+) => {
   const params = new URLSearchParams();
   if (accountName) params.append("account_name", accountName);
-  const url = `/sign-tasks/${name}${params.toString() ? `?${params.toString()}` : ""}`;
+  const url = `/sign-tasks/${pathSegment(name)}${params.toString() ? `?${params.toString()}` : ""}`;
   return request<SignTask>(url, {}, token);
 };
 
 export const createSignTask = (token: string, data: CreateSignTaskRequest) =>
-  request<SignTask>("/sign-tasks", {
-    method: "POST",
-    body: JSON.stringify(data),
-  }, token);
+  request<SignTask>(
+    "/sign-tasks",
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+    token,
+  );
 
-export const updateSignTask = (token: string, name: string, data: UpdateSignTaskRequest, accountName?: string) =>
-  request<SignTask>(`/sign-tasks/${name}${accountName ? `?account_name=${accountName}` : ''}`, {
-    method: "PUT",
-    body: JSON.stringify(data),
-  }, token);
+export const updateSignTask = (
+  token: string,
+  name: string,
+  data: UpdateSignTaskRequest,
+  accountName?: string,
+) =>
+  request<SignTask>(
+    `/sign-tasks/${pathSegment(name)}${accountName ? `?account_name=${encodeURIComponent(accountName)}` : ""}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(data),
+    },
+    token,
+  );
 
-export const deleteSignTask = (token: string, name: string, accountName?: string) =>
-  request<{ ok: boolean }>(`/sign-tasks/${name}${accountName ? `?account_name=${accountName}` : ''}`, {
-    method: "DELETE",
-  }, token);
+export const deleteSignTask = (
+  token: string,
+  name: string,
+  accountName?: string,
+) =>
+  request<{ ok: boolean }>(
+    `/sign-tasks/${pathSegment(name)}${accountName ? `?account_name=${encodeURIComponent(accountName)}` : ""}`,
+    {
+      method: "DELETE",
+    },
+    token,
+  );
 
 export const runSignTask = (token: string, name: string, accountName: string) =>
-  request<{ success: boolean; output: string; error: string }>(`/sign-tasks/${name}/run?account_name=${accountName}`, {
-    method: "POST",
-  }, token);
+  request<{ success: boolean; output: string; error: string }>(
+    `/sign-tasks/${pathSegment(name)}/run?account_name=${encodeURIComponent(accountName)}`,
+    {
+      method: "POST",
+    },
+    token,
+  );
 
-export const getAccountChats = (token: string, accountName: string, forceRefresh?: boolean) =>
-  request<ChatInfo[]>(`/sign-tasks/chats/${accountName}${forceRefresh ? '?force_refresh=true' : ''}`, {}, token);
+export const getAccountChats = (
+  token: string,
+  accountName: string,
+  forceRefresh?: boolean,
+) =>
+  request<ChatInfo[]>(
+    `/sign-tasks/chats/${pathSegment(accountName)}${forceRefresh ? "?force_refresh=true" : ""}`,
+    {},
+    token,
+  );
 
 export const searchAccountChats = (
   token: string,
   accountName: string,
   query: string,
   limit: number = 50,
-  offset: number = 0
+  offset: number = 0,
 ) => {
   const params = new URLSearchParams();
   params.append("q", query);
   params.append("limit", String(limit));
   params.append("offset", String(offset));
-  return request<ChatSearchResponse>(`/sign-tasks/chats/${accountName}/search?${params.toString()}`, {}, token);
+  return request<ChatSearchResponse>(
+    `/sign-tasks/chats/${pathSegment(accountName)}/search?${params.toString()}`,
+    {},
+    token,
+  );
 };
 
-export const getSignTaskLogs = (token: string, name: string, accountName?: string) => {
-    const params = new URLSearchParams();
-    if (accountName) params.append("account_name", accountName);
-    const url = `/sign-tasks/${name}/logs${params.toString() ? `?${params.toString()}` : ""}`;
-    return request<string[]>(url, {}, token);
+export const getSignTaskLogs = (
+  token: string,
+  name: string,
+  accountName?: string,
+) => {
+  const params = new URLSearchParams();
+  if (accountName) params.append("account_name", accountName);
+  const url = `/sign-tasks/${pathSegment(name)}/logs${params.toString() ? `?${params.toString()}` : ""}`;
+  return request<string[]>(url, {}, token);
 };
 
 export interface SignTaskHistoryItem {
@@ -754,15 +968,15 @@ export const getSignTaskHistory = (
   token: string,
   name: string,
   accountName: string,
-  limit: number = 20
+  limit: number = 20,
 ) => {
   const params = new URLSearchParams();
   params.append("account_name", accountName);
   params.append("limit", String(limit));
   return request<SignTaskHistoryItem[]>(
-    `/sign-tasks/${name}/history?${params.toString()}`,
+    `/sign-tasks/${pathSegment(name)}/history?${params.toString()}`,
     {},
-    token
+    token,
   );
 };
 
@@ -833,50 +1047,65 @@ export const listMonitorTasks = (token: string, accountName?: string) => {
   return request<MonitorTask[]>(
     `/monitors${params.toString() ? `?${params.toString()}` : ""}`,
     {},
-    token
+    token,
   );
 };
 
-export const createMonitorTask = (token: string, data: CreateMonitorTaskRequest) =>
-  request<MonitorTask>("/monitors", {
-    method: "POST",
-    body: JSON.stringify(data),
-  }, token);
+export const createMonitorTask = (
+  token: string,
+  data: CreateMonitorTaskRequest,
+) =>
+  request<MonitorTask>(
+    "/monitors",
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+    token,
+  );
 
 export const updateMonitorTask = (
   token: string,
   name: string,
   data: UpdateMonitorTaskRequest,
-  accountName?: string
+  accountName?: string,
 ) => {
   const params = new URLSearchParams();
   if (accountName) params.append("account_name", accountName);
   return request<MonitorTask>(
-    `/monitors/${name}${params.toString() ? `?${params.toString()}` : ""}`,
+    `/monitors/${pathSegment(name)}${params.toString() ? `?${params.toString()}` : ""}`,
     {
       method: "PUT",
       body: JSON.stringify(data),
     },
-    token
+    token,
   );
 };
 
-export const deleteMonitorTask = (token: string, name: string, accountName?: string) => {
+export const deleteMonitorTask = (
+  token: string,
+  name: string,
+  accountName?: string,
+) => {
   const params = new URLSearchParams();
   if (accountName) params.append("account_name", accountName);
   return request<{ ok: boolean }>(
-    `/monitors/${name}${params.toString() ? `?${params.toString()}` : ""}`,
+    `/monitors/${pathSegment(name)}${params.toString() ? `?${params.toString()}` : ""}`,
     { method: "DELETE" },
-    token
+    token,
   );
 };
 
-export const getMonitorStatus = (token: string, name: string, accountName?: string) => {
+export const getMonitorStatus = (
+  token: string,
+  name: string,
+  accountName?: string,
+) => {
   const params = new URLSearchParams();
   if (accountName) params.append("account_name", accountName);
   return request<MonitorStatus>(
-    `/monitors/${name}/status${params.toString() ? `?${params.toString()}` : ""}`,
+    `/monitors/${pathSegment(name)}/status${params.toString() ? `?${params.toString()}` : ""}`,
     {},
-    token
+    token,
   );
 };
