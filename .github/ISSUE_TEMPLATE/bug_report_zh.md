@@ -23,7 +23,7 @@ assignees: ''
 
 **环境 (Environment):**
  - 操作系统 (OS): [例如 macOS, Windows, Linux]
- - tg-signer 版本 (Version): [例如 0.1.0]
+- TG-FlowPulse 版本 (Version): [例如 0.1.0]
  - Python 版本 (Version): [例如 3.10]
 
 **日志 (Logs)**

@@ -14,9 +14,9 @@ CONFIG_META: dict[ConfigKind, Tuple[str, type[BaseJSONConfig]]] = {
     "monitor": ("monitors", MonitorConfig),
 }
 
-DEFAULT_WORKDIR = Path(os.environ.get("TG_SIGNER_WORKDIR", ".signer"))
+DEFAULT_WORKDIR = Path(os.environ.get("TG_FLOWPULSE_WORKDIR") or os.environ.get("TG_SIGNER_WORKDIR", ".signer"))
 LOG_DIR = Path("logs")
-DEFAULT_LOG_FILE = LOG_DIR / "tg-signer.log"
+DEFAULT_LOG_FILE = LOG_DIR / "tg-flowpulse.log"
 
 
 @dataclass

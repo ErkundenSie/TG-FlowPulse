@@ -3,7 +3,7 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tg-signer"
+name = "tg-flowpulse"
 dynamic = ["version"]
 description = "Telegram multi-account automation panel for task workflows, message monitoring, notification forwarding, and check-in management."
 authors = [
@@ -54,10 +54,11 @@ gui = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/amchii/tg-signer"
-Repository = "https://github.com/amchii/tg-signer"
+Homepage = "https://github.com/ErkundenSie/TG-FlowPulse"
+Repository = "https://github.com/ErkundenSie/TG-FlowPulse"
 
 [project.scripts]
+tg-flowpulse = "tg_signer.__main__:signer"
 tg-signer = "tg_signer.__main__:signer"
 
 [tool.setuptools]

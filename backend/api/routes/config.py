@@ -173,9 +173,9 @@ def export_all_configs(
             include_secrets=include_secrets
         )
         filename = (
-            "tg_signer_all_configs_full.json"
+            "tg_flowpulse_all_configs_full.json"
             if include_secrets
-            else "tg_signer_all_configs_redacted.json"
+            else "tg_flowpulse_all_configs_redacted.json"
         )
         return Response(
             content=config_json.encode("utf-8"),

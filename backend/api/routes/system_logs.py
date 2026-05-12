@@ -82,5 +82,5 @@ def export_system_logs(current_user: User = Depends(get_current_user)):
     return Response(
         content=content,
         media_type="text/plain; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="tg-signpulse-system.log"'},
+        headers={"Content-Disposition": 'attachment; filename="tg-flowpulse-system.log"'},
     )

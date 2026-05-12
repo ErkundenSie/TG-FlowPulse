@@ -63,8 +63,9 @@ MONITOR_TEMPLATE: Dict[str, object] = {
 }
 
 
-AUTH_CODE_ENV = "TG_SIGNER_GUI_AUTHCODE"
-AUTH_STORAGE_KEY = "tg_signer_gui_auth_code"
+AUTH_CODE_ENV = "TG_FLOWPULSE_GUI_AUTHCODE"
+LEGACY_AUTH_CODE_ENV = "TG_SIGNER_GUI_AUTHCODE"
+AUTH_STORAGE_KEY = "tg_flowpulse_gui_auth_code"
 
 
 class UIState:
@@ -549,7 +550,7 @@ def _apply_paths(workdir_input, on_refresh: Callable[[], None]) -> None:
 
 def _build_dashboard(container) -> None:
     with container:
-        ui.label("TG Signer Web 控制台").classes(
+        ui.label("TG-FlowPulse Web 控制台").classes(
             "text-2xl font-semibold tracking-wide mb-2"
         )
         refreshers: list[Callable[[], None]] = []
@@ -608,7 +609,7 @@ def _build_dashboard(container) -> None:
 
 def _auth_gate(container, auth_code: str, on_success: Callable[[], None]) -> None:
     with container:
-        ui.label("TG Signer Web 控制台").classes(
+        ui.label("TG-FlowPulse Web 控制台").classes(
             "text-2xl font-semibold tracking-wide mb-2"
         )
         ui.label("已启用访问控制，请输入 Auth Code 继续使用 Web 控制台。").classes(
@@ -653,14 +654,14 @@ def _auth_gate(container, auth_code: str, on_success: Callable[[], None]) -> Non
 
 
 def build_ui(auth_code: str = None) -> None:
-    ui.page_title("TG Signer Web 控制台")
+    ui.page_title("TG-FlowPulse Web 控制台")
     root = ui.column().classes("w-full gap-3")
 
     def render_dashboard() -> None:
         root.clear()
         _build_dashboard(root)
 
-    auth_code = auth_code or (os.environ.get(AUTH_CODE_ENV) or "").strip()
+    auth_code = auth_code or (os.environ.get(AUTH_CODE_ENV) or os.environ.get(LEGACY_AUTH_CODE_ENV) or "").strip()
     if not auth_code:
         render_dashboard()
         return
@@ -676,7 +677,7 @@ def build_ui(auth_code: str = None) -> None:
 def main(host: str = None, port: int = None, storage_secret: str = None) -> None:
     ui.run(
         build_ui,
-        title="TG Signer WebUI",
+        title="TG-FlowPulse WebUI",
         favicon="⚙️",
         reload=False,
         host=host,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 from typing import Callable, Optional
 
 from backend.core.config import get_settings
@@ -9,9 +10,13 @@ from backend.core.config import get_settings
 settings = get_settings()
 
 
+def _cli_command() -> str:
+    return "tg-flowpulse" if shutil.which("tg-flowpulse") else "tg-signer"
+
+
 def _base_args(account_name: str) -> list[str]:
     return [
-        "tg-signer",
+        _cli_command(),
         "--workdir",
         str(settings.resolve_workdir()),
         "--session_dir",
@@ -28,7 +33,7 @@ async def async_run_task_cli(
     callback: Optional[Callable[[str], None]] = None,
 ) -> tuple[int, str, str]:
     """
-    Asynchronously run a tg-signer sign task using CLI.
+    Asynchronously run a TG-FlowPulse sign task using CLI.
     Returns (returncode, stdout, stderr)
     """
     args = _base_args(account_name) + [

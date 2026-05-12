@@ -58,7 +58,7 @@ def setup_app_logging(logs_dir: Path) -> Path:
     if root_logger.getEffectiveLevel() > logging.INFO:
         root_logger.setLevel(logging.INFO)
 
-    for logger_name in ("", "backend", "tg-signer", "uvicorn", "uvicorn.error", "uvicorn.access"):
+    for logger_name in ("", "backend", "tg-flowpulse", "tg-signer", "uvicorn", "uvicorn.error", "uvicorn.access"):
         logger = logging.getLogger(logger_name)
         if logger_name and logger.getEffectiveLevel() > logging.INFO:
             logger.setLevel(logging.INFO)

@@ -1650,7 +1650,7 @@ class SignTaskService:
         self._active_logs[task_key] = []
 
         # 获取 logger 实例
-        tg_logger = logging.getLogger("tg-signer")
+        tg_logger = logging.getLogger("tg-flowpulse")
         previous_logger_level = tg_logger.level
         if tg_logger.getEffectiveLevel() > logging.INFO:
             tg_logger.setLevel(logging.INFO)

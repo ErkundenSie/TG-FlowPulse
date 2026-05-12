@@ -29,7 +29,7 @@ formatter = logging.Formatter(format_str)
 
 
 def configure_logger(
-    name: str = "tg-signer",
+    name: str = "tg-flowpulse",
     log_level: str = "INFO",
     log_dir: str | pathlib.Path = "logs",
     log_file: str | pathlib.Path = None,

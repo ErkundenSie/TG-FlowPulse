@@ -63,18 +63,18 @@ TG-FlowPulse 是一个 Telegram 多账号自动化任务编排、消息监听、
 
 ```bash
 docker run -d \
-  --name tg-signpulse \
+  --name tg-flowpulse \
   --restart unless-stopped \
   -p 8080:8080 \
   -v $(pwd)/data:/data \
   -e TZ=Asia/Shanghai \
   -e APP_SECRET_KEY=your_secret_key \
-  ghcr.io/akasls/tg-signpulse:latest
+  ghcr.io/erkundensie/tg-flowpulse:latest
 ```
 
 ### 部署自己修改后的代码
 
-上面的命令使用的是远程官方镜像 `ghcr.io/akasls/tg-signpulse:latest`，不会包含你本地修改过的代码。若要部署自己的修改版，推荐在服务器拉取代码后本地构建镜像：
+上面的命令使用的是远程官方镜像 `ghcr.io/erkundensie/tg-flowpulse:latest`，不会包含你本地修改过的代码。若要部署自己的修改版，推荐在服务器拉取代码后本地构建镜像：
 
 ```bash
 git clone https://github.com/ErkundenSie/TG-FlowPulse.git TG-FlowPulse
@@ -91,51 +91,51 @@ git pull
 构建本地镜像：
 
 ```bash
-docker build -t tg-signpulse:local .
+docker build -t tg-flowpulse:local .
 ```
 
 启动本地镜像：
 
 ```bash
 docker run -d \
-  --name tg-signpulse \
+  --name tg-flowpulse \
   --restart unless-stopped \
   -p 8080:8080 \
   -v $(pwd)/data:/data \
   -e TZ=Asia/Shanghai \
   -e APP_SECRET_KEY=your_secret_key \
   -e ADMIN_PASSWORD=your_admin_password \
-  tg-signpulse:local
+  tg-flowpulse:local
 ```
 
 如果之前已经启动过旧容器，先停止并删除旧容器：
 
 ```bash
-docker stop tg-signpulse
-docker rm tg-signpulse
+docker stop tg-flowpulse
+docker rm tg-flowpulse
 ```
 
-以后更新自己的代码后，重新执行 `git pull`、`docker build -t tg-signpulse:local .`，再重建容器即可。只要继续挂载同一个 `data` 目录，任务、账号和配置数据不会因为删除容器而丢失。
+以后更新自己的代码后，重新执行 `git pull`、`docker build -t tg-flowpulse:local .`，再重建容器即可。只要继续挂载同一个 `data` 目录，任务、账号和配置数据不会因为删除容器而丢失。
 
 ### 更新本地构建部署
 
-如果你是按上面的 `tg-signpulse:local` 方式部署，更新流程如下：
+如果你是按上面的 `tg-flowpulse:local` 方式部署，更新流程如下：
 
 ```bash
 cd /opt/TG-FlowPulse
 git pull
-docker build -t tg-signpulse:local .
-docker stop tg-signpulse
-docker rm tg-signpulse
+docker build -t tg-flowpulse:local .
+docker stop tg-flowpulse
+docker rm tg-flowpulse
 docker run -d \
-  --name tg-signpulse \
+  --name tg-flowpulse \
   --restart unless-stopped \
   -p 8080:8080 \
   -v $(pwd)/data:/data \
   -e TZ=Asia/Shanghai \
   -e APP_SECRET_KEY=your_secret_key \
   -e ADMIN_PASSWORD=your_admin_password \
-  tg-signpulse:local
+  tg-flowpulse:local
 ```
 
 如果你对外使用的不是 `8080`，例如宿主机端口是 `6857`，把端口行改成：
@@ -148,12 +148,12 @@ docker run -d \
 
 ```bash
 docker ps
-docker logs -f tg-signpulse
+docker logs -f tg-flowpulse
 ```
 
 说明：
 
-- `docker rm tg-signpulse` 只删除容器，不会删除 `$(pwd)/data` 里的持久化数据。
+- `docker rm tg-flowpulse` 只删除容器，不会删除 `$(pwd)/data` 里的持久化数据。
 - `APP_SECRET_KEY` 建议长期保持不变；随意更换可能导致已有登录态失效。
 - `ADMIN_PASSWORD` 主要影响首次创建 admin 用户；如果数据库中已经存在 admin，后续修改该环境变量不一定会覆盖已有密码。
 
@@ -182,8 +182,8 @@ HOST_PORT=8080
 services:
   app:
     build: .
-    image: tg-signpulse:local
-    container_name: tg-signpulse
+    image: tg-flowpulse:local
+    container_name: tg-flowpulse
     restart: unless-stopped
     ports:
       - "${HOST_PORT:-8080}:8080"
@@ -193,7 +193,7 @@ services:
       - PORT=8080
       - APP_DATA_DIR=/data
       - TZ=${TZ:-Asia/Shanghai}
-      - APP_SECRET_KEY=${APP_SECRET_KEY:-tg-signpulse-change-me}
+      - APP_SECRET_KEY=${APP_SECRET_KEY:-}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
     init: true
     read_only: true
@@ -284,7 +284,7 @@ ports:
 ## 数据目录与权限说明
 
 - 默认数据目录：`/data`
-- 当 `/data` 不可写时，会自动降级到 `/tmp/tg-signpulse`（非持久化）
+- 当 `/data` 不可写时，会自动降级到 `/tmp/tg-flowpulse`（非持久化）
 - 新镜像已支持根据 `/data` 挂载目录属主 UID/GID 自动适配运行身份，通常无需 `chmod 777`
 
 容器内排查命令：

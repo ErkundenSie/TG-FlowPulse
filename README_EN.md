@@ -53,13 +53,13 @@ Default credentials:
 
 ```bash
 docker run -d \
-  --name tg-signpulse \
+  --name tg-flowpulse \
   --restart unless-stopped \
   -p 8080:8080 \
   -v $(pwd)/data:/data \
   -e TZ=Asia/Shanghai \
   -e APP_SECRET_KEY=your_secret_key \
-  ghcr.io/akasls/tg-signpulse:latest
+  ghcr.io/erkundensie/tg-flowpulse:latest
 ```
 
 If you use a reverse proxy, bind locally only:
@@ -73,8 +73,8 @@ If you use a reverse proxy, bind locally only:
 ```yaml
 services:
   app:
-    image: ghcr.io/akasls/tg-signpulse:latest
-    container_name: tg-signpulse
+    image: ghcr.io/erkundensie/tg-flowpulse:latest
+    container_name: tg-flowpulse
     restart: unless-stopped
     ports:
       - "8080:8080"
@@ -88,7 +88,7 @@ services:
 ## Data Directory & Permissions
 
 - Default data directory: `/data`
-- If `/data` is not writable, app falls back to `/tmp/tg-signpulse` (non-persistent)
+- If `/data` is not writable, app falls back to `/tmp/tg-flowpulse` (non-persistent)
 - New images can auto-adapt runtime UID/GID to `/data` owner in most VPS setups (usually no need for `chmod 777`)
 
 Container checks:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import shutil
 from typing import Optional
 
 from backend.core.config import get_settings
@@ -8,9 +9,13 @@ from backend.core.config import get_settings
 settings = get_settings()
 
 
+def _cli_command() -> str:
+    return "tg-flowpulse" if shutil.which("tg-flowpulse") else "tg-signer"
+
+
 def _base_args() -> list[str]:
     return [
-        "tg-signer",
+        _cli_command(),
         "--workdir",
         str(settings.resolve_workdir()),
         "--session_dir",
@@ -24,7 +29,7 @@ def login_account(
     password: Optional[str] = None,
 ) -> subprocess.CompletedProcess:
     """
-    Trigger tg-signer login flow.
+    Trigger TG-FlowPulse login flow.
     When code/password provided, pipe them via stdin (best-effort).
     """
     args = _base_args() + ["login", account_name]

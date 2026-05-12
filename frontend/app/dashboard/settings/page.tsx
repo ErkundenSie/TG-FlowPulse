@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { getToken } from "../../../lib/auth";
+import { getToken, setToken } from "../../../lib/auth";
 import {
   changePassword,
   changeUsername,
@@ -264,7 +264,7 @@ export default function SettingsPage() {
       );
       addToast(t("username_changed"), "success");
       if (res.access_token) {
-        localStorage.setItem("tg-signer-token", res.access_token);
+        setToken(res.access_token);
         setLocalToken(res.access_token);
       }
       setUsernameForm({ newUsername: "", password: "" });
@@ -381,8 +381,8 @@ export default function SettingsPage() {
       const a = document.createElement("a");
       a.href = url;
       a.download = includeSecrets
-        ? "tg-signer-config-full.json"
-        : "tg-signer-config-redacted.json";
+        ? "tg-flowpulse-config-full.json"
+        : "tg-flowpulse-config-redacted.json";
       a.click();
       addToast(t("export_success"), "success");
     } catch (err: any) {

@@ -29,7 +29,7 @@ def get_monitor(
 @tg_signer.group(name="monitor", help="配置和运行监控")
 @click.pass_context
 def tg_monitor(ctx: click.Context):
-    logger = logging.getLogger("tg-signer")
+    logger = logging.getLogger("tg-flowpulse")
     if ctx.invoked_subcommand in [
         "run",
     ]:

@@ -57,7 +57,7 @@ def get_signer(
     return signer
 
 
-@click.group(name="tg-signer", help="使用<子命令> --help查看使用说明", cls=AliasedGroup)
+@click.group(name="tg-flowpulse", help="使用<子命令> --help查看使用说明", cls=AliasedGroup)
 @click.option(
     "--log-level",
     "-l",
@@ -70,7 +70,7 @@ def get_signer(
 @click.option(
     "--log-file",
     "log_file",
-    default="logs/tg-signer.log",
+    default="logs/tg-flowpulse.log",
     show_default=True,
     type=click.Path(),
     help="日志文件路径, 可以是相对路径",
@@ -118,7 +118,7 @@ def get_signer(
     default=".signer",
     show_default=True,
     type=click.Path(),
-    help="tg-signer工作目录，用于存储配置和签到记录等",
+    help="TG-FlowPulse 工作目录，用于存储配置和签到记录等",
 )
 @click.option(
     "--session-string",
@@ -179,7 +179,7 @@ def tg_signer(
 def version():
     from tg_signer import __version__
 
-    s = f"tg-signer {__version__}"
+    s = f"tg-flowpulse {__version__}"
     click.echo(s)
 
 
@@ -332,7 +332,7 @@ def list_members(obj, chat_id: str, query: str, admin, limit):
 
 
 @tg_signer.command(
-    help="""导出配置，默认为输出到终端。\n\n e.g.\n\n  tg-signer export -O config.json mytask\n\n  tg-signer export mytask > config.json"""
+    help="""导出配置，默认为输出到终端。\n\n e.g.\n\n  tg-flowpulse export -O config.json mytask\n\n  tg-flowpulse export mytask > config.json"""
 )
 @click.argument("task_name")
 @click.option(
@@ -351,7 +351,7 @@ def export(obj, task_name: str, file: str = None):
 
 @tg_signer.command(
     name="import",
-    help="""导入配置，默认为从终端读取。\n\n e.g.\n\n  tg-signer import -I config.json mytask\n\n  cat config.json | tg-signer import mytask""",
+    help="""导入配置，默认为从终端读取。\n\n e.g.\n\n  tg-flowpulse import -I config.json mytask\n\n  cat config.json | tg-flowpulse import mytask""",
 )
 @click.argument("task_name")
 @click.option(
@@ -440,7 +440,7 @@ def list_schedule_messages(obj, chat_id):
 )
 @click.pass_obj
 def multi_run(obj, accounts, task_name, num_of_dialogs):
-    logger = logging.getLogger("tg-signer")
+    logger = logging.getLogger("tg-flowpulse")
     logger.info(f"开始使用一套配置({task_name})同时运行多个账号..")
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -463,7 +463,7 @@ def llm_config(obj):
 
 @tg_signer.command(
     name="webgui",
-    help="启动一个WebGUI（需要通过`pip install tg-signer[gui]`安装相关依赖）",
+    help="启动一个WebGUI（需要通过`pip install tg-flowpulse[gui]`安装相关依赖）",
 )
 @click.option("--host", "-H", "host", default="127.0.0.1", help="监听地址")
 @click.option("--port", "-P", "port", default=8080, help="监听端口")
@@ -480,8 +480,8 @@ def llm_config(obj):
     "auth_code",
     default=None,
     show_default=True,
-    envvar="TG_SIGNER_GUI_AUTHCODE",
-    help="授权码，也可通过环境变量`TG_SIGNER_GUI_AUTHCODE`设置。若存在则访问界面时需要正确输入。",
+    envvar="TG_FLOWPULSE_GUI_AUTHCODE",
+    help="授权码，也可通过环境变量`TG_FLOWPULSE_GUI_AUTHCODE`设置。若存在则访问界面时需要正确输入。",
 )
 def webgui(
     host: str = None,

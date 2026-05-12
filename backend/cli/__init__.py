@@ -1,1 +1,1 @@
-"""CLI adapter for invoking tg-signer commands."""
+"""CLI adapter for invoking TG-FlowPulse commands."""

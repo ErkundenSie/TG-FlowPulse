@@ -230,7 +230,7 @@ def get_totp_qrcode(
 
     # 生成 TOTP URI
     totp = pyotp.TOTP(secret)
-    uri = totp.provisioning_uri(name=current_user.username, issuer_name="tg-signer")
+    uri = totp.provisioning_uri(name=current_user.username, issuer_name="TG-FlowPulse")
 
     # 生成二维码
     qr = qrcode.QRCode(version=1, box_size=10, border=5)

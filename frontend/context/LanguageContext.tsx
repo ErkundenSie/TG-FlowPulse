@@ -4,6 +4,9 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 
 type Language = "zh" | "en";
 
+const LANGUAGE_KEY = "tg-flowpulse-lang";
+const LEGACY_LANGUAGE_KEY = "tg-signer-lang";
+
 type Translations = {
   [key in Language]: {
     [key: string]: string;
@@ -328,7 +331,7 @@ const translations: Translations = {
     api_key_keep_hint: "留空表示保持当前 API 密钥不变",
     sign_interval_placeholder: "留空则随机 1-120 秒",
     data_dir: "数据目录",
-    data_dir_placeholder: "例如: /opt/tg-signpulse-data",
+    data_dir_placeholder: "例如: /opt/tg-flowpulse-data",
     data_dir_desc: "用于保存 sessions、logs、数据库和任务数据",
     data_dir_restart_hint: "修改后需重启后端服务生效",
     global_proxy: "全局代理",
@@ -718,7 +721,7 @@ const translations: Translations = {
     api_key_keep_hint: "Leave empty to keep the current API key",
     sign_interval_placeholder: "Leave blank for random 1-120 seconds",
     data_dir: "Data Directory",
-    data_dir_placeholder: "e.g. /opt/tg-signpulse-data",
+    data_dir_placeholder: "e.g. /opt/tg-flowpulse-data",
     data_dir_desc: "Used for sessions, logs, database, and task files",
     data_dir_restart_hint: "Restart backend service to apply changes",
     global_proxy: "Global Proxy",
@@ -808,7 +811,8 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    const savedLang = localStorage.getItem("tg-signer-lang") as Language;
+    const savedLang = (localStorage.getItem(LANGUAGE_KEY) ||
+      localStorage.getItem(LEGACY_LANGUAGE_KEY)) as Language;
     if (savedLang) {
       setLangState(savedLang);
     }
@@ -817,7 +821,8 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
 
   const setLanguage = (lang: Language) => {
     setLangState(lang);
-    localStorage.setItem("tg-signer-lang", lang);
+    localStorage.setItem(LANGUAGE_KEY, lang);
+    localStorage.removeItem(LEGACY_LANGUAGE_KEY);
   };
 
   const t = (key: string) => {

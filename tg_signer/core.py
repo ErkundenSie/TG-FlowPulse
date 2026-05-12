@@ -145,13 +145,13 @@ async def _patched_invoke(self, query, *args, **kwargs):
 
 BaseClient.invoke = _patched_invoke
 
-logger = logging.getLogger("tg-signer")
+logger = logging.getLogger("tg-flowpulse")
 
 DICE_EMOJIS = ("🎲", "🎯", "🏀", "⚽", "🎳", "🎰")
 
 Session.START_TIMEOUT = 5  # 原始超时时间为2秒，但一些代理访问会超时，所以这里调大一点
 
-OPENAI_USE_PROMPT = "当前任务需要配置大模型，请确保运行前正确设置`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`等环境变量，或通过`tg-signer llm-config`持久化配置。"
+OPENAI_USE_PROMPT = "当前任务需要配置大模型，请确保运行前正确设置`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`等环境变量，或通过`tg-flowpulse llm-config`持久化配置。"
 
 
 def _is_callback_data_invalid(exc: BaseException) -> bool:

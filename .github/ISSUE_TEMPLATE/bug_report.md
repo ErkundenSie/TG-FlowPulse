@@ -23,7 +23,7 @@ If applicable, add screenshots to help explain your problem.
 
 **Environment (please complete the following information):**
  - OS: [e.g. macOS, Windows, Linux]
- - tg-signer Version [e.g. 0.1.0]
+- TG-FlowPulse Version [e.g. 0.1.0]
  - Python Version [e.g. 3.10]
 
 **Logs**

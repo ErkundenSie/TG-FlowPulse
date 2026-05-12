@@ -1,4 +1,5 @@
 import { Account, Task, TaskLog, TokenResponse } from "./types";
+import { LEGACY_TOKEN_KEY, TOKEN_KEY } from "./auth";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "/api";
 
@@ -55,9 +56,11 @@ async function parseErrorResponse(res: Response) {
 
 function handleUnauthorized(status: number, token?: string | null) {
   if (status !== 401 || !token || typeof window === "undefined") return;
-  const currentToken = localStorage.getItem("tg-signer-token");
+  const currentToken =
+    localStorage.getItem(TOKEN_KEY) || localStorage.getItem(LEGACY_TOKEN_KEY);
   if (currentToken === token) {
-    localStorage.removeItem("tg-signer-token");
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(LEGACY_TOKEN_KEY);
     window.location.href = "/";
   }
 }
@@ -766,7 +769,7 @@ export const clearSystemLogs = (token: string) =>
 
 export const exportSystemLogs = async (token: string) => {
   const blob = await requestBlob("/system-logs/export", {}, token);
-  downloadBlob(blob, "tg-signpulse-system.log");
+  downloadBlob(blob, "tg-flowpulse-system.log");
 };
 
 // ============ 签到任务管理 ============
