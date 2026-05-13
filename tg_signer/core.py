@@ -171,6 +171,17 @@ def _parse_chat_ref(value):
         return text
 
 
+def _normalize_source_chat_id(value: Union[int, str]) -> Union[int, str]:
+    if isinstance(value, int):
+        return -value if str(value).startswith("100") else value
+    text = str(value or "").strip()
+    if text.startswith("@"):
+        return text
+    if text.isdigit() and text.startswith("100"):
+        return -int(text)
+    return _parse_chat_ref(text)
+
+
 def _parse_message_ids(value) -> List[int]:
     if value is None:
         return []
@@ -831,6 +842,7 @@ class BaseUserWorker(Generic[ConfigT]):
     ):
         if not message_ids:
             raise ValueError("message_ids is required")
+        from_chat_id = _normalize_source_chat_id(from_chat_id)
         result = await self.app.forward_messages(
             chat_id,
             from_chat_id,
@@ -1410,130 +1422,123 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
     async def normal_run(
         self, num_of_dialogs=20, only_once: bool = False, force_rerun: bool = False
     ):
-        if self.user is None:
-            await self.login(num_of_dialogs, print_chat=True)
+        async with self.app:
+            if self.user is None:
+                await self.login(num_of_dialogs, print_chat=True)
 
-        config = self.load_config(self.cfg_cls)
-        if config.requires_ai:
-            self.ensure_ai_cfg()
-        if not config.chats:
-            raise RuntimeError("Task config has no chats to execute")
+            config = self.load_config(self.cfg_cls)
+            if config.requires_ai:
+                self.ensure_ai_cfg()
+            if not config.chats:
+                raise RuntimeError("Task config has no chats to execute")
 
-        sign_record = self.load_sign_record()
-        chat_ids = [c.chat_id for c in config.chats]
-        need_update_handlers = bool(getattr(config, "requires_updates", True))
-        message_handler_ref = None
-        edited_handler_ref = None
+            sign_record = self.load_sign_record()
+            chat_ids = [c.chat_id for c in config.chats]
+            need_update_handlers = bool(getattr(config, "requires_updates", True))
+            message_handler_ref = None
+            edited_handler_ref = None
 
-        async def sign_once():
-            success_count = 0
-            failure_count = 0
-            total_chats = len(config.chats)
-            for index, chat in enumerate(config.chats, start=1):
-                self.log(
-                    f"开始执行目标会话 {index}/{total_chats}: {chat.name or chat.chat_id} ({chat.chat_id})"
-                )
-                self.context.sign_chats[chat.chat_id].append(chat)
-                try:
-                    await self.sign_a_chat(chat)
-                    success_count += 1
+            async def sign_once():
+                success_count = 0
+                failure_count = 0
+                total_chats = len(config.chats)
+                for index, chat in enumerate(config.chats, start=1):
                     self.log(
-                        f"完成目标会话 {index}/{total_chats}: {chat.name or chat.chat_id} ({chat.chat_id})"
+                        f"开始执行目标会话 {index}/{total_chats}: {chat.name or chat.chat_id} ({chat.chat_id})"
                     )
-                except errors.RPCError as _e:
-                    self.log(f"签到失败: {_e} \nchat: \n{chat}")
-                    logger.warning(_e, exc_info=True)
-                    failure_count += 1
-                    continue
-                except Exception as _e:
-                    failure_count += 1
-                    self.log(
-                        f"目标会话 {index}/{total_chats} 执行失败，继续下一个: {chat.name or chat.chat_id} ({chat.chat_id})，错误: {_e}",
-                        level="ERROR",
+                    self.context.sign_chats[chat.chat_id].append(chat)
+                    try:
+                        await self.sign_a_chat(chat)
+                        success_count += 1
+                        self.log(
+                            f"完成目标会话 {index}/{total_chats}: {chat.name or chat.chat_id} ({chat.chat_id})"
+                        )
+                    except errors.RPCError as _e:
+                        self.log(f"签到失败: {_e} \nchat: \n{chat}")
+                        logger.warning(_e, exc_info=True)
+                        failure_count += 1
+                        continue
+                    except Exception as _e:
+                        failure_count += 1
+                        self.log(
+                            f"目标会话 {index}/{total_chats} 执行失败，继续下一个: {chat.name or chat.chat_id} ({chat.chat_id})，错误: {_e}",
+                            level="ERROR",
+                        )
+                        logger.warning(_e, exc_info=True)
+                        continue
+
+                    self.context.chat_messages[chat.chat_id].clear()
+                    await asyncio.sleep(config.sign_interval)
+
+                if success_count == 0 and len(config.chats) > 0:
+                    raise RuntimeError("所有会话均执行失败（详细请看运行日志）")
+
+                self.log(f"目标会话执行汇总: 成功 {success_count} 个，失败 {failure_count} 个")
+                sign_record[str(now.date())] = now.isoformat()
+                with open(self.sign_record_file, "w", encoding="utf-8") as fp:
+                    json.dump(sign_record, fp)
+
+            def need_sign(last_date_str):
+                if force_rerun:
+                    return True
+                if last_date_str not in sign_record:
+                    return True
+                _last_sign_at = datetime.fromisoformat(sign_record[last_date_str])
+                self.log(f"上次执行时间: {_last_sign_at}")
+                _cron_it = croniter(self._validate_sign_at(config.sign_at), _last_sign_at)
+                _next_run: datetime = _cron_it.next(datetime)
+                if _next_run > now:
+                    self.log("当前未到下次执行时间，无需执行")
+                    return False
+                return True
+
+            try:
+                while True:
+                    if need_update_handlers and message_handler_ref is None:
+                        self.log(f"adding message handlers for chats: {chat_ids}")
+                        message_handler_ref = self.app.add_handler(
+                            MessageHandler(self.on_message, filters.chat(chat_ids))
+                        )
+                        edited_handler_ref = self.app.add_handler(
+                            EditedMessageHandler(self.on_edited_message, filters.chat(chat_ids))
+                        )
+                    try:
+                        now = get_now()
+                        self.log(f"当前时间: {now}")
+                        now_date_str = str(now.date())
+                        self.context = self.ensure_ctx()
+                        if need_sign(now_date_str):
+                            if only_once and config.random_seconds > 0:
+                                delay = random.randint(0, int(config.random_seconds))
+                                if delay > 0:
+                                    self.log(f"单次执行随机延迟: {delay} 秒")
+                                    await asyncio.sleep(delay)
+                            await sign_once()
+
+                    except (OSError, errors.Unauthorized) as e:
+                        logger.exception(e)
+                        await asyncio.sleep(30)
+                        continue
+
+                    if only_once:
+                        break
+                    cron_it = croniter(self._validate_sign_at(config.sign_at), now)
+                    next_run: datetime = cron_it.next(datetime) + timedelta(
+                        seconds=random.randint(0, int(config.random_seconds))
                     )
-                    logger.warning(_e, exc_info=True)
-                    continue
-
-                self.context.chat_messages[chat.chat_id].clear()
-                await asyncio.sleep(config.sign_interval)
-
-            if success_count == 0 and len(config.chats) > 0:
-                raise RuntimeError("所有会话均执行失败（详细请看运行日志）")
-
-            self.log(f"目标会话执行汇总: 成功 {success_count} 个，失败 {failure_count} 个")
-            sign_record[str(now.date())] = now.isoformat()
-            with open(self.sign_record_file, "w", encoding="utf-8") as fp:
-                json.dump(sign_record, fp)
-
-        def need_sign(last_date_str):
-            if force_rerun:
-                return True
-            if last_date_str not in sign_record:
-                return True
-            _last_sign_at = datetime.fromisoformat(sign_record[last_date_str])
-            self.log(f"上次执行时间: {_last_sign_at}")
-            _cron_it = croniter(self._validate_sign_at(config.sign_at), _last_sign_at)
-            _next_run: datetime = _cron_it.next(datetime)
-            if _next_run > now:
-                self.log("当前未到下次执行时间，无需执行")
-                return False
-            return True
-
-        while True:
-            if need_update_handlers and message_handler_ref is None:
-                self.log(f"adding message handlers for chats: {chat_ids}")
-                message_handler_ref = self.app.add_handler(
-                    MessageHandler(self.on_message, filters.chat(chat_ids))
-                )
-                edited_handler_ref = self.app.add_handler(
-                    EditedMessageHandler(self.on_edited_message, filters.chat(chat_ids))
-                )
-            try:
-                started_here = False
-                if not getattr(self.app, "is_connected", False):
-                    await self.app.start()
-                    started_here = True
-                try:
-                    now = get_now()
-                    self.log(f"当前时间: {now}")
-                    now_date_str = str(now.date())
-                    self.context = self.ensure_ctx()
-                    if need_sign(now_date_str):
-                        if only_once and config.random_seconds > 0:
-                            delay = random.randint(0, int(config.random_seconds))
-                            if delay > 0:
-                                self.log(f"单次执行随机延迟: {delay} 秒")
-                                await asyncio.sleep(delay)
-                        await sign_once()
-                finally:
-                    if started_here:
-                        await self.app.stop()
-
-            except (OSError, errors.Unauthorized) as e:
-                logger.exception(e)
-                await asyncio.sleep(30)
-                continue
-
-            if only_once:
-                break
-            cron_it = croniter(self._validate_sign_at(config.sign_at), now)
-            next_run: datetime = cron_it.next(datetime) + timedelta(
-                seconds=random.randint(0, int(config.random_seconds))
-            )
-            self.log(f"下次运行时间: {next_run}")
-            await asyncio.sleep((next_run - now).total_seconds())
-
-
-        if message_handler_ref:
-            try:
-                self.app.remove_handler(*message_handler_ref)
-            except Exception:
-                pass
-        if edited_handler_ref:
-            try:
-                self.app.remove_handler(*edited_handler_ref)
-            except Exception:
-                pass
+                    self.log(f"下次运行时间: {next_run}")
+                    await asyncio.sleep((next_run - now).total_seconds())
+            finally:
+                if message_handler_ref:
+                    try:
+                        self.app.remove_handler(*message_handler_ref)
+                    except Exception:
+                        pass
+                if edited_handler_ref:
+                    try:
+                        self.app.remove_handler(*edited_handler_ref)
+                    except Exception:
+                        pass
 
     async def run_once(self, num_of_dialogs):
         return await self.run(num_of_dialogs, only_once=True, force_rerun=True)
