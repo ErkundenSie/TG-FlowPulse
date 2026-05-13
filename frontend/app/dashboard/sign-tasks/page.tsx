@@ -10,10 +10,13 @@ import {
     runSignTask,
     getSignTaskHistory,
     listAccounts,
+    exportAllConfigs,
+    importAllConfigs,
     SignTask,
     SignTaskHistoryItem,
     AccountInfo,
 } from "../../../lib/api";
+import { openSignTaskLogSocket } from "../../../lib/ws";
 import {
     Plus,
     CaretLeft,
@@ -43,25 +46,39 @@ export default function SignTasksPage() {
     const [accounts, setAccounts] = useState<AccountInfo[]>([]);
     const [loading, setLoading] = useState(false);
     const [checking, setChecking] = useState(true);
-    const [runningTask, setRunningTask] = useState<string | null>(null);
+    const [runDialogTask, setRunDialogTask] = useState<SignTask | null>(null);
     const [runLogs, setRunLogs] = useState<string[]>([]);
-    const [isDone, setIsDone] = useState(false);
+    const [runStatus, setRunStatus] = useState<"idle" | "connecting" | "running" | "done" | "error">("idle");
     const [historyTask, setHistoryTask] = useState<SignTask | null>(null);
     const [historyLogs, setHistoryLogs] = useState<SignTaskHistoryItem[]>([]);
     const [historyLoading, setHistoryLoading] = useState(false);
 
     const addToastRef = useRef(addToast);
     const tRef = useRef(t);
+    const runSocketRef = useRef<WebSocket | null>(null);
 
     useEffect(() => {
         addToastRef.current = addToast;
         tRef.current = t;
     }, [addToast, t]);
 
+    useEffect(() => {
+        return () => {
+            runSocketRef.current?.close();
+            runSocketRef.current = null;
+        };
+    }, []);
+
     const formatErrorMessage = useCallback((key: string, err?: any) => {
         const base = tRef.current ? tRef.current(key) : key;
         const code = err?.code;
         return code ? `${base} (${code})` : base;
+    }, []);
+
+    const closeRunDialog = useCallback(() => {
+        runSocketRef.current?.close();
+        runSocketRef.current = null;
+        setRunDialogTask(null);
     }, []);
 
     const loadData = useCallback(async (tokenStr: string) => {
@@ -122,33 +139,22 @@ export default function SignTasksPage() {
 
         try {
             setLoading(true);
-            setRunningTask(taskName);
+            runSocketRef.current?.close();
+            setRunDialogTask(task);
             setRunLogs([]);
-            setIsDone(false);
+            setRunStatus("connecting");
 
-            // 建立 WebSocket 连接
-            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-            const host = window.location.host;
-            // 注意：这里需要确保后端地址正确，如果是在开发环境（localhost:3000 -> localhost:8000）可能需要处理
-            const wsParams = new URLSearchParams({
+            runSocketRef.current = openSignTaskLogSocket({
+                taskName,
+                accountName,
                 token,
-                account_name: accountName,
+                onLogs: (logs) => {
+                    setRunLogs((prev) => [...prev, ...logs]);
+                    setRunStatus("running");
+                },
+                onDone: () => setRunStatus((current) => current === "error" ? "error" : "done"),
+                onError: () => setRunStatus("error"),
             });
-            const wsUrl = `${protocol}//${host}/api/sign-tasks/ws/${taskName}?${wsParams.toString()}`;
-            const ws = new WebSocket(wsUrl);
-
-            ws.onmessage = (event) => {
-                const data = JSON.parse(event.data);
-                if (data.type === "logs") {
-                    setRunLogs(prev => [...prev, ...data.data]);
-                } else if (data.type === "done") {
-                    setIsDone(true);
-                }
-            };
-
-            ws.onerror = (err) => {
-                console.error("WebSocket error:", err);
-            };
 
             const result = await runSignTask(token, taskName, accountName);
             const outputLogs = (result.output || "").split(/\r?\n/).filter(Boolean);
@@ -161,14 +167,15 @@ export default function SignTasksPage() {
                     addToast(language === "zh" ? "该任务正在运行中，无法重复开始。正在为您展示其实时进度..." : "Task is currently running. Real-time logs are shown below.", "info");
                 } else {
                     addToast(result.error || t("task_run_failed"), "error");
-                    setIsDone(true);
+                    setRunStatus("error");
                 }
             } else {
                 addToast(t("task_run_success").replace("{name}", taskName), "success");
+                setRunStatus("done");
             }
         } catch (err: any) {
             addToast(formatErrorMessage("task_run_failed", err), "error");
-            setRunningTask(null);
+            setRunStatus("error");
         } finally {
             setLoading(false);
         }
@@ -193,7 +200,6 @@ export default function SignTasksPage() {
         if (!token) return;
         try {
             setLoading(true);
-            const { exportAllConfigs } = require("../../../lib/api");
             const configStr = await exportAllConfigs(token);
             await navigator.clipboard.writeText(configStr);
             addToast(t("export_success") || "Export successful, copied to clipboard", "success");
@@ -213,7 +219,6 @@ export default function SignTasksPage() {
                 return;
             }
             setLoading(true);
-            const { importAllConfigs } = require("../../../lib/api");
             await importAllConfigs(token, text, false);
             addToast(t("import_success") || "Import successful", "success");
             await loadData(token);
@@ -290,10 +295,10 @@ export default function SignTasksPage() {
                         <p className="text-sm text-[#9496a1] mb-8">{t("no_tasks_desc")}</p>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
                         {tasks.map((task) => (
-                            <div key={task.name} className="flex flex-col gap-3">
-                                <div className="glass-panel p-4 sm:hidden">
+                            <div key={`${task.account_name}:${task.name}`} className="flex flex-col gap-3">
+                                <div className="glass-panel p-4 sm:hidden task-card">
                                     <div className="grid grid-cols-[1fr_auto] gap-3">
                                         <div className="min-w-0 space-y-2">
                                             <div className="flex items-center gap-2">
@@ -365,7 +370,7 @@ export default function SignTasksPage() {
                                         </div>
                                     </div>
                                 </div>
-                                <div className="glass-panel p-6 hidden sm:flex flex-col group hover:border-[#8a3ffc]/40 transition-all">
+                                <div className="glass-panel task-card p-5 hidden sm:flex flex-col group hover:border-[#8a3ffc]/40 transition-all hover:-translate-y-0.5">
                                 <div className="flex justify-between items-start mb-6">
                                     <div className="flex items-center gap-4">
                                         <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-[#8a3ffc]/20 to-[#e83ffc]/20 flex items-center justify-center text-[#b57dff] group-hover:scale-110 transition-transform">
@@ -382,15 +387,15 @@ export default function SignTasksPage() {
                                     </div>
                                 </div>
 
-                                <div className="space-y-4 mb-8">
-                                    <div className="flex items-center justify-between p-3 bg-white/2 rounded-xl border border-white/5">
+                                <div className="space-y-3 mb-6">
+                                    <div className="task-card-row flex items-center justify-between p-3 rounded-xl">
                                         <div className="flex items-center gap-2 text-main/40">
                                             <Clock weight="bold" size={14} />
                                             <span className="text-[10px] font-bold uppercase tracking-wider">{t("task_schedule")}</span>
                                         </div>
                                         <span className="text-xs font-mono font-bold text-[#b57dff]">{task.sign_at}</span>
                                     </div>
-                                    <div className="flex items-center justify-between p-3 bg-white/2 rounded-xl border border-white/5">
+                                    <div className="task-card-row flex items-center justify-between p-3 rounded-xl">
                                         <div className="flex items-center gap-2 text-main/40">
                                             <ChatCircleText weight="bold" size={14} />
                                             <span className="text-[10px] font-bold uppercase tracking-wider">{t("task_channels")}</span>
@@ -399,7 +404,7 @@ export default function SignTasksPage() {
                                             {t("task_hits").replace("{count}", task.chats.length.toString())}
                                         </span>
                                     </div>
-                                    <div className="flex items-center justify-between p-3 bg-white/2 rounded-xl border border-white/5">
+                                    <div className="task-card-row flex items-center justify-between p-3 rounded-xl">
                                         <div className="flex items-center gap-2 text-main/40">
                                             <Clock weight="bold" size={14} />
                                             <span className="text-[10px] font-bold uppercase tracking-wider">{t("task_last_run")}</span>
@@ -419,7 +424,7 @@ export default function SignTasksPage() {
                                     </div>
                                 </div>
 
-                                <div className="mt-auto flex items-center justify-between bg-black/10 -mx-6 -mb-6 p-4 border-t border-white/5">
+                                <div className="mt-auto flex items-center justify-between bg-black/10 -mx-5 -mb-5 p-4 border-t border-white/5">
                                     <div className="flex items-center gap-2">
                                         <button
                                             onClick={() => handleRun(task)}
@@ -467,28 +472,33 @@ export default function SignTasksPage() {
             <ToastContainer toasts={toasts} removeToast={removeToast} />
 
             {/* 运行日志 Modal */}
-            {runningTask && (
+            {runDialogTask && (
                 <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm animate-fade-in">
-                    <div className="glass-panel w-full max-w-2xl h-[500px] flex flex-col shadow-2xl border border-white/10 overflow-hidden animate-zoom-in">
-                        <div className="p-4 border-b border-white/5 flex justify-between items-center bg-white/2">
+                    <div className="glass-panel log-dialog w-full max-w-3xl h-[min(76vh,640px)] flex flex-col shadow-2xl border border-white/10 overflow-hidden animate-zoom-in">
+                        <div className="log-dialog-header p-4 border-b border-white/5 flex justify-between items-center">
                             <div className="flex items-center gap-3">
                                 <div className="w-8 h-8 rounded-lg bg-[#8a3ffc]/20 flex items-center justify-center text-[#b57dff]">
                                     <Lightning weight="fill" size={18} />
                                 </div>
-                                <h3 className="font-bold tracking-tight">
-                                    {t("task_run_logs_title").replace("{name}", runningTask)}
-                                </h3>
+                                <div className="min-w-0">
+                                    <h3 className="font-bold tracking-tight truncate">
+                                        {t("task_run_logs_title").replace("{name}", runDialogTask.name)}
+                                    </h3>
+                                    <p className="text-[11px] text-main/40 font-mono truncate">
+                                        {runDialogTask.account_name} · {runDialogTask.chats.length} chats
+                                    </p>
+                                </div>
                             </div>
-                            {isDone && (
+                            {runStatus !== "running" && runStatus !== "connecting" && (
                                 <button
-                                    onClick={() => setRunningTask(null)}
+                                    onClick={closeRunDialog}
                                     className="action-btn !w-8 !h-8 hover:bg-white/10"
                                 >
                                     <X weight="bold" />
                                 </button>
                             )}
                         </div>
-                        <div className="flex-1 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed bg-black/20">
+                        <div className="log-scroll flex-1 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed">
                             {runLogs.length === 0 ? (
                                 <div className="flex items-center gap-2 text-main/30 italic">
                                     <Spinner className="animate-spin" size={12} />
@@ -502,28 +512,37 @@ export default function SignTasksPage() {
                                             <span className="break-all">{log}</span>
                                         </div>
                                     ))}
-                                    {!isDone && (
+                                    {(runStatus === "running" || runStatus === "connecting") && (
                                         <div className="flex items-center gap-2 text-[#8a3ffc] mt-2 italic animate-pulse">
                                             <Spinner className="animate-spin" size={12} />
-                                            {t("task_running")}
+                                            {runStatus === "connecting" ? t("logs_waiting") : t("task_running")}
                                         </div>
                                     )}
-                                    {isDone && (
+                                    {runStatus === "done" && (
                                         <div className="text-emerald-400 mt-4 font-bold border-t border-emerald-500/20 pt-4 flex items-center gap-2">
                                             <Lightning weight="fill" />
                                             {t("task_done")}
                                         </div>
                                     )}
+                                    {runStatus === "error" && (
+                                        <div className="text-rose-400 mt-4 font-bold border-t border-rose-500/20 pt-4 flex items-center gap-2">
+                                            <X weight="bold" />
+                                            {t("task_run_failed")}
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>
-                        <div className="p-4 border-t border-white/5 bg-white/2 flex justify-end">
+                        <div className="p-4 border-t border-white/5 bg-white/2 flex items-center justify-between gap-3">
+                            <span className={`run-status-pill ${runStatus}`}>
+                                {runStatus === "done" ? t("task_done") : runStatus === "error" ? t("task_run_failed") : t("task_running")}
+                            </span>
                             <button
-                                onClick={() => setRunningTask(null)}
-                                disabled={!isDone}
-                                className={`px-6 py-2 rounded-xl font-bold text-xs transition-all ${isDone ? 'btn-gradient shadow-lg' : 'bg-white/5 text-main/20 cursor-not-allowed'}`}
+                                onClick={closeRunDialog}
+                                disabled={runStatus === "running" || runStatus === "connecting"}
+                                className={`px-6 py-2 rounded-xl font-bold text-xs transition-all ${(runStatus === "done" || runStatus === "error") ? 'btn-gradient shadow-lg' : 'bg-white/5 text-main/20 cursor-not-allowed'}`}
                             >
-                                {isDone ? t("close") : t("task_executing")}
+                                {(runStatus === "done" || runStatus === "error") ? t("close") : t("task_executing")}
                             </button>
                         </div>
                     </div>

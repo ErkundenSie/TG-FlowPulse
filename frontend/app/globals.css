@@ -111,6 +111,7 @@ body {
   opacity: 0.6;
   cursor: not-allowed;
   transform: none;
+  box-shadow: none;
 }
 
 .btn-secondary {
@@ -201,15 +202,87 @@ select option {
   background: rgba(128, 128, 128, 0.1);
 }
 
+.action-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.38;
+  transform: none;
+}
+
 /* 毛玻璃面板 */
 .glass-panel {
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
   border: 1px solid var(--glass-border);
-  border-radius: 20px;
+  border-radius: 16px;
   box-shadow: var(--modal-shadow);
   transition: var(--transition);
+}
+
+.task-card {
+  min-height: 246px;
+}
+
+.task-card-row {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.055);
+}
+
+.light .task-card-row,
+[data-theme="light"] .task-card-row {
+  background: #f8fafc;
+  border-color: #e5e7eb;
+}
+
+.log-dialog {
+  border-radius: 18px;
+}
+
+.log-dialog-header {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.light .log-dialog-header,
+[data-theme="light"] .log-dialog-header {
+  background: #f8fafc;
+}
+
+.log-scroll {
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.light .log-scroll,
+[data-theme="light"] .log-scroll {
+  background: #f8fafc;
+}
+
+.run-status-pill {
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  color: var(--text-sub);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 10px;
+  white-space: nowrap;
+}
+
+.run-status-pill.running,
+.run-status-pill.connecting {
+  background: rgba(138, 63, 252, 0.1);
+  border-color: rgba(138, 63, 252, 0.22);
+  color: #b57dff;
+}
+
+.run-status-pill.done {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.24);
+  color: #10b981;
+}
+
+.run-status-pill.error {
+  background: rgba(244, 63, 94, 0.1);
+  border-color: rgba(244, 63, 94, 0.24);
+  color: #f43f5e;
 }
 
 /* ================= 1. 登录页 ================= */

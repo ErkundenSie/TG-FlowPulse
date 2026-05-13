@@ -45,9 +45,9 @@ TG-FlowPulse is a Telegram multi-account automation panel for task workflows, me
 2. Run the container command below
 3. Open `http://YOUR_SERVER_IP:8080` in a browser and log in
 
-Default credentials:
+Initial credentials:
 - Username: `admin`
-- Password: `admin123`
+- Password: set `ADMIN_PASSWORD`, or read the generated password from `data/initial_admin_password.txt`
 
 ### One-command Deploy
 
@@ -102,7 +102,7 @@ touch /data/.probe && rm /data/.probe
 ## Common Environment Variables
 
 - `APP_SECRET_KEY`: panel secret key (strongly recommended)
-- `ADMIN_PASSWORD`: initial default password for the admin user (strongly recommended, otherwise defaults to insecure 'admin123')
+- `ADMIN_PASSWORD`: initial password for the admin user; if unset, a random password is generated in `initial_admin_password.txt` under the data directory
 - `APP_HOST`: API listening interface (defaults to `127.0.0.1` for security; use `0.0.0.0` if exposing container globally)
 - `APP_DATA_DIR`: custom data directory (higher priority than panel setting)
 - `TG_PROXY`: Telegram connection proxy; you can also configure a global proxy in the panel

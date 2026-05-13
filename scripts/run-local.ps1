@@ -62,9 +62,7 @@ $env:APP_DATA_DIR = $dataDir
 $env:APP_CORS_ORIGINS = "http://localhost:$FrontendPort,http://127.0.0.1:$FrontendPort"
 $env:BACKEND_PORT = "$BackendPort"
 
-if (-not $env:ADMIN_PASSWORD) {
-    $env:ADMIN_PASSWORD = "admin123"
-}
+$initialPasswordFile = Join-Path $dataDir "initial_admin_password.txt"
 
 if (-not $SkipInstall) {
     if (-not (Test-Path (Join-Path $frontendDir "node_modules"))) {
@@ -92,7 +90,13 @@ $backend = Start-Process -FilePath $Python -ArgumentList @(
 
 try {
     Write-Host "Starting frontend: http://localhost:$FrontendPort"
-    Write-Host "Login: admin / $env:ADMIN_PASSWORD"
+    if ($env:ADMIN_PASSWORD) {
+        Write-Host "Login: admin / $env:ADMIN_PASSWORD"
+    } elseif (Test-Path $initialPasswordFile) {
+        Write-Host "Initial admin password file: $initialPasswordFile"
+    } else {
+        Write-Host "Initial admin password will be generated at: $initialPasswordFile"
+    }
     Write-Host "Press Ctrl+C to stop."
     Push-Location $frontendDir
     npm run dev -- --hostname 127.0.0.1 --port $FrontendPort

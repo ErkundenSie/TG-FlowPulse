@@ -52,12 +52,12 @@ TG-FlowPulse 是一个 Telegram 多账号自动化任务编排、消息监听、
 
 1. 安装 Docker（服务器和本机都可）
 2. 执行下面命令启动容器
-3. 浏览器打开 `http://服务器IP:8080`，用默认账号登录
+3. 浏览器打开 `http://服务器IP:8080`，用初始账号登录
 
-默认凭据：
+初始凭据：
 
 - 账号：`admin`
-- 密码：`admin123`
+- 密码：建议通过 `ADMIN_PASSWORD` 指定；未指定时会随机生成并写入 `data/initial_admin_password.txt`
 
 ### 一条命令启动
 
@@ -194,7 +194,7 @@ services:
       - APP_DATA_DIR=/data
       - TZ=${TZ:-Asia/Shanghai}
       - APP_SECRET_KEY=${APP_SECRET_KEY:-}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
     init: true
     read_only: true
     tmpfs:
@@ -298,7 +298,7 @@ touch /data/.probe && rm /data/.probe
 ## 常用环境变量（简版）
 
 - `APP_SECRET_KEY`: 面板密钥，强烈建议设置
-- `ADMIN_PASSWORD`: 初次安装时 admin 账户的默认密码（安全起见强烈建议设置，未设置则默认 admin123）
+- `ADMIN_PASSWORD`: 初次安装时 admin 账户的初始密码；未设置时会随机生成并写入数据目录的 `initial_admin_password.txt`
 - `APP_HOST`: FastAPI 容器监听 IP，防暴露默认 `127.0.0.1`（如需用公网直连或宿主机反代端口请设为 `0.0.0.0`）
 - `APP_DATA_DIR`: 自定义数据目录（优先级高于面板配置）
 - `TG_PROXY`: Telegram 连接代理；也可在面板设置全局代理

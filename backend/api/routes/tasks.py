@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 
 from fastapi import (
@@ -9,12 +8,11 @@ from fastapi import (
     HTTPException,
     Query,
     WebSocket,
-    WebSocketDisconnect,
     status,
 )
 from sqlalchemy.orm import Session
 
-from backend.core.auth import get_current_user, verify_token
+from backend.core.auth import get_current_user
 from backend.core.database import get_db
 from backend.models.account import Account
 from backend.models.task_log import TaskLog
@@ -22,6 +20,8 @@ from backend.scheduler import sync_jobs
 from backend.schemas.task import TaskCreate, TaskOut, TaskUpdate
 from backend.schemas.task_log import TaskLogOut
 from backend.services import tasks as task_service
+from backend.utils.ws_auth import accept_authenticated_websocket
+from backend.utils.ws_stream import stream_log_updates
 
 router = APIRouter()
 
@@ -134,59 +134,20 @@ def list_logs(
 async def task_logs_ws(
     websocket: WebSocket,
     task_id: int,
-    token: str = Query(...),
+    token: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
     """
     WebSocket 实时推送数据库任务日志
     """
-    # 验证 Token
-    try:
-        user = verify_token(token, db)
-        if not user:
-            await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
-            return
-    except Exception:
-        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+    if not await accept_authenticated_websocket(websocket, db, token):
         return
 
-    await websocket.accept()
-
-    last_idx = 0
-    try:
-        while True:
-            # 获取当前所有日志
-            active_logs = task_service.get_active_logs(task_id)
-
-            # 如果有新内容，则推送
-            if len(active_logs) > last_idx:
-                new_logs = active_logs[last_idx:]
-                await websocket.send_json(
-                    {
-                        "type": "logs",
-                        "data": new_logs,
-                        "is_running": task_service.is_task_running(task_id),
-                    }
-                )
-                last_idx = len(active_logs)
-
-            # 如果任务已结束且日志已推完
-            if not task_service.is_task_running(task_id) and last_idx >= len(
-                active_logs
-            ):
-                await websocket.send_json({"type": "done", "is_running": False})
-                break
-
-            await asyncio.sleep(0.5)
-    except WebSocketDisconnect:
-        pass
-    except Exception as e:
-        print(f"WS Error for Task {task_id}: {e}")
-    finally:
-        try:
-            await websocket.close()
-        except Exception:
-            pass
+    await stream_log_updates(
+        websocket,
+        get_logs=lambda: task_service.get_active_logs(task_id),
+        is_running=lambda: task_service.is_task_running(task_id),
+    )
 
 
 @router.get("/logs/{log_id}/output")

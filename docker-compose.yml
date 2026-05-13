@@ -12,7 +12,7 @@ services:
       - APP_DATA_DIR=/data
       - TZ=${TZ:-Asia/Shanghai}
       - APP_SECRET_KEY=${APP_SECRET_KEY:-}
-      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
     init: true
     read_only: true
     tmpfs:
