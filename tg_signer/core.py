@@ -186,6 +186,60 @@ def _parse_message_ids(value) -> List[int]:
     return message_ids
 
 
+def _parse_telegram_message_ref(value: str) -> Optional[tuple[Union[int, str], int]]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+
+    normalized = text
+    if normalized.lower().startswith(("t.me/", "telegram.me/", "www.t.me/", "www.telegram.me/")):
+        normalized = f"https://{normalized}"
+
+    parsed = parse.urlparse(normalized)
+    is_telegram_url = bool(parsed.netloc)
+    if is_telegram_url:
+        host = parsed.netloc.lower()
+        if host not in {"t.me", "telegram.me", "www.t.me", "www.telegram.me"}:
+            return None
+        path = parsed.path
+    else:
+        path = text
+        if pathlib.Path(path).expanduser().exists():
+            return None
+
+    segments = [segment for segment in parse.unquote(path).strip("/").split("/") if segment]
+    if segments and segments[0] == "s":
+        segments = segments[1:]
+    if len(segments) < 2:
+        return None
+
+    message_id = next(
+        (int(segment) for segment in reversed(segments[1:]) if segment.isdigit()),
+        None,
+    )
+    if message_id is None:
+        return None
+
+    if segments[0] == "c":
+        if len(segments) < 3 or not segments[1].lstrip("-").isdigit():
+            return None
+        chat_part = segments[1]
+        source_chat_id = int(chat_part) if chat_part.startswith("-") else int(f"-100{chat_part}")
+        return source_chat_id, message_id
+
+    if segments[0].lstrip("-").isdigit():
+        source_chat_id = int(segments[0]) if segments[0].startswith("-") else int(f"-100{segments[0]}")
+        return source_chat_id, message_id
+
+    if not is_telegram_url:
+        return None
+
+    if segments[0] in {"joinchat", "share", "iv", "proxy", "addstickers", "addemoji"}:
+        return None
+    source_chat_id = segments[0] if segments[0].startswith("@") else f"@{segments[0]}"
+    return source_chat_id, message_id
+
+
 def readable_message(message: Message):
     s = "\nMessage: "
     s += f"\n  text: {message.text or ''}"
@@ -739,6 +793,14 @@ class BaseUserWorker(Generic[ConfigT]):
         photo = str(photo or "").strip()
         if not photo:
             raise ValueError("photo is required")
+        source_ref = _parse_telegram_message_ref(photo)
+        if source_ref is not None:
+            source_chat_id, source_message_id = source_ref
+            source_message = await self.app.get_messages(source_chat_id, source_message_id)
+            if not source_message or not source_message.photo:
+                raise ValueError(f"Telegram 消息链接未指向图片消息: {photo}")
+            photo = source_message.photo.file_id
+            self.log(f"已从 Telegram 消息链接解析图片: {source_chat_id}/{source_message_id}")
         message = await self.app.send_photo(
             chat_id,
             photo,
@@ -1038,7 +1100,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     dice = local_input_("输入要发送的骰子（如 🎲, 🎯）: ")
                     actions.append(SendDiceAction(dice=dice))
                 elif action == SupportAction.SEND_PHOTO:
-                    photo = local_input_("输入图片路径、URL 或 Telegram file_id: ").strip()
+                    photo = local_input_("输入图片路径、URL、Telegram 消息链接或 file_id: ").strip()
                     caption = local_input_("输入图片说明文字（可选）: ").strip()
                     actions.append(SendPhotoAction(photo=photo, caption=caption or None))
                 elif action == SupportAction.FORWARD_MESSAGES:

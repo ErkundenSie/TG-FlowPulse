@@ -64,7 +64,7 @@ class SendPhotoAction(ActionBase):
     """发送图片动作"""
 
     action: int = Field(9, description="动作类型：9=发送图片")
-    photo: str = Field(..., description="图片路径、URL 或 Telegram file_id")
+    photo: str = Field(..., description="图片路径、URL、Telegram 消息链接或 file_id")
     caption: Optional[str] = Field(None, description="图片说明文字")
 
 
