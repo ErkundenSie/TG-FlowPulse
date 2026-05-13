@@ -1088,6 +1088,8 @@ class SignTaskService:
         account_dir.mkdir(parents=True, exist_ok=True)
 
         task_dir = self._task_dir_path(account_name, task_name)
+        if self._resolve_task_dir(task_name, account_name) is not None:
+            raise ValueError(f"任务 {task_name} 已存在")
         task_dir.mkdir(parents=True, exist_ok=True)
 
         # 获取 sign_interval
@@ -1167,12 +1169,18 @@ class SignTaskService:
         range_end: Optional[str] = None,
         enabled: Optional[bool] = None,
         notify_on_failure: Optional[bool] = None,
+        new_task_name: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         更新签到任务
         """
         # 获取现有配置
         task_name = self._validate_task_name(task_name)
+        resolved_task_name = (
+            self._validate_task_name(new_task_name)
+            if new_task_name
+            else task_name
+        )
         if account_name is not None:
             account_name = self._validate_account_name(account_name)
         existing = self.get_task(task_name, account_name)
@@ -1219,10 +1227,29 @@ class SignTaskService:
 
         # 保存配置
         acc_name = self._validate_account_name(acc_name)
-        task_dir = self._task_dir_path(acc_name, task_name)
-        if not task_dir.exists():
-            # 兼容旧路径
-            task_dir = self._legacy_task_dir_path(task_name)
+        task_dir = self._resolve_task_dir(task_name, acc_name)
+        if task_dir is None:
+            raise ValueError(f"任务 {task_name} 不存在")
+
+        if resolved_task_name != task_name:
+            target_dir = self._task_dir_path(acc_name, resolved_task_name)
+            if target_dir.exists():
+                raise ValueError(f"任务 {resolved_task_name} 已存在")
+            target_dir.parent.mkdir(parents=True, exist_ok=True)
+
+            import shutil
+
+            shutil.move(str(task_dir), str(target_dir))
+            old_history_file = self._history_file_path(task_name, acc_name)
+            new_history_file = self._history_file_path(resolved_task_name, acc_name)
+            legacy_history_file = self.run_history_dir / f"{self._safe_history_key(task_name)}.json"
+            for history_file in (old_history_file, legacy_history_file):
+                if history_file.exists() and not new_history_file.exists():
+                    try:
+                        history_file.rename(new_history_file)
+                    except Exception:
+                        pass
+            task_dir = target_dir
 
         config_file = task_dir / "config.json"
         with open(config_file, "w", encoding="utf-8") as f:
@@ -1232,11 +1259,17 @@ class SignTaskService:
         self._tasks_cache = None
 
         try:
-            from backend.scheduler import add_or_update_sign_task_job
+            from backend.scheduler import (
+                add_or_update_sign_task_job,
+                remove_sign_task_job,
+            )
+
+            if resolved_task_name != task_name:
+                remove_sign_task_job(config["account_name"], task_name)
 
             add_or_update_sign_task_job(
                 config["account_name"],
-                task_name,
+                resolved_task_name,
                 config.get("range_start")
                 if config.get("execution_mode") == "range"
                 else config["sign_at"],
@@ -1251,11 +1284,11 @@ class SignTaskService:
         else:
             self._append_scheduler_log(
                 "scheduler_update.log",
-                f"{datetime.now()}: Updated task {task_name} with cron {config.get('range_start') if config.get('execution_mode') == 'range' else config['sign_at']}",
+                f"{datetime.now()}: Updated task {resolved_task_name} with cron {config.get('range_start') if config.get('execution_mode') == 'range' else config['sign_at']}",
             )
 
         return {
-            "name": task_name,
+            "name": resolved_task_name,
             "account_name": config["account_name"],
             "group": config.get("group", ""),
             "sign_at": config["sign_at"],

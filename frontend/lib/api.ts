@@ -824,6 +824,7 @@ export interface CreateSignTaskRequest {
 }
 
 export interface UpdateSignTaskRequest {
+  name?: string;
   group?: string;
   sign_at?: string;
   chats?: SignTaskChat[];
@@ -1041,6 +1042,7 @@ export interface CreateMonitorTaskRequest {
 }
 
 export interface UpdateMonitorTaskRequest {
+  name?: string;
   account_name?: string;
   group?: string;
   enabled?: boolean;

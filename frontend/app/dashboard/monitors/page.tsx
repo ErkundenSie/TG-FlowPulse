@@ -8,6 +8,7 @@ import {
     CaretLeft,
     ChatCircleText,
     Check,
+    Copy,
     Eye,
     Lightning,
     PaperPlaneTilt,
@@ -88,6 +89,26 @@ const normalizeChatIdInput = (value: string) => {
     return Number.isNaN(parsed) ? text : parsed;
 };
 
+const sanitizeTaskName = (raw: string) =>
+    raw
+        .trim()
+        .replace(/[<>:"/\\|?*]+/g, "_")
+        .replace(/\s+/g, "_")
+        .replace(/_+/g, "_")
+        .replace(/^_+|_+$/g, "")
+        .slice(0, 64);
+
+const buildUniqueTaskName = (baseName: string, existingNames: string[]) => {
+    const cleanBase = sanitizeTaskName(baseName) || "monitor";
+    const existing = new Set(existingNames.map((name) => name.toLowerCase()));
+    if (!existing.has(cleanBase.toLowerCase())) return cleanBase;
+    for (let index = 1; index < 1000; index += 1) {
+        const candidate = sanitizeTaskName(`${cleanBase}_copy_${index}`);
+        if (candidate && !existing.has(candidate.toLowerCase())) return candidate;
+    }
+    return `${cleanBase}_${Date.now()}`;
+};
+
 type SelectedMonitorChat = { chat_id: NonNullable<MonitorRule["chat_id"]>; chat_name: string };
 
 type RuleDraft = MonitorRule & {
@@ -146,6 +167,7 @@ export default function MonitorTasksPage() {
     const [chatSearchResults, setChatSearchResults] = useState<ChatInfo[]>([]);
     const [chatSearchLoading, setChatSearchLoading] = useState(false);
     const [editing, setEditing] = useState<MonitorTask | null>(null);
+    const [cloneDialog, setCloneDialog] = useState<{ source: MonitorTask; name: string } | null>(null);
     const [statusTask, setStatusTask] = useState<MonitorTask | null>(null);
     const [statusInfo, setStatusInfo] = useState<MonitorStatus | null>(null);
     const [statusLoading, setStatusLoading] = useState(false);
@@ -199,6 +221,13 @@ export default function MonitorTasksPage() {
         status: isZh ? "运行状态" : "Runtime Status",
         statusEmpty: isZh ? "暂无运行日志，保存后请稍等几秒再刷新。" : "No runtime logs yet. Wait a few seconds after saving, then refresh.",
         viewStatus: isZh ? "查看运行状态" : "View Runtime Status",
+        clone: isZh ? "克隆监控" : "Clone Monitor",
+        cloneName: isZh ? "新监控名称" : "New Monitor Name",
+        cloneDesc: isZh ? "将复制当前监控的监听来源、关键词和处理方式。" : "Copies the source, keywords, and match handling.",
+        cloned: isZh ? "监控已克隆" : "Monitor cloned",
+        cloneFailed: isZh ? "克隆监控失败" : "Clone monitor failed",
+        cloneNameExists: isZh ? "该监控名称已存在" : "A monitor with this name already exists",
+        cloneNameRequired: isZh ? "请填写新监控名称" : "New monitor name is required",
     }), [isZh]);
 
     const extraLabels = useMemo(() => ({
@@ -367,7 +396,7 @@ export default function MonitorTasksPage() {
 
     const saveMonitor = async () => {
         if (!token) return;
-        const name = form.name.trim();
+        const name = sanitizeTaskName(form.name);
         const accountName = form.account_name.trim();
         const groupName = form.group.trim() || "monitors";
         const monitorScope = form.rule.monitor_scope || "selected";
@@ -433,6 +462,7 @@ export default function MonitorTasksPage() {
             setLoading(true);
             if (editing) {
                 await updateMonitorTask(token, editing.name, {
+                    name,
                     account_name: accountName,
                     enabled: form.enabled,
                     group: groupName,
@@ -452,6 +482,46 @@ export default function MonitorTasksPage() {
             await loadData(token);
         } catch (err: any) {
             addToast(formatError(t("save_failed"), err), "error");
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const openCloneDialog = (task: MonitorTask) => {
+        const defaultName = buildUniqueTaskName(
+            `${task.name}_copy`,
+            tasks.map((item) => item.name),
+        );
+        setCloneDialog({ source: task, name: defaultName });
+    };
+
+    const cloneMonitor = async () => {
+        if (!token) return;
+        if (!cloneDialog) return;
+        const task = cloneDialog.source;
+        const name = sanitizeTaskName(cloneDialog.name);
+        if (!name) {
+            addToast(labels.cloneNameRequired, "error");
+            return;
+        }
+        if (tasks.some((item) => item.name.toLowerCase() === name.toLowerCase())) {
+            addToast(labels.cloneNameExists, "error");
+            return;
+        }
+        try {
+            setLoading(true);
+            await createMonitorTask(token, {
+                name,
+                account_name: task.account_name,
+                group: task.group || "monitors",
+                enabled: task.enabled,
+                rules: task.rules,
+            });
+            addToast(labels.cloned, "success");
+            setCloneDialog(null);
+            await loadData(token);
+        } catch (err: any) {
+            addToast(formatError(labels.cloneFailed, err), "error");
         } finally {
             setLoading(false);
         }
@@ -605,6 +675,9 @@ export default function MonitorTasksPage() {
                                                     <button onClick={() => openEdit(task)} className="action-btn" title={t("edit")}>
                                                         <PencilSimple weight="bold" size={18} />
                                                     </button>
+                                                    <button onClick={() => openCloneDialog(task)} className="action-btn !text-sky-400 hover:bg-sky-500/10" title={labels.clone}>
+                                                        <Copy weight="bold" size={18} />
+                                                    </button>
                                                     <button onClick={() => removeMonitor(task)} className="action-btn !text-rose-400 hover:bg-rose-500/10" title={t("delete")}>
                                                         <Trash weight="bold" size={18} />
                                                     </button>
@@ -642,7 +715,7 @@ export default function MonitorTasksPage() {
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
                                         <label className="text-[11px] uppercase tracking-wider">{labels.monitorName}</label>
-                                        <input className="!mb-0" value={form.name} disabled={Boolean(editing)} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="monitor_gifts" />
+                                        <input className="!mb-0" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="monitor_gifts" />
                                     </div>
                                     <div>
                                         <label className="text-[11px] uppercase tracking-wider">{labels.group}</label>
@@ -856,6 +929,67 @@ export default function MonitorTasksPage() {
                             <button onClick={saveMonitor} disabled={loading} className="btn-gradient flex-1">
                                 {loading ? <Spinner className="animate-spin" /> : <Check weight="bold" />}
                                 {labels.save}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {cloneDialog && (
+                <div className="modal-overlay active">
+                    <div className="glass-panel modal-content !max-w-md !p-0 overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+                        <div className="p-5 border-b border-white/5 flex justify-between items-center bg-white/2">
+                            <div className="flex items-center gap-3 min-w-0">
+                                <div className="w-9 h-9 rounded-xl bg-sky-500/10 text-sky-400 flex items-center justify-center shrink-0">
+                                    <Copy weight="bold" size={18} />
+                                </div>
+                                <div className="min-w-0">
+                                    <div className="font-bold">{labels.clone}</div>
+                                    <div className="text-[10px] text-main/40 truncate">{cloneDialog.source.name}</div>
+                                </div>
+                            </div>
+                            <button onClick={() => setCloneDialog(null)} className="action-btn !w-8 !h-8" disabled={loading}>
+                                <X weight="bold" />
+                            </button>
+                        </div>
+                        <div className="p-5 space-y-4">
+                            <p className="text-xs text-main/60">{labels.cloneDesc}</p>
+                            <div className="rounded-xl border border-white/5 bg-black/[0.03] px-3 py-2">
+                                <div className="text-[10px] text-main/35 font-bold uppercase tracking-wider">{cloneDialog.source.account_name}</div>
+                                <div className="mt-1 text-xs text-main/50 truncate">{cloneDialog.source.group || "monitors"}</div>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-bold uppercase tracking-wider text-main/40 mb-1 block">{labels.cloneName}</label>
+                                <input
+                                    className="!mb-0"
+                                    autoFocus
+                                    value={cloneDialog.name}
+                                    onChange={(e) => setCloneDialog({ ...cloneDialog, name: e.target.value })}
+                                    onKeyDown={(e) => {
+                                        if (e.key === "Enter") {
+                                            e.preventDefault();
+                                            cloneMonitor();
+                                        }
+                                    }}
+                                />
+                                {sanitizeTaskName(cloneDialog.name) && tasks.some((task) => task.name.toLowerCase() === sanitizeTaskName(cloneDialog.name).toLowerCase()) && (
+                                    <p className="text-[11px] text-rose-400">{labels.cloneNameExists}</p>
+                                )}
+                            </div>
+                        </div>
+                        <div className="p-5 border-t border-white/5 bg-black/10 flex gap-3">
+                            <button onClick={() => setCloneDialog(null)} disabled={loading} className="btn-secondary flex-1">{t("cancel")}</button>
+                            <button
+                                onClick={cloneMonitor}
+                                disabled={
+                                    loading ||
+                                    !sanitizeTaskName(cloneDialog.name) ||
+                                    tasks.some((task) => task.name.toLowerCase() === sanitizeTaskName(cloneDialog.name).toLowerCase())
+                                }
+                                className="btn-gradient flex-1"
+                            >
+                                {loading ? <Spinner className="animate-spin" /> : <Copy weight="bold" />}
+                                {labels.clone}
                             </button>
                         </div>
                     </div>

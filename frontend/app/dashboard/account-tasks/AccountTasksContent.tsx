@@ -234,7 +234,7 @@ type TaskComponentProps = {
   onRun: (task: SignTask) => void;
   onToggleEnabled: (task: SignTask) => void;
   onViewLogs: (task: SignTask) => void;
-  onCopy: (name: string) => void;
+  onClone: (task: SignTask) => void;
   onDelete: (name: string) => void;
   t: (key: string) => string;
   language: string;
@@ -250,7 +250,7 @@ const TaskItem = memo(
     onRun,
     onToggleEnabled,
     onViewLogs,
-    onCopy,
+    onClone,
     onDelete,
     t,
     language,
@@ -262,13 +262,13 @@ const TaskItem = memo(
     onRun: (task: SignTask) => void;
     onToggleEnabled: (task: SignTask) => void;
     onViewLogs: (task: SignTask) => void;
-    onCopy: (name: string) => void;
+    onClone: (task: SignTask) => void;
     onDelete: (name: string) => void;
     t: (key: string) => string;
     language: string;
   }) => {
-    const copyTaskTitle =
-      language === "zh" ? "\u590D\u5236\u4EFB\u52A1" : "Copy Task";
+    const cloneTaskTitle =
+      language === "zh" ? "\u514B\u9686\u4EFB\u52A1" : "Clone Task";
 
     return (
       <div
@@ -416,10 +416,10 @@ const TaskItem = memo(
             <ListDashes weight="bold" size={14} />
           </button>
           <button
-            onClick={() => onCopy(task.name)}
+            onClick={() => onClone(task)}
             disabled={loading}
             className="action-btn !w-full !h-10 !text-sky-400 hover:bg-sky-500/10"
-            title={copyTaskTitle}
+            title={cloneTaskTitle}
           >
             <Copy weight="bold" size={14} />
           </button>
@@ -539,6 +539,7 @@ export default function AccountTasksContent() {
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [editingTaskName, setEditingTaskName] = useState("");
   const [editTask, setEditTask] = useState({
+    name: "",
     group: "",
     sign_at: "0 6 * * *",
     fixed_time: "06:00",
@@ -561,6 +562,10 @@ export default function AccountTasksContent() {
   const [copyTaskDialog, setCopyTaskDialog] = useState<{
     taskName: string;
     config: string;
+  } | null>(null);
+  const [cloneTaskDialog, setCloneTaskDialog] = useState<{
+    source: SignTask;
+    name: string;
   } | null>(null);
   const [showPasteDialog, setShowPasteDialog] = useState(false);
   const [pasteTaskConfigInput, setPasteTaskConfigInput] = useState("");
@@ -757,6 +762,26 @@ export default function AccountTasksContent() {
     isZh
       ? `\u6279\u91CF\u521B\u5EFA\u5B8C\u6210\uFF1A\u6210\u529F ${success} \u4E2A\uFF0C\u5931\u8D25 ${failed} \u4E2A`
       : `Batch create finished: ${success} succeeded, ${failed} failed`;
+  const cloneTaskTitle = isZh ? "\u514B\u9686\u4EFB\u52A1" : "Clone Task";
+  const cloneTaskDesc = isZh
+    ? "\u5C06\u590D\u5236\u5F53\u524D\u4EFB\u52A1\u7684\u65F6\u95F4\u3001\u4F1A\u8BDD\u548C\u52A8\u4F5C\u914D\u7F6E\u3002"
+    : "Copies the current task schedule, chats, and actions.";
+  const cloneTaskNameLabel = isZh
+    ? "\u65B0\u4EFB\u52A1\u540D\u79F0"
+    : "New Task Name";
+  const cloneTaskNameRequired = isZh
+    ? "\u8BF7\u586B\u5199\u65B0\u4EFB\u52A1\u540D\u79F0"
+    : "New task name is required";
+  const cloneTaskNameExists = isZh
+    ? "\u8BE5\u4EFB\u52A1\u540D\u79F0\u5DF2\u5B58\u5728"
+    : "A task with this name already exists";
+  const cloneTaskSuccess = (taskName: string) =>
+    isZh
+      ? `\u4EFB\u52A1 ${taskName} \u5DF2\u514B\u9686`
+      : `Task ${taskName} cloned`;
+  const cloneTaskFailed = isZh
+    ? "\u514B\u9686\u4EFB\u52A1\u5931\u8D25"
+    : "Clone task failed";
 
   const sanitizeTaskName = useCallback((raw: string) => {
     return raw
@@ -860,6 +885,22 @@ export default function AccountTasksContent() {
       return cleanBase
         ? sanitizeTaskName(`${cleanBase}_${cleanChatName}`) || cleanChatName
         : cleanChatName;
+    },
+    [sanitizeTaskName],
+  );
+
+  const buildUniqueTaskName = useCallback(
+    (baseName: string, existingNames: string[]) => {
+      const cleanBase = sanitizeTaskName(baseName) || "task";
+      const existing = new Set(existingNames.map((name) => name.toLowerCase()));
+      if (!existing.has(cleanBase.toLowerCase())) return cleanBase;
+      for (let index = 1; index < 1000; index += 1) {
+        const candidate = sanitizeTaskName(`${cleanBase}_copy_${index}`);
+        if (candidate && !existing.has(candidate.toLowerCase())) {
+          return candidate;
+        }
+      }
+      return `${cleanBase}_${Date.now()}`;
     },
     [sanitizeTaskName],
   );
@@ -1442,6 +1483,56 @@ export default function AccountTasksContent() {
     }
   };
 
+  const openCloneTaskDialog = (task: SignTask) => {
+    const defaultName = buildUniqueTaskName(
+      `${task.name}_copy`,
+      tasks.map((item) => item.name),
+    );
+    setCloneTaskDialog({ source: task, name: defaultName });
+  };
+
+  const handleCloneTask = async () => {
+    if (!token) return;
+    if (!cloneTaskDialog) return;
+    const task = cloneTaskDialog.source;
+    const cloneName = sanitizeTaskName(cloneTaskDialog.name);
+    if (!cloneName) {
+      addToast(cloneTaskNameRequired, "error");
+      return;
+    }
+    if (
+      tasks.some((item) => item.name.toLowerCase() === cloneName.toLowerCase())
+    ) {
+      addToast(cloneTaskNameExists, "error");
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await createSignTask(token, {
+        name: cloneName,
+        account_name: accountName || task.account_name,
+        group: task.group || "",
+        sign_at: task.sign_at,
+        chats: task.chats,
+        random_seconds: task.random_seconds,
+        sign_interval: task.sign_interval,
+        execution_mode: task.execution_mode || "fixed",
+        range_start: task.range_start || "",
+        range_end: task.range_end || "",
+        enabled: task.enabled !== false,
+        notify_on_failure: task.notify_on_failure !== false,
+      });
+      addToast(cloneTaskSuccess(cloneName), "success");
+      setCloneTaskDialog(null);
+      await loadData(token);
+    } catch (err: any) {
+      addToast(formatErrorMessage(cloneTaskFailed, err), "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleCopyAllTasks = async () => {
     if (!token) return;
     if (tasks.length === 0) {
@@ -1697,6 +1788,7 @@ export default function AccountTasksContent() {
     const chat = task.chats[0];
     const targetChats = task.chats || [];
     setEditTask({
+      name: task.name,
       group: task.group || "",
       sign_at: task.sign_at,
       fixed_time: fixedTimeFromSchedule(task.sign_at),
@@ -1721,6 +1813,11 @@ export default function AccountTasksContent() {
 
   const handleSaveEdit = async () => {
     if (!token) return;
+    const nextTaskName = sanitizeTaskName(editTask.name || editingTaskName);
+    if (!nextTaskName) {
+      addToast(t("task_name_required"), "error");
+      return;
+    }
 
     let editTargets = editTask.target_chats;
     const manualChatId = parseInt(editTask.chat_id_manual) || 0;
@@ -1801,6 +1898,7 @@ export default function AccountTasksContent() {
         token,
         editingTaskName,
         {
+          name: nextTaskName,
           group: editTask.group.trim(),
           sign_at: nextSignAt,
           random_seconds: editTask.random_minutes * 60,
@@ -2054,7 +2152,7 @@ export default function AccountTasksContent() {
                           onRun={handleRunTask}
                           onToggleEnabled={handleToggleTaskEnabled}
                           onViewLogs={handleShowTaskHistory}
-                          onCopy={handleCopyTask}
+                          onClone={openCloneTaskDialog}
                           onDelete={handleDeleteTask}
                           t={t}
                           language={language}
@@ -2178,9 +2276,10 @@ export default function AccountTasksContent() {
                         </label>
                         <input
                           className="!mb-0"
-                          value={editingTaskName}
-                          readOnly
-                          aria-readonly="true"
+                          value={editTask.name}
+                          onChange={(e) =>
+                            setEditTask({ ...editTask, name: e.target.value })
+                          }
                         />
                       </div>
                     )}
@@ -3973,6 +4072,98 @@ export default function AccountTasksContent() {
                   t("add_task")
                 ) : (
                   t("save_changes")
+                )}
+              </button>
+            </footer>
+          </div>
+        </div>
+      )}
+
+      {cloneTaskDialog && (
+        <div className="modal-overlay active">
+          <div
+            className="glass-panel modal-content !max-w-md flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header className="modal-header border-b border-white/5 pb-3 mb-0">
+              <div className="modal-title flex items-center gap-2 !text-base">
+                <Copy weight="bold" size={18} />
+                {cloneTaskTitle}
+              </div>
+              <button
+                onClick={() => setCloneTaskDialog(null)}
+                className="modal-close"
+                disabled={loading}
+              >
+                <X weight="bold" />
+              </button>
+            </header>
+            <div className="p-5 space-y-4">
+              <p className="text-xs text-main/60">{cloneTaskDesc}</p>
+              <div className="rounded-xl border border-white/5 bg-black/[0.03] px-3 py-2">
+                <div className="text-[10px] text-main/35 font-bold uppercase tracking-wider">
+                  {cloneTaskDialog.source.name}
+                </div>
+                <div className="mt-1 text-xs text-main/50 truncate">
+                  {cloneTaskDialog.source.group || accountName}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className={fieldLabelClass}>{cloneTaskNameLabel}</label>
+                <input
+                  className="!mb-0"
+                  autoFocus
+                  value={cloneTaskDialog.name}
+                  onChange={(e) =>
+                    setCloneTaskDialog({
+                      ...cloneTaskDialog,
+                      name: e.target.value,
+                    })
+                  }
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleCloneTask();
+                    }
+                  }}
+                />
+                {sanitizeTaskName(cloneTaskDialog.name) &&
+                  tasks.some(
+                    (task) =>
+                      task.name.toLowerCase() ===
+                      sanitizeTaskName(cloneTaskDialog.name).toLowerCase(),
+                  ) && (
+                    <p className="text-[11px] text-rose-400">
+                      {cloneTaskNameExists}
+                    </p>
+                  )}
+              </div>
+            </div>
+            <footer className="p-5 border-t border-white/5 flex gap-3">
+              <button
+                className="btn-secondary flex-1"
+                onClick={() => setCloneTaskDialog(null)}
+                disabled={loading}
+              >
+                {t("cancel")}
+              </button>
+              <button
+                className="btn-gradient flex-1"
+                onClick={handleCloneTask}
+                disabled={
+                  loading ||
+                  !sanitizeTaskName(cloneTaskDialog.name) ||
+                  tasks.some(
+                    (task) =>
+                      task.name.toLowerCase() ===
+                      sanitizeTaskName(cloneTaskDialog.name).toLowerCase(),
+                  )
+                }
+              >
+                {loading ? (
+                  <Spinner className="animate-spin" />
+                ) : (
+                  cloneTaskTitle
                 )}
               </button>
             </footer>

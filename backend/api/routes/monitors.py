@@ -263,10 +263,17 @@ class MonitorTaskCreate(BaseModel):
 
 
 class MonitorTaskUpdate(BaseModel):
+    name: Optional[str] = None
     account_name: Optional[str] = None
     group: Optional[str] = None
     enabled: Optional[bool] = None
     rules: Optional[list[MonitorRule]] = None
+
+    @validator("name")
+    def name_must_be_valid(cls, value):
+        if value is None:
+            return value
+        return _validate_task_name(value)
 
 
 class MonitorTaskOut(BaseModel):
@@ -454,8 +461,10 @@ async def update_monitor(
         chats=_build_chats(rules),
         enabled=payload.enabled if payload.enabled is not None else existing.get("enabled", True),
         notify_on_failure=False,
+        new_task_name=payload.name,
     )
-    _mark_monitor_only(str(task.get("account_name") or ""), task_name)
+    updated_name = str(task.get("name") or task_name)
+    _mark_monitor_only(str(task.get("account_name") or ""), updated_name)
     old_account = str(existing.get("account_name") or "")
     if old_account and target_account and old_account != target_account:
         get_sign_task_service().delete_task(task_name, account_name=old_account)

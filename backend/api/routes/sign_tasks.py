@@ -138,6 +138,7 @@ class SignTaskCreate(BaseModel):
 class SignTaskUpdate(BaseModel):
     """更新签到任务请求"""
 
+    name: Optional[str] = Field(None, description="任务名称")
     group: Optional[str] = Field(None, description="任务分组")
     sign_at: Optional[str] = Field(None, description="签到时间（CRON 表达式）")
     chats: Optional[List[ChatConfig]] = Field(None, description="Chat 配置列表")
@@ -150,6 +151,12 @@ class SignTaskUpdate(BaseModel):
 
     enabled: Optional[bool] = Field(None, description="Whether the task is enabled")
     notify_on_failure: Optional[bool] = Field(None, description="Send notification when task fails")
+
+    @validator("name")
+    def name_must_be_valid_filename(cls, v):
+        if v is None:
+            return v
+        return validate_name_segment(v, "task_name")
 
 
 class LastRunInfo(BaseModel):
@@ -321,6 +328,7 @@ async def update_sign_task(
             range_end=payload.range_end,
             enabled=payload.enabled,
             notify_on_failure=payload.notify_on_failure,
+            new_task_name=payload.name,
         )
 
         # 同步调度器
