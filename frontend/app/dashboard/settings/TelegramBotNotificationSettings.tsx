@@ -90,7 +90,10 @@ export function TelegramBotNotificationSettings({
                   telegram_bot_token: e.target.value || null,
                 })
               }
-              placeholder={t("telegram_bot_token_placeholder")}
+              placeholder={
+                settings.telegram_bot_token_masked ||
+                t("telegram_bot_token_placeholder")
+              }
             />
           </div>
           <div>

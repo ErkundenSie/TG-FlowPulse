@@ -27,6 +27,15 @@ def _clear_sign_task_cache() -> None:
         pass
 
 
+def _mask_secret(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    text = str(value)
+    if len(text) <= 8:
+        return "****"
+    return f"{text[:4]}{'*' * (len(text) - 8)}{text[-4:]}"
+
+
 class ExportTaskResponse(BaseModel):
     task_name: str
     task_type: str
@@ -394,7 +403,7 @@ class GlobalSettingsResponse(BaseModel):
     telegram_bot_notify_enabled: bool = False
     telegram_bot_login_notify_enabled: bool = False
     telegram_bot_task_failure_enabled: bool = True
-    telegram_bot_token: Optional[str] = None
+    telegram_bot_token_masked: Optional[str] = None
     telegram_bot_chat_id: Optional[str] = None
     telegram_bot_message_thread_id: Optional[int] = None
 
@@ -402,7 +411,9 @@ class GlobalSettingsResponse(BaseModel):
 @router.get("/settings", response_model=GlobalSettingsResponse)
 def get_global_settings(current_user: User = Depends(get_current_user)):
     try:
-        settings = get_config_service().get_global_settings()
+        settings = dict(get_config_service().get_global_settings())
+        token = settings.pop("telegram_bot_token", None)
+        settings["telegram_bot_token_masked"] = _mask_secret(token)
         return GlobalSettingsResponse(**settings)
     except Exception as e:
         raise HTTPException(
@@ -424,13 +435,14 @@ async def save_global_settings(
             "telegram_bot_notify_enabled": request.telegram_bot_notify_enabled,
             "telegram_bot_login_notify_enabled": request.telegram_bot_login_notify_enabled,
             "telegram_bot_task_failure_enabled": request.telegram_bot_task_failure_enabled,
-            "telegram_bot_token": request.telegram_bot_token,
             "telegram_bot_chat_id": request.telegram_bot_chat_id,
             "telegram_bot_message_thread_id": request.telegram_bot_message_thread_id,
         }
         fields_set = getattr(request, "model_fields_set", getattr(request, "__fields_set__", set()))
         if "data_dir" in fields_set:
             settings["data_dir"] = request.data_dir
+        if "telegram_bot_token" in fields_set:
+            settings["telegram_bot_token"] = request.telegram_bot_token
 
         previous_timezone = get_scheduler_timezone()
         get_config_service().save_global_settings(settings)
@@ -455,10 +467,10 @@ class TelegramConfigRequest(BaseModel):
 
 class TelegramConfigResponse(BaseModel):
     api_id: str
-    api_hash: str
+    api_hash_masked: str
     is_custom: bool
     default_api_id: str
-    default_api_hash: str
+    default_api_hash_masked: str
 
 
 class TelegramConfigSaveResponse(BaseModel):
@@ -473,10 +485,10 @@ def get_telegram_config(current_user: User = Depends(get_current_user)):
         service = get_config_service()
         return TelegramConfigResponse(
             api_id=config.get("api_id", ""),
-            api_hash=config.get("api_hash", ""),
+            api_hash_masked=_mask_secret(config.get("api_hash", "")) or "",
             is_custom=bool(config.get("is_custom", False)),
             default_api_id=service.DEFAULT_TG_API_ID,
-            default_api_hash=service.DEFAULT_TG_API_HASH,
+            default_api_hash_masked=_mask_secret(service.DEFAULT_TG_API_HASH) or "",
         )
     except Exception as e:
         raise HTTPException(

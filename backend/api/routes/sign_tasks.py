@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from backend.core.auth import get_current_user, verify_token
 from backend.core.database import get_db
+from backend.utils.names import validate_name_segment
 from backend.services.sign_tasks import get_sign_task_service
 
 router = APIRouter()
@@ -127,15 +128,11 @@ class SignTaskCreate(BaseModel):
 
     @validator("name")
     def name_must_be_valid_filename(cls, v):
-        import re
+        return validate_name_segment(v, "task_name")
 
-        if not v or not v.strip():
-            raise ValueError("任务名称不能为空")
-        # Windows 文件名非法字符检查
-        invalid_chars = r'[<>:"/\\|?*]'
-        if re.search(invalid_chars, v):
-            raise ValueError('任务名称不能包含特殊字符: < > : " / \\ | ? *')
-        return v
+    @validator("account_name")
+    def account_name_must_be_valid_filename(cls, v):
+        return validate_name_segment(v, "account_name")
 
 
 class SignTaskUpdate(BaseModel):

@@ -16,6 +16,7 @@ from typing import Any, Dict, List, Optional
 
 from backend.core.config import get_settings
 from backend.utils.account_locks import get_account_lock
+from backend.utils.names import ensure_child_path, validate_name_segment
 from backend.utils.proxy import build_proxy_dict
 from backend.utils.tg_session import (
     delete_account_session_string,
@@ -48,6 +49,16 @@ class TelegramService:
         self.session_dir = settings.resolve_session_dir()
         self.session_dir.mkdir(parents=True, exist_ok=True)
         self._accounts_cache: Optional[List[Dict[str, Any]]] = None
+
+    def _validate_account_name(self, account_name: str) -> str:
+        return validate_name_segment(account_name, "account_name")
+
+    def _session_base_path(self, account_name: str):
+        return ensure_child_path(self.session_dir, self._validate_account_name(account_name))
+
+    def _session_file_path(self, account_name: str, suffix: str = ".session"):
+        base = self._session_base_path(account_name)
+        return base.with_name(f"{base.name}{suffix}")
 
     @staticmethod
     def _account_status_payload(account_name: str) -> Dict[str, Any]:
@@ -115,11 +126,17 @@ class TelegramService:
                     )
 
                 for account_name in list_account_names():
+                    try:
+                        account_name = self._validate_account_name(account_name)
+                    except ValueError:
+                        continue
                     if account_name in seen:
                         continue
                     if account_name in pending_accounts:
                         continue
-                    session_file = self.session_dir / f"{account_name}.session_string"
+                    session_file = self._session_file_path(
+                        account_name, ".session_string"
+                    )
                     profile = get_account_profile(account_name)
                     accounts.append(
                         {
@@ -181,6 +198,7 @@ class TelegramService:
 
     def account_exists(self, account_name: str) -> bool:
         """检查账号是否存在"""
+        account_name = self._validate_account_name(account_name)
         # 优先查缓存
         if self._accounts_cache is not None:
             for acc in self._accounts_cache:
@@ -199,7 +217,7 @@ class TelegramService:
                 return True
             return False
 
-        session_file = self.session_dir / f"{account_name}.session"
+        session_file = self._session_file_path(account_name)
         return session_file.exists()
 
     async def check_account_status(
@@ -218,6 +236,7 @@ class TelegramService:
         """
         from tg_signer.core import get_client
 
+        account_name = self._validate_account_name(account_name)
         checked_at = datetime.utcnow().isoformat() + "Z"
         status_cache = get_account_status(account_name)
         cached_checked_at = status_cache.get("checked_at")
@@ -478,6 +497,7 @@ class TelegramService:
         Returns:
             是否成功删除
         """
+        account_name = self._validate_account_name(account_name)
         # 确保释放资源
         from tg_signer.core import close_client_by_name
 
@@ -487,11 +507,11 @@ class TelegramService:
         except Exception as e:
             print(f"DEBUG: 关闭 Account Client 失败: {e}")
 
-        session_file = self.session_dir / f"{account_name}.session"
-        journal_file = self.session_dir / f"{account_name}.session-journal"
-        shm_file = self.session_dir / f"{account_name}.session-shm"
-        wal_file = self.session_dir / f"{account_name}.session-wal"
-        session_string_file = self.session_dir / f"{account_name}.session_string"
+        session_file = self._session_file_path(account_name)
+        journal_file = self._session_file_path(account_name, ".session-journal")
+        shm_file = self._session_file_path(account_name, ".session-shm")
+        wal_file = self._session_file_path(account_name, ".session-wal")
+        session_string_file = self._session_file_path(account_name, ".session_string")
 
         has_session_file = (
             session_file.exists()
@@ -574,6 +594,7 @@ class TelegramService:
 
         from tg_signer.core import close_client_by_name
 
+        account_name = self._validate_account_name(account_name)
         account_lock = get_account_lock(account_name)
         session_mode = get_session_mode()
         global_semaphore = get_global_semaphore()
@@ -649,14 +670,14 @@ class TelegramService:
         # 4. 如果是重新登录，尝试先清理旧的 session 文件 (避免 SQLite 锁或损坏)
         # 注意: 如果 session 有效但用户只是想重登，删除也没问题，因为反正要重新验证
         if session_mode == "file":
-            session_file = self.session_dir / f"{account_name}.session"
+            session_file = self._session_file_path(account_name)
             if session_file.exists():
                 try:
                     # 尝试删除主文件
                     session_file.unlink()
                     # 顺便删掉 journal/wal/shm
                     for ext in [".session-journal", ".session-wal", ".session-shm"]:
-                        aux_file = self.session_dir / f"{account_name}{ext}"
+                        aux_file = self._session_file_path(account_name, ext)
                         if aux_file.exists():
                             aux_file.unlink()
                 except OSError as e:
@@ -666,7 +687,7 @@ class TelegramService:
                     # 但通常 "unable to open database file" 就是因为这个。
                     pass
 
-        session_path = str(self.session_dir / account_name)
+        session_path = str(self._session_base_path(account_name))
         client_kwargs = {
             "name": session_path,
             "api_id": api_id,
@@ -780,6 +801,7 @@ class TelegramService:
             SessionPasswordNeeded,
         )
 
+        account_name = self._validate_account_name(account_name)
         # 尝试从全局字典获取之前的 client
         session_key = f"{account_name}_{phone_number}"
         session_data = _login_sessions.get(session_key)
@@ -951,6 +973,7 @@ class TelegramService:
     async def _persist_client_session(
         self, client, account_name: str, proxy: Optional[str] = None
     ) -> None:
+        account_name = self._validate_account_name(account_name)
         session_mode = get_session_mode()
         if session_mode == "string":
             session_string = await client.export_session_string()
@@ -1066,12 +1089,17 @@ class TelegramService:
             if session_mode == "file":
                 account_name = data.get("account_name")
                 if account_name:
-                    session_file = self.session_dir / f"{account_name}.session"
+                    try:
+                        account_name = self._validate_account_name(account_name)
+                    except ValueError:
+                        account_name = ""
+                if account_name:
+                    session_file = self._session_file_path(account_name)
                     if session_file.exists():
                         try:
                             session_file.unlink()
                             for ext in [".session-journal", ".session-wal", ".session-shm"]:
-                                aux_file = self.session_dir / f"{account_name}{ext}"
+                                aux_file = self._session_file_path(account_name, ext)
                                 if aux_file.exists():
                                     aux_file.unlink()
                         except Exception:
@@ -1115,6 +1143,7 @@ class TelegramService:
 
         from tg_signer.core import close_client_by_name
 
+        account_name = self._validate_account_name(account_name)
         account_lock = get_account_lock(account_name)
         session_mode = get_session_mode()
         global_semaphore = get_global_semaphore()
@@ -1167,18 +1196,18 @@ class TelegramService:
 
         # 清理旧 session 文件（与手机号登录保持一致）
         if session_mode == "file":
-            session_file = self.session_dir / f"{account_name}.session"
+            session_file = self._session_file_path(account_name)
             if session_file.exists():
                 try:
                     session_file.unlink()
                     for ext in [".session-journal", ".session-wal", ".session-shm"]:
-                        aux_file = self.session_dir / f"{account_name}{ext}"
+                        aux_file = self._session_file_path(account_name, ext)
                         if aux_file.exists():
                             aux_file.unlink()
                 except OSError:
                     pass
 
-        session_path = str(self.session_dir / account_name)
+        session_path = str(self._session_base_path(account_name))
         client_kwargs = {
             "name": session_path,
             "api_id": api_id,

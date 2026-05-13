@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from backend.core.config import get_settings
+from backend.utils.names import ensure_child_path, validate_name_segment
 from backend.utils.storage import (
     clear_data_dir_override,
     is_writable_dir,
@@ -44,6 +45,25 @@ class ConfigService:
         # 确保目录存在
         self.signs_dir.mkdir(parents=True, exist_ok=True)
         self.monitors_dir.mkdir(parents=True, exist_ok=True)
+
+    def _validate_account_name(self, account_name: str) -> str:
+        return validate_name_segment(account_name, "account_name")
+
+    def _validate_task_name(self, task_name: str) -> str:
+        return validate_name_segment(task_name, "task_name")
+
+    def _sign_task_dir(self, task_name: str, account_name: Optional[str] = None) -> Path:
+        task_name = self._validate_task_name(task_name)
+        if account_name:
+            return ensure_child_path(
+                self.signs_dir,
+                self._validate_account_name(account_name),
+                task_name,
+            )
+        return ensure_child_path(self.signs_dir, task_name)
+
+    def _monitor_task_dir(self, task_name: str) -> Path:
+        return ensure_child_path(self.monitors_dir, self._validate_task_name(task_name))
 
     def list_sign_tasks(self) -> List[str]:
         """获取所有签到任务名称列表"""
@@ -78,19 +98,20 @@ class ConfigService:
         return sorted(tasks)
 
     def _find_sign_task_dirs(self, task_name: str) -> List[Path]:
+        task_name = self._validate_task_name(task_name)
         matches = []
         if not self.signs_dir.exists():
             return matches
 
         # 1. 旧版结构: signs/task
-        direct_dir = self.signs_dir / task_name
+        direct_dir = self._sign_task_dir(task_name)
         if (direct_dir / "config.json").exists():
             matches.append(direct_dir)
 
         # 2. 新版结构: signs/account/task
         for acc_dir in self.signs_dir.iterdir():
             if acc_dir.is_dir():
-                nested_task_dir = acc_dir / task_name
+                nested_task_dir = ensure_child_path(acc_dir, task_name)
                 if (nested_task_dir / "config.json").exists():
                     matches.append(nested_task_dir)
 
@@ -110,7 +131,7 @@ class ConfigService:
             配置字典，如果不存在则返回 None
         """
         if account_name:
-            task_dir = self.signs_dir / account_name / task_name
+            task_dir = self._sign_task_dir(task_name, account_name)
             config_file = task_dir / "config.json"
             if not config_file.exists():
                 return None
@@ -144,10 +165,10 @@ class ConfigService:
 
         if account_name:
             # 使用新版结构: signs/account/task
-            task_dir = self.signs_dir / account_name / task_name
+            task_dir = self._sign_task_dir(task_name, account_name)
         else:
             # 兼容旧版或无账号: signs/task
-            task_dir = self.signs_dir / task_name
+            task_dir = self._sign_task_dir(task_name)
 
         task_dir.mkdir(parents=True, exist_ok=True)
         config_file = task_dir / "config.json"
@@ -173,7 +194,7 @@ class ConfigService:
             是否成功删除
         """
         if account_name:
-            task_dir = self.signs_dir / account_name / task_name
+            task_dir = self._sign_task_dir(task_name, account_name)
             if not task_dir.exists():
                 return False
         else:
@@ -262,11 +283,17 @@ class ConfigService:
                 return False
 
             # 确定任务名称
-            final_task_name = task_name or data.get("task_name", "imported_task")
+            final_task_name = self._validate_task_name(
+                task_name or data.get("task_name", "imported_task")
+            )
 
             config = data["config"]
             if account_name:
-                config["account_name"] = account_name
+                config["account_name"] = self._validate_account_name(account_name)
+            elif config.get("account_name"):
+                config["account_name"] = self._validate_account_name(
+                    str(config["account_name"])
+                )
 
             # 保存配置
             return self.save_sign_config(final_task_name, config)
@@ -330,7 +357,7 @@ class ConfigService:
 
         # 导出所有监控任务
         for task_name in self.list_monitor_tasks():
-            config_file = self.monitors_dir / task_name / "config.json"
+            config_file = self._monitor_task_dir(task_name) / "config.json"
             if config_file.exists():
                 try:
                     with open(config_file, "r", encoding="utf-8") as f:
@@ -385,15 +412,20 @@ class ConfigService:
                 task_name = config.get("name")
                 if not task_name:
                     task_name = key.split("@")[0]
+                task_name = self._validate_task_name(str(task_name))
+                if config.get("account_name"):
+                    config["account_name"] = self._validate_account_name(
+                        str(config["account_name"])
+                    )
 
                 if not overwrite:
                     account_name = config.get("account_name")
                     exists = False
                     if account_name:
-                        if (self.signs_dir / account_name / task_name).exists():
+                        if self._sign_task_dir(task_name, account_name).exists():
                             exists = True
                     else:
-                        if (self.signs_dir / task_name).exists():
+                        if self._sign_task_dir(task_name).exists():
                             exists = True
 
                     if exists:
@@ -407,7 +439,8 @@ class ConfigService:
 
             # 导入监控任务
             for task_name, config in data.get("monitors", {}).items():
-                task_dir = self.monitors_dir / task_name
+                task_name = self._validate_task_name(str(task_name))
+                task_dir = self._monitor_task_dir(task_name)
                 config_file = task_dir / "config.json"
 
                 if not overwrite and config_file.exists():

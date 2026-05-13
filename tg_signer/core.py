@@ -1422,10 +1422,10 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
     async def normal_run(
         self, num_of_dialogs=20, only_once: bool = False, force_rerun: bool = False
     ):
-        async with self.app:
-            if self.user is None:
-                await self.login(num_of_dialogs, print_chat=True)
+        if self.user is None:
+            await self.login(num_of_dialogs, print_chat=True)
 
+        async with self.app:
             config = self.load_config(self.cfg_cls)
             if config.requires_ai:
                 self.ensure_ai_cfg()

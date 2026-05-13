@@ -141,6 +141,7 @@ export default function SettingsPage() {
     telegram_bot_login_notify_enabled: false,
     telegram_bot_task_failure_enabled: true,
     telegram_bot_token: null,
+    telegram_bot_token_masked: null,
     telegram_bot_chat_id: null,
     telegram_bot_message_thread_id: null,
   });
@@ -243,7 +244,7 @@ export default function SettingsPage() {
       if (config) {
         setTelegramForm({
           api_id: config.api_id?.toString() || "",
-          api_hash: config.api_hash || "",
+          api_hash: "",
         });
       }
     } catch (err) {}
@@ -477,7 +478,8 @@ export default function SettingsPage() {
     if (!token) return;
     try {
       setConfigLoading(true);
-      await saveGlobalSettings(token, globalSettings);
+      const { telegram_bot_token_masked, ...settingsToSave } = globalSettings;
+      await saveGlobalSettings(token, settingsToSave);
       addToast(t("global_save_success"), "success");
     } catch (err: any) {
       addToast(formatErrorMessage("save_failed", err), "error");
@@ -1283,7 +1285,10 @@ export default function SettingsPage() {
                           api_hash: e.target.value,
                         })
                       }
-                      placeholder={t("tg_api_hash_placeholder")}
+                      placeholder={
+                        telegramConfig?.api_hash_masked ||
+                        t("tg_api_hash_placeholder")
+                      }
                     />
                   </div>
                 </div>

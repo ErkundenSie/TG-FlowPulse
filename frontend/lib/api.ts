@@ -500,7 +500,7 @@ export const deleteSignConfig = (
 ) => {
   const params = new URLSearchParams();
   if (accountName) params.append("account_name", accountName);
-  const url = `/config/sign/${taskName}${params.toString() ? `?${params.toString()}` : ""}`;
+  const url = `/config/sign/${pathSegment(taskName)}${params.toString() ? `?${params.toString()}` : ""}`;
   return request<{ success: boolean; message: string }>(
     url,
     {
@@ -649,6 +649,7 @@ export interface GlobalSettings {
   telegram_bot_login_notify_enabled?: boolean;
   telegram_bot_task_failure_enabled?: boolean;
   telegram_bot_token?: string | null;
+  telegram_bot_token_masked?: string | null;
   telegram_bot_chat_id?: string | null;
   telegram_bot_message_thread_id?: number | null;
 }
@@ -670,10 +671,12 @@ export const saveGlobalSettings = (token: string, settings: GlobalSettings) =>
 
 export interface TelegramConfig {
   api_id: string;
-  api_hash: string;
+  api_hash?: string;
+  api_hash_masked?: string;
   is_custom: boolean;
   default_api_id: string;
-  default_api_hash: string;
+  default_api_hash?: string;
+  default_api_hash_masked?: string;
 }
 
 export const getTelegramConfig = (token: string) =>

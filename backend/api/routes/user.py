@@ -74,6 +74,12 @@ class DisableTOTPRequest(BaseModel):
     totp_code: str  # 需要验证码确认
 
 
+class ResetTOTPRequest(BaseModel):
+    """重置2FA请求"""
+
+    password: str
+
+
 class DisableTOTPResponse(BaseModel):
     """禁用2FA响应"""
 
@@ -325,14 +331,19 @@ def disable_totp(
 
 @router.post("/totp/reset", response_model=DisableTOTPResponse)
 def reset_totp(
+    request: ResetTOTPRequest,
     current_user: User = Depends(get_current_user), db: Session = Depends(get_db)
 ):
     """
-    强制重置 TOTP（不需要验证码）
+    重置 TOTP。
 
-    用于解决用户无法登录的问题
-    注意：此接口只有在用户已登录时才能调用
+    已登录用户仍需重新输入密码，避免仅凭被盗 token 关闭 2FA。
     """
+    if not verify_password(request.password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="密码错误"
+        )
+
     # 清除数据库中的 TOTP secret
     current_user.totp_secret = None
     db.commit()

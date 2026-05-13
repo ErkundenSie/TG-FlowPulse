@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from backend.core.config import get_settings
+from backend.utils.names import ensure_child_path
 
 _SESSION_MODE_ENV = "TG_SESSION_MODE"
 _SESSION_MODE_FILE = "file"
@@ -217,7 +218,8 @@ def set_account_status(
 
 
 def session_string_file_path(session_dir: Path, account_name: str) -> Path:
-    return session_dir / f"{account_name}.session_string"
+    account_name = ensure_child_path(session_dir, account_name).name
+    return ensure_child_path(session_dir, f"{account_name}.session_string")
 
 
 def load_session_string_file(session_dir: Path, account_name: str) -> Optional[str]:

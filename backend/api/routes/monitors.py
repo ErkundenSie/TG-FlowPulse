@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 from typing import Any, Literal, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -12,6 +11,7 @@ from pydantic import BaseModel, Field, validator
 from backend.core.auth import get_current_user
 from backend.models.user import User
 from backend.services.sign_tasks import get_sign_task_service
+from backend.utils.names import validate_name_segment
 
 router = APIRouter()
 logger = logging.getLogger("backend.api.monitors")
@@ -56,12 +56,7 @@ async def _restart_keyword_monitors() -> None:
 
 
 def _validate_task_name(value: str) -> str:
-    name = value.strip()
-    if not name:
-        raise ValueError("monitor name cannot be empty")
-    if re.search(r'[<>:"/\\|?*]', name):
-        raise ValueError('monitor name cannot contain: < > : " / \\ | ? *')
-    return name
+    return validate_name_segment(value, "monitor name")
 
 
 def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
@@ -262,6 +257,10 @@ class MonitorTaskCreate(BaseModel):
     def name_must_be_valid(cls, value):
         return _validate_task_name(value)
 
+    @validator("account_name")
+    def account_name_must_be_valid(cls, value):
+        return validate_name_segment(value, "account_name")
+
 
 class MonitorTaskUpdate(BaseModel):
     account_name: Optional[str] = None
@@ -335,7 +334,10 @@ def _build_chats(rules: list[MonitorRule]) -> list[dict[str, Any]]:
 
 def _mark_monitor_only(account_name: str, task_name: str) -> None:
     service = get_sign_task_service()
-    task_dir = service.signs_dir / account_name / task_name
+    try:
+        task_dir = service._task_dir_path(account_name, task_name)
+    except ValueError:
+        return
     config_file = task_dir / "config.json"
     if not config_file.exists():
         return

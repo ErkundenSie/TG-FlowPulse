@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from backend.core.config import get_settings
+from backend.utils.names import ensure_child_path, validate_name_segment
 from backend.utils.account_locks import get_account_lock
 from backend.utils.proxy import build_proxy_dict
 from backend.utils.tg_session import (
@@ -132,6 +133,25 @@ class SignTaskService:
         )
         self._cleanup_old_logs()
 
+    def _validate_account_name(self, account_name: str) -> str:
+        return validate_name_segment(account_name, "account_name")
+
+    def _validate_task_name(self, task_name: str) -> str:
+        return validate_name_segment(task_name, "task_name")
+
+    def _account_dir(self, account_name: str) -> Path:
+        return ensure_child_path(self.signs_dir, self._validate_account_name(account_name))
+
+    def _task_dir_path(self, account_name: str, task_name: str) -> Path:
+        return ensure_child_path(
+            self.signs_dir,
+            self._validate_account_name(account_name),
+            self._validate_task_name(task_name),
+        )
+
+    def _legacy_task_dir_path(self, task_name: str) -> Path:
+        return ensure_child_path(self.signs_dir, self._validate_task_name(task_name))
+
     @staticmethod
     def _task_requires_updates(task_config: Optional[Dict[str, Any]]) -> bool:
         """
@@ -240,12 +260,14 @@ class SignTaskService:
     def _resolve_task_dir(
         self, task_name: str, account_name: Optional[str] = None
     ) -> Optional[Path]:
+        task_name = self._validate_task_name(task_name)
         if account_name:
-            account_task_dir = self.signs_dir / account_name / task_name
+            account_name = self._validate_account_name(account_name)
+            account_task_dir = self._task_dir_path(account_name, task_name)
             if (account_task_dir / "config.json").exists():
                 return account_task_dir
 
-            legacy_task_dir = self.signs_dir / task_name
+            legacy_task_dir = self._legacy_task_dir_path(task_name)
             config_file = legacy_task_dir / "config.json"
             if not config_file.exists():
                 return None
@@ -258,7 +280,7 @@ class SignTaskService:
                 return legacy_task_dir
             return None
 
-        legacy_task_dir = self.signs_dir / task_name
+        legacy_task_dir = self._legacy_task_dir_path(task_name)
         if (legacy_task_dir / "config.json").exists():
             return legacy_task_dir
 
@@ -455,6 +477,7 @@ class SignTaskService:
 
     def clear_account_history_logs(self, account_name: str) -> Dict[str, int]:
         """清理某账号的历史日志，不影响其他账号"""
+        account_name = self._validate_account_name(account_name)
         removed_files = 0
         removed_entries = 0
 
@@ -475,9 +498,10 @@ class SignTaskService:
                 continue
 
             # --- CLEAR TASK LAST RUN METADATA ---
-            task_dir = self.signs_dir / account_name / task_name
+            task_name = self._validate_task_name(task_name)
+            task_dir = self._task_dir_path(account_name, task_name)
             if not task_dir.exists():
-                task_dir = self.signs_dir / task_name
+                task_dir = self._legacy_task_dir_path(task_name)
             config_file = task_dir / "config.json"
             if config_file.exists():
                 try:
@@ -654,9 +678,11 @@ class SignTaskService:
                 # 这里为了简单，再次查找路径有点低效，但比全量扫描好
                 # 我们可以利用 self.signs_dir / account_name / task_name
                 # 但考虑到兼容性，还是得稍微判断下
-                task_dir = self.signs_dir / account_name / task_name
+                account_name = self._validate_account_name(account_name)
+                task_name = self._validate_task_name(task_name)
+                task_dir = self._task_dir_path(account_name, task_name)
                 if not task_dir.exists():
-                    task_dir = self.signs_dir / task_name
+                    task_dir = self._legacy_task_dir_path(task_name)
 
                 config_file = task_dir / "config.json"
                 if config_file.exists():
@@ -898,6 +924,9 @@ class SignTaskService:
         """
         获取所有签到任务列表 (支持内存缓存)
         """
+        if account_name:
+            account_name = self._validate_account_name(account_name)
+
         if self._tasks_cache is not None and not force_refresh:
             if account_name:
                 return [
@@ -993,6 +1022,7 @@ class SignTaskService:
         """
         获取单个任务的详细信息
         """
+        task_name = self._validate_task_name(task_name)
         task_dir = self._resolve_task_dir(task_name, account_name)
         if task_dir is None:
             return None
@@ -1049,13 +1079,15 @@ class SignTaskService:
 
         from backend.services.config import get_config_service
 
+        task_name = self._validate_task_name(task_name)
         if not account_name:
             raise ValueError("必须指定账号名称")
+        account_name = self._validate_account_name(account_name)
 
-        account_dir = self.signs_dir / account_name
+        account_dir = self._account_dir(account_name)
         account_dir.mkdir(parents=True, exist_ok=True)
 
-        task_dir = account_dir / task_name
+        task_dir = self._task_dir_path(account_name, task_name)
         task_dir.mkdir(parents=True, exist_ok=True)
 
         # 获取 sign_interval
@@ -1140,6 +1172,9 @@ class SignTaskService:
         更新签到任务
         """
         # 获取现有配置
+        task_name = self._validate_task_name(task_name)
+        if account_name is not None:
+            account_name = self._validate_account_name(account_name)
         existing = self.get_task(task_name, account_name)
         if not existing:
             raise ValueError(f"任务 {task_name} 不存在")
@@ -1183,10 +1218,11 @@ class SignTaskService:
         }
 
         # 保存配置
-        task_dir = self.signs_dir / acc_name / task_name
+        acc_name = self._validate_account_name(acc_name)
+        task_dir = self._task_dir_path(acc_name, task_name)
         if not task_dir.exists():
             # 兼容旧路径
-            task_dir = self.signs_dir / task_name
+            task_dir = self._legacy_task_dir_path(task_name)
 
         config_file = task_dir / "config.json"
         with open(config_file, "w", encoding="utf-8") as f:
@@ -1237,6 +1273,9 @@ class SignTaskService:
         """
         删除签到任务
         """
+        task_name = self._validate_task_name(task_name)
+        if account_name is not None:
+            account_name = self._validate_account_name(account_name)
         task_dir = self._resolve_task_dir(task_name, account_name)
 
         if not task_dir or not task_dir.exists():
@@ -1281,7 +1320,8 @@ class SignTaskService:
         """
         获取账号的 Chat 列表 (带缓存)
         """
-        cache_file = self.signs_dir / account_name / "chats_cache.json"
+        account_name = self._validate_account_name(account_name)
+        cache_file = self._account_dir(account_name) / "chats_cache.json"
         refresh_lock = self._chat_refresh_locks.get(account_name)
         if refresh_lock is None:
             refresh_lock = asyncio.Lock()
@@ -1309,7 +1349,8 @@ class SignTaskService:
         """
         通过缓存搜索账号的 Chat 列表（不触发全量 get_dialogs）
         """
-        cache_file = self.signs_dir / account_name / "chats_cache.json"
+        account_name = self._validate_account_name(account_name)
+        cache_file = self._account_dir(account_name) / "chats_cache.json"
 
         if limit < 1:
             limit = 1
@@ -1379,6 +1420,7 @@ class SignTaskService:
         )
 
     async def _cleanup_invalid_session(self, account_name: str) -> None:
+        account_name = self._validate_account_name(account_name)
         try:
             from backend.services.telegram import get_telegram_service
 
@@ -1388,7 +1430,7 @@ class SignTaskService:
 
         # 清理 chats 缓存，避免后续误用旧数据
         try:
-            cache_file = self.signs_dir / account_name / "chats_cache.json"
+            cache_file = self._account_dir(account_name) / "chats_cache.json"
             if cache_file.exists():
                 cache_file.unlink()
         except Exception:
@@ -1404,13 +1446,14 @@ class SignTaskService:
         from backend.core.config import get_settings
         from backend.services.config import get_config_service
 
+        account_name = self._validate_account_name(account_name)
         settings = get_settings()
         session_dir = settings.resolve_session_dir()
         session_mode = get_session_mode()
         session_string = None
         fallback_session_string = None
         used_fallback_session = False
-        session_file = session_dir / f"{account_name}.session"
+        session_file = ensure_child_path(session_dir, f"{account_name}.session")
 
         if session_mode == "string":
             session_string = (
@@ -1560,7 +1603,7 @@ class SignTaskService:
                     raise
 
             # 保存到缓存
-            account_dir = self.signs_dir / account_name
+            account_dir = self._account_dir(account_name)
             account_dir.mkdir(parents=True, exist_ok=True)
             cache_file = account_dir / "chats_cache.json"
 

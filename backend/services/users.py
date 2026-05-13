@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import logging
 import os
+import secrets
 
 from sqlalchemy.orm import Session
 
 from backend.core.security import hash_password
 from backend.models.user import User
+from backend.utils.storage import get_writable_base_dir
 
 logger = logging.getLogger("backend.users")
 
@@ -26,10 +28,20 @@ def ensure_admin(db: Session, username: str = "admin", password: str = None):
         if env_pwd:
             password = env_pwd
         else:
-            password = "admin123"
+            password = secrets.token_urlsafe(24)
+            password_file = get_writable_base_dir() / "initial_admin_password.txt"
+            try:
+                password_file.parent.mkdir(parents=True, exist_ok=True)
+                password_file.write_text(
+                    f"username={username}\npassword={password}\n",
+                    encoding="utf-8",
+                )
+            except OSError:
+                password_file = None
             logger.warning(
-                "SECURITY WARNING: Default admin account created with hardcoded password 'admin123'. "
-                "Please change it immediately or set ADMIN_PASSWORD environment variable."
+                "SECURITY WARNING: Initial admin account created with a generated password. "
+                "Set ADMIN_PASSWORD to control this value. Password file: %s",
+                password_file or "unavailable",
             )
 
     # 如果没有任何用户，则创建默认管理员
