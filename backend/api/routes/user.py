@@ -115,9 +115,9 @@ def change_password(
         )
 
     # 验证新密码
-    if len(request.new_password) < 6:
+    if len(request.new_password) < 8:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="新密码长度至少为 6 个字符"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="新密码长度至少为 8 个字符"
         )
 
     # 更新密码

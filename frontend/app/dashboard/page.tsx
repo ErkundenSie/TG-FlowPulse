@@ -162,8 +162,10 @@ export default function Dashboard() {
   const [chatImportAccount, setChatImportAccount] = useState("");
   const [chatImportJson, setChatImportJson] = useState("");
   const [chatImportShowJson, setChatImportShowJson] = useState(true);
-  const [chatImportPayload, setChatImportPayload] =
-    useState<Record<string, any> | null>(null);
+  const [chatImportPayload, setChatImportPayload] = useState<Record<
+    string,
+    any
+  > | null>(null);
   const [chatImportSelectedIds, setChatImportSelectedIds] = useState<
     Record<string, boolean>
   >({});
@@ -225,16 +227,23 @@ export default function Dashboard() {
   );
 
   const getChatMigrationItemKey = useCallback(
-    (item: Pick<ChatMigrationItem, "id" | "title" | "username" | "type">, index: number) =>
+    (
+      item: Pick<ChatMigrationItem, "id" | "title" | "username" | "type">,
+      index: number,
+    ) =>
       `${item.id ?? item.username ?? item.title ?? "chat"}-${item.type ?? "unknown"}-${index}`,
     [],
   );
 
-  const getChatJoinType = useCallback((item: Pick<ChatMigrationItem, "join">) => {
-    const joinType = item.join?.type;
-    if (joinType === "username" || joinType === "invite_link") return joinType;
-    return "none";
-  }, []);
+  const getChatJoinType = useCallback(
+    (item: Pick<ChatMigrationItem, "join">) => {
+      const joinType = item.join?.type;
+      if (joinType === "username" || joinType === "invite_link")
+        return joinType;
+      return "none";
+    },
+    [],
+  );
 
   const summarizeMigrationItems = useCallback(
     (items: Pick<ChatMigrationItem, "join">[]): ChatMigrationSummary => {
@@ -568,7 +577,11 @@ export default function Dashboard() {
       try {
         setChatExportLoading(true);
         setChatExportError("");
-        const payload = await getAccountChatsExport(token, chatExportAccount, scope);
+        const payload = await getAccountChatsExport(
+          token,
+          chatExportAccount,
+          scope,
+        );
         const selected: Record<string, boolean> = {};
         (payload.items || []).forEach((item, index) => {
           selected[getChatMigrationItemKey(item, index)] = true;
@@ -641,7 +654,11 @@ export default function Dashboard() {
         items: selectedItems,
         summary: summarizeMigrationItems(selectedItems),
       };
-      downloadChatMigrationJson(payload, chatExportAccount, payload.scope || "selected");
+      downloadChatMigrationJson(
+        payload,
+        chatExportAccount,
+        payload.scope || "selected",
+      );
       addToast(t("chat_migration_export_success"), "success");
       setShowChatExportDialog(false);
     } catch (err: any) {
@@ -903,7 +920,11 @@ export default function Dashboard() {
         failed > 0 ? "error" : "success",
       );
     } catch (err: any) {
-      const message = formatErrorMessage("chat_migration_import_failed", err, true);
+      const message = formatErrorMessage(
+        "chat_migration_import_failed",
+        err,
+        true,
+      );
       setChatImportError(message);
       addToast(message, "error");
     } finally {
@@ -1633,7 +1654,7 @@ export default function Dashboard() {
                           openChatExportDialog(acc.name);
                         }}
                       >
-                        <DownloadSimple weight="bold" size={16} />
+                        <UploadSimple weight="bold" size={16} />
                       </div>
                       <div
                         className="action-icon !w-8 !h-8 !text-sky-500 hover:bg-sky-500/10"
@@ -1643,7 +1664,7 @@ export default function Dashboard() {
                           openChatImportDialog(acc.name);
                         }}
                       >
-                        <UploadSimple weight="bold" size={16} />
+                        <DownloadSimple weight="bold" size={16} />
                       </div>
                       <div
                         className="action-icon delete !w-8 !h-8"
@@ -2102,7 +2123,9 @@ export default function Dashboard() {
                           : "btn-secondary"
                       }`}
                       onClick={() =>
-                        handleExportScopeChange(value as ChatMigrationExportScope)
+                        handleExportScopeChange(
+                          value as ChatMigrationExportScope,
+                        )
                       }
                       disabled={chatExportLoading}
                     >
@@ -2293,9 +2316,7 @@ export default function Dashboard() {
 
               <div className="grid grid-cols-1 md:grid-cols-[1fr_150px] gap-3 items-end">
                 <div>
-                  <label className="text-[11px] mb-1">
-                    {t("upload_json")}
-                  </label>
+                  <label className="text-[11px] mb-1">{t("upload_json")}</label>
                   <input
                     type="file"
                     accept="application/json,.json"
@@ -2370,68 +2391,70 @@ export default function Dashboard() {
                     ))}
                   </div>
 
-                <div className="rounded-xl border border-white/5 bg-white/2 overflow-hidden">
-                  <div className="p-3 border-b border-white/5 flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-bold">
-                        {t("chat_migration_import_preview")}
+                  <div className="rounded-xl border border-white/5 bg-white/2 overflow-hidden">
+                    <div className="p-3 border-b border-white/5 flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-bold">
+                          {t("chat_migration_import_preview")}
+                        </div>
+                        <div className="text-xs text-main/40">
+                          {t("chat_migration_selected_count")
+                            .replace(
+                              "{selected}",
+                              countSelectedChats(
+                                chatImportSelectedIds,
+                              ).toString(),
+                            )
+                            .replace(
+                              "{total}",
+                              (chatImportPayload.items?.length || 0).toString(),
+                            )}
+                        </div>
                       </div>
-                      <div className="text-xs text-main/40">
-                        {t("chat_migration_selected_count")
-                          .replace(
-                            "{selected}",
-                            countSelectedChats(chatImportSelectedIds).toString(),
-                          )
-                          .replace(
-                            "{total}",
-                            (chatImportPayload.items?.length || 0).toString(),
-                          )}
+                      <div className="flex gap-2">
+                        <button
+                          className="btn-secondary h-8 !py-0 !px-3 !text-[11px]"
+                          onClick={() => setAllChatImportItems(true)}
+                          disabled={chatImportLoading}
+                        >
+                          {t("select_all")}
+                        </button>
+                        <button
+                          className="btn-secondary h-8 !py-0 !px-3 !text-[11px]"
+                          onClick={() => setAllChatImportItems(false)}
+                          disabled={chatImportLoading}
+                        >
+                          {t("clear")}
+                        </button>
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <button
-                        className="btn-secondary h-8 !py-0 !px-3 !text-[11px]"
-                        onClick={() => setAllChatImportItems(true)}
-                        disabled={chatImportLoading}
-                      >
-                        {t("select_all")}
-                      </button>
-                      <button
-                        className="btn-secondary h-8 !py-0 !px-3 !text-[11px]"
-                        onClick={() => setAllChatImportItems(false)}
-                        disabled={chatImportLoading}
-                      >
-                        {t("clear")}
-                      </button>
+                    <div className="p-3 border-b border-white/5">
+                      <input
+                        type="search"
+                        className="!mb-0 !py-2 !px-3 text-xs"
+                        placeholder={t("chat_migration_search_placeholder")}
+                        value={chatImportSearch}
+                        onChange={(e) => setChatImportSearch(e.target.value)}
+                      />
+                    </div>
+                    <div className="max-h-[260px] overflow-y-auto custom-scrollbar">
+                      {chatImportVisibleItems.length ? (
+                        chatImportVisibleItems.map(({ item, index }) =>
+                          renderMigrationItem(
+                            item,
+                            index,
+                            chatImportSelectedIds,
+                            handleToggleChatImportItem,
+                            chatImportLoading,
+                          ),
+                        )
+                      ) : (
+                        <div className="p-6 text-center text-xs text-main/40">
+                          {t("chat_migration_no_matches")}
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <div className="p-3 border-b border-white/5">
-                    <input
-                      type="search"
-                      className="!mb-0 !py-2 !px-3 text-xs"
-                      placeholder={t("chat_migration_search_placeholder")}
-                      value={chatImportSearch}
-                      onChange={(e) => setChatImportSearch(e.target.value)}
-                    />
-                  </div>
-                  <div className="max-h-[260px] overflow-y-auto custom-scrollbar">
-                    {chatImportVisibleItems.length ? (
-                      chatImportVisibleItems.map(({ item, index }) =>
-                        renderMigrationItem(
-                          item,
-                          index,
-                          chatImportSelectedIds,
-                          handleToggleChatImportItem,
-                          chatImportLoading,
-                        ),
-                      )
-                    ) : (
-                      <div className="p-6 text-center text-xs text-main/40">
-                        {t("chat_migration_no_matches")}
-                      </div>
-                    )}
-                  </div>
-                </div>
                 </>
               ) : null}
 

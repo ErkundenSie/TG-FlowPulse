@@ -873,7 +873,7 @@ export const exportAccountLogs = async (token: string, accountName: string) => {
 export interface SystemLogsResponse {
   path: string;
   lines: string[];
-  line_count: number;
+  line_count?: number | null;
   file_size: number;
   updated_at?: string | null;
   exists: boolean;

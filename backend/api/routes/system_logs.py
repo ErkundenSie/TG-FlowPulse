@@ -17,7 +17,7 @@ router = APIRouter()
 class SystemLogsResponse(BaseModel):
     path: str
     lines: list[str]
-    line_count: int
+    line_count: int | None = None
     file_size: int
     updated_at: str | None = None
     exists: bool
@@ -48,7 +48,7 @@ def get_system_logs(
         return SystemLogsResponse(
             path=str(path),
             lines=_tail_lines(path, limit),
-            line_count=0 if stat is None else sum(1 for _ in path.open("r", encoding="utf-8", errors="replace")),
+            line_count=None,
             file_size=0 if stat is None else stat.st_size,
             updated_at=None if stat is None else datetime.fromtimestamp(stat.st_mtime).isoformat(),
             exists=path.exists(),

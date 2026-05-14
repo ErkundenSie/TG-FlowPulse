@@ -286,6 +286,10 @@ export default function SettingsPage() {
       addToast(t("password_mismatch"), "error");
       return;
     }
+    if (passwordForm.newPassword.length < 8) {
+      addToast(t("password_too_short"), "error");
+      return;
+    }
     try {
       setPwdLoading(true);
       await changePassword(
@@ -1388,7 +1392,7 @@ export default function SettingsPage() {
                       {t("system_logs_lines")}
                     </div>
                     <div className="mt-1 text-lg font-bold text-main">
-                      {systemLogs?.line_count ?? 0}
+                      {systemLogs?.lines.length ?? 0}
                     </div>
                   </div>
                   <div className="settings-callout">
@@ -1413,7 +1417,7 @@ export default function SettingsPage() {
                   <div className="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-2 bg-white/[0.04]">
                     <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
                       {systemLogs?.exists
-                        ? `${systemLogs.lines.length} / ${systemLogs.line_count}`
+                        ? `${systemLogs.lines.length} ${t("logs")}`
                         : "app.log"}
                     </div>
                     <div className="text-[10px] text-slate-500">
