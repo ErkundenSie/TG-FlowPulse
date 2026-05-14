@@ -15,7 +15,8 @@ import {
   updateAccount,
   verifyAccountLogin,
   deleteAccount,
-  exportAccountChats,
+  downloadChatMigrationJson,
+  getAccountChatsExport,
   importAccountChats,
   getAccountLogs,
   clearAccountLogs,
@@ -24,6 +25,8 @@ import {
   AccountStatusItem,
   AccountLog,
   ChatMigrationExportScope,
+  ChatMigrationExportPayload,
+  ChatMigrationItem,
   ChatMigrationImportResponse,
   SignTask,
 } from "../../lib/api";
@@ -46,6 +49,10 @@ import {
 import { ToastContainer, useToast } from "../../components/ui/toast";
 import { ThemeLanguageToggle } from "../../components/ThemeLanguageToggle";
 import { useLanguage } from "../../context/LanguageContext";
+
+const CHAT_IMPORT_BATCH_SIZE = 8;
+
+type ChatMigrationSummary = Record<string, number>;
 
 const EMPTY_LOGIN_DATA = {
   account_name: "",
@@ -143,12 +150,26 @@ export default function Dashboard() {
   const [chatExportAccount, setChatExportAccount] = useState("");
   const [chatExportScope, setChatExportScope] =
     useState<ChatMigrationExportScope>("all");
+  const [chatExportLoading, setChatExportLoading] = useState(false);
+  const [chatExportError, setChatExportError] = useState("");
+  const [chatExportPayload, setChatExportPayload] =
+    useState<ChatMigrationExportPayload | null>(null);
+  const [chatExportSelectedIds, setChatExportSelectedIds] = useState<
+    Record<string, boolean>
+  >({});
   const [showChatImportDialog, setShowChatImportDialog] = useState(false);
   const [chatImportAccount, setChatImportAccount] = useState("");
   const [chatImportJson, setChatImportJson] = useState("");
+  const [chatImportPayload, setChatImportPayload] =
+    useState<Record<string, any> | null>(null);
+  const [chatImportSelectedIds, setChatImportSelectedIds] = useState<
+    Record<string, boolean>
+  >({});
   const [chatImportDryRun, setChatImportDryRun] = useState(false);
   const [chatImportDelay, setChatImportDelay] = useState(5);
   const [chatImportLoading, setChatImportLoading] = useState(false);
+  const [chatImportProgress, setChatImportProgress] = useState("");
+  const [chatImportError, setChatImportError] = useState("");
   const [chatImportResult, setChatImportResult] =
     useState<ChatMigrationImportResponse | null>(null);
 
@@ -189,11 +210,60 @@ export default function Dashboard() {
     tRef.current = t;
   }, [t]);
 
-  const formatErrorMessage = useCallback((key: string, err?: any) => {
-    const base = tRef.current ? tRef.current(key) : key;
-    const code = err?.code;
-    return code ? `${base} (${code})` : base;
+  const formatErrorMessage = useCallback(
+    (key: string, err?: any, detail = false) => {
+      const base = tRef.current ? tRef.current(key) : key;
+      const code = err?.code;
+      const errorDetail = detail ? err?.message : "";
+      const suffix = errorDetail ? `: ${errorDetail}` : "";
+      return code ? `${base} (${code})${suffix}` : `${base}${suffix}`;
+    },
+    [],
+  );
+
+  const getChatMigrationItemKey = useCallback(
+    (item: Pick<ChatMigrationItem, "id" | "title" | "username" | "type">, index: number) =>
+      `${item.id ?? item.username ?? item.title ?? "chat"}-${item.type ?? "unknown"}-${index}`,
+    [],
+  );
+
+  const getChatJoinType = useCallback((item: Pick<ChatMigrationItem, "join">) => {
+    const joinType = item.join?.type;
+    if (joinType === "username" || joinType === "invite_link") return joinType;
+    return "none";
   }, []);
+
+  const summarizeMigrationItems = useCallback(
+    (items: Pick<ChatMigrationItem, "join">[]): ChatMigrationSummary => {
+      const total = items.length;
+      const joinable = items.filter((item) =>
+        ["username", "invite_link"].includes(getChatJoinType(item)),
+      ).length;
+      return {
+        total,
+        joinable,
+        manual_required: total - joinable,
+      };
+    },
+    [getChatJoinType],
+  );
+
+  const countSelectedChats = useCallback(
+    (selected: Record<string, boolean>) =>
+      Object.values(selected).filter(Boolean).length,
+    [],
+  );
+
+  const getSelectedMigrationItems = useCallback(
+    <T extends ChatMigrationItem>(
+      items: T[],
+      selected: Record<string, boolean>,
+    ) =>
+      items.filter((item, index) =>
+        Boolean(selected[getChatMigrationItemKey(item, index)]),
+      ),
+    [getChatMigrationItemKey],
+  );
 
   const loadData = useCallback(
     async (tokenStr: string) => {
@@ -398,32 +468,152 @@ export default function Dashboard() {
   const openChatExportDialog = (accountName: string) => {
     setChatExportAccount(accountName);
     setChatExportScope("all");
+    setChatExportLoading(false);
+    setChatExportError("");
+    setChatExportPayload(null);
+    setChatExportSelectedIds({});
     setShowChatExportDialog(true);
   };
 
-  const handleExportChats = async () => {
+  const loadChatExportPreview = async (
+    scope: ChatMigrationExportScope = chatExportScope,
+  ) => {
     if (!token) return;
     if (!chatExportAccount) return;
     try {
-      setLoading(true);
-      await exportAccountChats(token, chatExportAccount, chatExportScope);
+      setChatExportLoading(true);
+      setChatExportError("");
+      const payload = await getAccountChatsExport(token, chatExportAccount, scope);
+      const selected: Record<string, boolean> = {};
+      (payload.items || []).forEach((item, index) => {
+        selected[getChatMigrationItemKey(item, index)] = true;
+      });
+      setChatExportPayload(payload);
+      setChatExportSelectedIds(selected);
+    } catch (err: any) {
+      const message = formatErrorMessage("chat_migration_export_failed", err, true);
+      setChatExportError(message);
+      addToast(message, "error");
+    } finally {
+      setChatExportLoading(false);
+    }
+  };
+
+  const handleExportScopeChange = (scope: ChatMigrationExportScope) => {
+    setChatExportScope(scope);
+    setChatExportPayload(null);
+    setChatExportSelectedIds({});
+    setChatExportError("");
+  };
+
+  const handleToggleChatExportItem = (key: string) => {
+    setChatExportSelectedIds((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const setAllChatExportItems = (checked: boolean) => {
+    if (!chatExportPayload) return;
+    const next: Record<string, boolean> = {};
+    chatExportPayload.items.forEach((item, index) => {
+      next[getChatMigrationItemKey(item, index)] = checked;
+    });
+    setChatExportSelectedIds(next);
+  };
+
+  const handleExportChats = async () => {
+    if (!chatExportPayload || !chatExportAccount) {
+      await loadChatExportPreview();
+      return;
+    }
+
+    const selectedItems = getSelectedMigrationItems(
+      chatExportPayload.items || [],
+      chatExportSelectedIds,
+    );
+    if (!selectedItems.length) {
+      addToast(t("chat_migration_select_required"), "error");
+      return;
+    }
+
+    try {
+      setChatExportLoading(true);
+      const payload: ChatMigrationExportPayload = {
+        ...chatExportPayload,
+        scope: `${chatExportPayload.scope || chatExportScope}_selected`,
+        exported_at: new Date().toISOString(),
+        items: selectedItems,
+        summary: summarizeMigrationItems(selectedItems),
+      };
+      downloadChatMigrationJson(payload, chatExportAccount, payload.scope || "selected");
       addToast(t("chat_migration_export_success"), "success");
       setShowChatExportDialog(false);
     } catch (err: any) {
-      addToast(formatErrorMessage("chat_migration_export_failed", err), "error");
+      addToast(
+        formatErrorMessage("chat_migration_export_failed", err, true),
+        "error",
+      );
     } finally {
-      setLoading(false);
+      setChatExportLoading(false);
     }
   };
 
   const openChatImportDialog = (accountName: string) => {
     setChatImportAccount(accountName);
     setChatImportJson("");
+    setChatImportPayload(null);
+    setChatImportSelectedIds({});
     setChatImportDryRun(false);
     setChatImportDelay(5);
+    setChatImportProgress("");
+    setChatImportError("");
     setChatImportResult(null);
     setShowChatImportDialog(true);
   };
+
+  const parseChatImportJson = useCallback(
+    (text: string) => {
+      let payload: Record<string, any>;
+      try {
+        payload = JSON.parse(text);
+      } catch (err: any) {
+        throw new Error(err?.message || t("chat_migration_import_empty"));
+      }
+
+      const items = Array.isArray(payload.items)
+        ? payload.items.filter((item) => item && typeof item === "object")
+        : [];
+      if (!items.length) {
+        throw new Error("迁移 JSON 缺少 items 列表或列表为空");
+      }
+
+      const selected: Record<string, boolean> = {};
+      items.forEach((item, index) => {
+        selected[getChatMigrationItemKey(item, index)] = true;
+      });
+
+      return {
+        payload: {
+          ...payload,
+          items,
+          summary: summarizeMigrationItems(items),
+        } as Record<string, any>,
+        selected,
+      };
+    },
+    [getChatMigrationItemKey, summarizeMigrationItems, t],
+  );
+
+  const loadChatImportPreview = useCallback(
+    (text: string) => {
+      const parsed = parseChatImportJson(text);
+      setChatImportPayload(parsed.payload);
+      setChatImportSelectedIds(parsed.selected);
+      setChatImportError("");
+      setChatImportResult(null);
+      setChatImportProgress("");
+      return parsed.payload;
+    },
+    [parseChatImportJson],
+  );
 
   const handleChatImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -431,12 +621,67 @@ export default function Dashboard() {
     try {
       const text = await file.text();
       setChatImportJson(text);
+      loadChatImportPreview(text);
     } catch {
       addToast(t("chat_migration_file_read_failed"), "error");
     } finally {
       event.target.value = "";
     }
   };
+
+  const handleToggleChatImportItem = (key: string) => {
+    setChatImportSelectedIds((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const setAllChatImportItems = (checked: boolean) => {
+    if (!chatImportPayload) return;
+    const next: Record<string, boolean> = {};
+    (chatImportPayload.items || []).forEach(
+      (item: ChatMigrationItem, index: number) => {
+        next[getChatMigrationItemKey(item, index)] = checked;
+      },
+    );
+    setChatImportSelectedIds(next);
+  };
+
+  const summarizeChatImportResults = (
+    results: ChatMigrationImportResponse["results"],
+  ) => {
+    const summary: Record<string, number> = {
+      total: results.length,
+      joined: 0,
+      already_member: 0,
+      request_sent: 0,
+      manual_required: 0,
+      failed: 0,
+      flood_wait: 0,
+      skipped: 0,
+      ready: 0,
+    };
+    results.forEach((item) => {
+      const status = item.status || "failed";
+      summary[status] = (summary[status] || 0) + 1;
+    });
+    return summary;
+  };
+
+  const buildChatImportPayload = (
+    source: Record<string, any>,
+    items: Record<string, any>[],
+  ) => ({
+    ...source,
+    items,
+    summary: {
+      ...(source.summary || {}),
+      total: items.length,
+      joinable: items.filter((item) =>
+        ["username", "invite_link"].includes(item?.join?.type),
+      ).length,
+      manual_required: items.filter(
+        (item) => !["username", "invite_link"].includes(item?.join?.type),
+      ).length,
+    },
+  });
 
   const handleImportChats = async () => {
     if (!token || !chatImportAccount) return;
@@ -446,12 +691,89 @@ export default function Dashboard() {
     }
     try {
       setChatImportLoading(true);
-      const result = await importAccountChats(token, chatImportAccount, {
-        config_json: chatImportJson,
+      setChatImportError("");
+      setChatImportResult(null);
+      setChatImportProgress("");
+
+      const migration =
+        chatImportPayload || loadChatImportPreview(chatImportJson.trim());
+      const items = getSelectedMigrationItems(
+        (migration.items || []) as ChatMigrationItem[],
+        chatImportSelectedIds,
+      );
+      if (!items.length) {
+        throw new Error(t("chat_migration_select_required"));
+      }
+
+      const requestedDelay = Number.isFinite(chatImportDelay)
+        ? Math.max(0, chatImportDelay)
+        : 0;
+      const batchSize = chatImportDryRun
+        ? items.length
+        : Math.max(
+            1,
+            Math.min(
+              CHAT_IMPORT_BATCH_SIZE,
+              Math.floor(30 / Math.max(1, requestedDelay)),
+            ),
+          );
+      const allResults: ChatMigrationImportResponse["results"] = [];
+      let lastResult: ChatMigrationImportResponse | null = null;
+
+      for (let start = 0; start < items.length; start += batchSize) {
+        const batch = items.slice(start, start + batchSize);
+        setChatImportProgress(
+          t("chat_migration_import_progress")
+            .replace("{done}", start.toString())
+            .replace("{total}", items.length.toString()),
+        );
+
+        const result = await importAccountChats(token, chatImportAccount, {
+          migration: buildChatImportPayload(migration, batch),
+          dry_run: chatImportDryRun,
+          delay_seconds: requestedDelay,
+        });
+        lastResult = result;
+        allResults.push(...(result.results || []));
+
+        const summary = summarizeChatImportResults(allResults);
+        setChatImportResult({
+          ...result,
+          success: !allResults.some((item) =>
+            ["failed", "flood_wait"].includes(item.status),
+          ),
+          summary,
+          results: allResults,
+        });
+
+        if (
+          !chatImportDryRun &&
+          result.results?.some((item) => item.status === "flood_wait")
+        ) {
+          break;
+        }
+      }
+
+      const finalSummary = summarizeChatImportResults(allResults);
+      const result: ChatMigrationImportResponse = {
+        ...(lastResult as ChatMigrationImportResponse),
+        success: !allResults.some((item) =>
+          ["failed", "flood_wait"].includes(item.status),
+        ),
         dry_run: chatImportDryRun,
-        delay_seconds: chatImportDelay,
-      });
+        source_account: migration.source_account || null,
+        target_account: chatImportAccount,
+        imported_at: lastResult?.imported_at || new Date().toISOString(),
+        summary: finalSummary,
+        results: allResults,
+        notice: lastResult?.notice || null,
+      };
       setChatImportResult(result);
+      setChatImportProgress(
+        t("chat_migration_import_progress")
+          .replace("{done}", allResults.length.toString())
+          .replace("{total}", items.length.toString()),
+      );
       const summary = result.summary || {};
       const joined = summary.joined || 0;
       const requestSent = summary.request_sent || 0;
@@ -466,7 +788,9 @@ export default function Dashboard() {
         failed > 0 ? "error" : "success",
       );
     } catch (err: any) {
-      addToast(formatErrorMessage("chat_migration_import_failed", err), "error");
+      const message = formatErrorMessage("chat_migration_import_failed", err, true);
+      setChatImportError(message);
+      addToast(message, "error");
     } finally {
       setChatImportLoading(false);
     }
@@ -1598,12 +1922,17 @@ export default function Dashboard() {
       {showChatExportDialog && (
         <div className="modal-overlay active">
           <div
-            className="glass-panel modal-content !max-w-[420px] !p-6"
+            className="glass-panel modal-content !max-w-3xl max-h-[90vh] flex flex-col overflow-hidden !p-0"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="modal-header !mb-5">
-              <div className="modal-title !text-lg">
-                {t("chat_migration_export")}
+            <div className="p-5 border-b border-white/5 flex justify-between items-center bg-white/2">
+              <div className="min-w-0">
+                <div className="font-bold text-lg truncate">
+                  {t("chat_migration_export")}
+                </div>
+                <div className="text-xs text-main/40 truncate">
+                  {chatExportAccount}
+                </div>
               </div>
               <div
                 className="modal-close"
@@ -1613,7 +1942,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="animate-float-up space-y-4">
+            <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar">
               <div>
                 <label className="text-[11px] mb-1">{t("session_name")}</label>
                 <input
@@ -1640,8 +1969,9 @@ export default function Dashboard() {
                           : "btn-secondary"
                       }`}
                       onClick={() =>
-                        setChatExportScope(value as ChatMigrationExportScope)
+                        handleExportScopeChange(value as ChatMigrationExportScope)
                       }
+                      disabled={chatExportLoading}
                     >
                       {label}
                     </button>
@@ -1653,25 +1983,120 @@ export default function Dashboard() {
                 {t("chat_migration_export_scope_hint")}
               </div>
 
-              <div className="flex gap-3 mt-6">
-                <button
-                  className="btn-secondary flex-1 h-10 !py-0 !text-xs"
-                  onClick={() => setShowChatExportDialog(false)}
-                >
-                  {t("cancel")}
-                </button>
-                <button
-                  className="btn-gradient flex-1 h-10 !py-0 !text-xs"
-                  onClick={handleExportChats}
-                  disabled={loading}
-                >
-                  {loading ? (
-                    <Spinner className="animate-spin" />
-                  ) : (
-                    t("download_json")
-                  )}
-                </button>
+              <div className="rounded-xl border border-white/5 bg-white/2 overflow-hidden">
+                <div className="p-3 border-b border-white/5 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-bold">
+                      {t("chat_migration_export_preview")}
+                    </div>
+                    <div className="text-xs text-main/40">
+                      {t("chat_migration_selected_count")
+                        .replace(
+                          "{selected}",
+                          countSelectedChats(chatExportSelectedIds).toString(),
+                        )
+                        .replace(
+                          "{total}",
+                          (chatExportPayload?.items?.length || 0).toString(),
+                        )}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      className="btn-secondary h-8 !py-0 !px-3 !text-[11px]"
+                      onClick={() => loadChatExportPreview()}
+                      disabled={chatExportLoading}
+                    >
+                      {chatExportLoading ? (
+                        <Spinner className="animate-spin" />
+                      ) : (
+                        t("chat_migration_load_list")
+                      )}
+                    </button>
+                    <button
+                      className="btn-secondary h-8 !py-0 !px-3 !text-[11px]"
+                      onClick={() => setAllChatExportItems(true)}
+                      disabled={!chatExportPayload || chatExportLoading}
+                    >
+                      {t("select_all")}
+                    </button>
+                    <button
+                      className="btn-secondary h-8 !py-0 !px-3 !text-[11px]"
+                      onClick={() => setAllChatExportItems(false)}
+                      disabled={!chatExportPayload || chatExportLoading}
+                    >
+                      {t("clear")}
+                    </button>
+                  </div>
+                </div>
+
+                {chatExportError ? (
+                  <div className="m-3 rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-200 break-words">
+                    {chatExportError}
+                  </div>
+                ) : null}
+
+                {chatExportPayload ? (
+                  <div className="max-h-[320px] overflow-y-auto custom-scrollbar">
+                    {chatExportPayload.items.map((item, index) => {
+                      const key = getChatMigrationItemKey(item, index);
+                      const joinType = getChatJoinType(item);
+                      return (
+                        <label
+                          key={key}
+                          className="flex items-start gap-3 p-3 border-b border-white/5 last:border-0 cursor-pointer hover:bg-white/3"
+                        >
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={Boolean(chatExportSelectedIds[key])}
+                            onChange={() => handleToggleChatExportItem(key)}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="font-semibold truncate">
+                                {item.title}
+                              </div>
+                              <div className="text-[10px] text-main/35 uppercase shrink-0">
+                                {item.type || "-"} / {joinType}
+                              </div>
+                            </div>
+                            <div className="text-xs text-main/45 mt-1 truncate">
+                              {item.username
+                                ? `@${item.username}`
+                                : item.export_note || t("chat_migration_manual")}
+                            </div>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="p-6 text-center text-xs text-main/40">
+                    {t("chat_migration_load_list_hint")}
+                  </div>
+                )}
               </div>
+            </div>
+
+            <div className="p-4 border-t border-white/5 flex gap-3 bg-white/2">
+              <button
+                className="btn-secondary flex-1 h-10 !py-0 !text-xs"
+                onClick={() => setShowChatExportDialog(false)}
+              >
+                {t("cancel")}
+              </button>
+              <button
+                className="btn-gradient flex-1 h-10 !py-0 !text-xs"
+                onClick={handleExportChats}
+                disabled={chatExportLoading}
+              >
+                {chatExportLoading ? (
+                  <Spinner className="animate-spin" />
+                ) : (
+                  t("download_json")
+                )}
+              </button>
             </div>
           </div>
         </div>
@@ -1754,9 +2179,96 @@ export default function Dashboard() {
                   className="!mb-0 min-h-[180px] font-mono text-xs"
                   placeholder={t("chat_migration_json_placeholder")}
                   value={chatImportJson}
-                  onChange={(e) => setChatImportJson(e.target.value)}
+                  onChange={(e) => {
+                    setChatImportJson(e.target.value);
+                    try {
+                      loadChatImportPreview(e.target.value);
+                    } catch {
+                      setChatImportPayload(null);
+                      setChatImportSelectedIds({});
+                      setChatImportError("");
+                      setChatImportResult(null);
+                      setChatImportProgress("");
+                    }
+                  }}
                 />
               </div>
+
+              {chatImportPayload ? (
+                <div className="rounded-xl border border-white/5 bg-white/2 overflow-hidden">
+                  <div className="p-3 border-b border-white/5 flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-bold">
+                        {t("chat_migration_import_preview")}
+                      </div>
+                      <div className="text-xs text-main/40">
+                        {t("chat_migration_selected_count")
+                          .replace(
+                            "{selected}",
+                            countSelectedChats(chatImportSelectedIds).toString(),
+                          )
+                          .replace(
+                            "{total}",
+                            (chatImportPayload.items?.length || 0).toString(),
+                          )}
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        className="btn-secondary h-8 !py-0 !px-3 !text-[11px]"
+                        onClick={() => setAllChatImportItems(true)}
+                        disabled={chatImportLoading}
+                      >
+                        {t("select_all")}
+                      </button>
+                      <button
+                        className="btn-secondary h-8 !py-0 !px-3 !text-[11px]"
+                        onClick={() => setAllChatImportItems(false)}
+                        disabled={chatImportLoading}
+                      >
+                        {t("clear")}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-[260px] overflow-y-auto custom-scrollbar">
+                    {(chatImportPayload.items || []).map(
+                      (item: ChatMigrationItem, index: number) => {
+                        const key = getChatMigrationItemKey(item, index);
+                        const joinType = getChatJoinType(item);
+                        return (
+                          <label
+                            key={key}
+                            className="flex items-start gap-3 p-3 border-b border-white/5 last:border-0 cursor-pointer hover:bg-white/3"
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-1"
+                              checked={Boolean(chatImportSelectedIds[key])}
+                              onChange={() => handleToggleChatImportItem(key)}
+                              disabled={chatImportLoading}
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="font-semibold truncate">
+                                  {item.title}
+                                </div>
+                                <div className="text-[10px] text-main/35 uppercase shrink-0">
+                                  {item.type || "-"} / {joinType}
+                                </div>
+                              </div>
+                              <div className="text-xs text-main/45 mt-1 truncate">
+                                {item.username
+                                  ? `@${item.username}`
+                                  : item.export_note || t("chat_migration_manual")}
+                              </div>
+                            </div>
+                          </label>
+                        );
+                      },
+                    )}
+                  </div>
+                </div>
+              ) : null}
 
               <label className="flex items-center gap-2 !mb-0 text-xs text-main/60">
                 <input
@@ -1766,6 +2278,42 @@ export default function Dashboard() {
                 />
                 {t("chat_migration_dry_run")}
               </label>
+
+              {chatImportProgress ? (
+                <div className="rounded-xl border border-sky-500/15 bg-sky-500/10 p-3 text-xs text-sky-200">
+                  <div className="flex items-center justify-between gap-3">
+                    <span>{chatImportProgress}</span>
+                    <span>
+                      {chatImportResult?.summary?.total ||
+                        countSelectedChats(chatImportSelectedIds)}
+                    </span>
+                  </div>
+                  <div className="mt-2 h-2 rounded-full bg-white/10 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-sky-400 transition-all"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          Math.round(
+                            ((chatImportResult?.summary?.total || 0) /
+                              Math.max(
+                                1,
+                                countSelectedChats(chatImportSelectedIds),
+                              )) *
+                              100,
+                          ),
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              ) : null}
+
+              {chatImportError ? (
+                <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-200 break-words">
+                  {chatImportError}
+                </div>
+              ) : null}
 
               {chatImportResult ? (
                 <div className="rounded-xl border border-white/5 bg-white/2 overflow-hidden">
@@ -1779,7 +2327,10 @@ export default function Dashboard() {
                     ].map(([key, label]) => (
                       <div key={key} className="rounded-lg bg-white/3 p-2">
                         <div className="text-base font-bold">
-                          {chatImportResult.summary?.[key] || 0}
+                          {key === "failed"
+                            ? (chatImportResult.summary?.failed || 0) +
+                              (chatImportResult.summary?.flood_wait || 0)
+                            : chatImportResult.summary?.[key] || 0}
                         </div>
                         <div className="text-[10px] text-main/40">{label}</div>
                       </div>

@@ -294,6 +294,31 @@ export interface ChatMigrationResult {
   wait_seconds?: number | null;
 }
 
+export interface ChatMigrationItem {
+  id?: number | null;
+  title: string;
+  username?: string | null;
+  type?: string | null;
+  invite_link?: string | null;
+  join?: {
+    type?: string | null;
+    value?: string | null;
+    url?: string | null;
+  } | null;
+  export_note?: string | null;
+}
+
+export interface ChatMigrationExportPayload {
+  kind?: string;
+  version?: number;
+  source_account?: string | null;
+  scope?: string | null;
+  exported_at?: string;
+  items: ChatMigrationItem[];
+  summary?: Record<string, number>;
+  warning?: string | null;
+}
+
 export interface ChatMigrationImportResponse {
   success: boolean;
   dry_run: boolean;
@@ -358,10 +383,43 @@ export const exportAccountChats = async (
   downloadBlob(blob, `tg_chats_${safeFilenamePart(accountName)}_${scope}.json`);
 };
 
+export const getAccountChatsExport = (
+  token: string,
+  accountName: string,
+  scope: ChatMigrationExportScope = "all",
+) => {
+  const params = new URLSearchParams();
+  params.append("scope", scope);
+  return request<ChatMigrationExportPayload>(
+    `/accounts/${pathSegment(accountName)}/chats/export?${params.toString()}`,
+    {},
+    token,
+  );
+};
+
+export const downloadChatMigrationJson = (
+  payload: ChatMigrationExportPayload,
+  accountName: string,
+  scope: string = "selected",
+) => {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {
+    type: "application/json;charset=utf-8",
+  });
+  downloadBlob(
+    blob,
+    `tg_chats_${safeFilenamePart(accountName)}_${safeFilenamePart(scope)}.json`,
+  );
+};
+
 export const importAccountChats = (
   token: string,
   accountName: string,
-  data: { config_json: string; dry_run?: boolean; delay_seconds?: number },
+  data: {
+    config_json?: string;
+    migration?: Record<string, unknown>;
+    dry_run?: boolean;
+    delay_seconds?: number;
+  },
 ) =>
   request<ChatMigrationImportResponse>(
     `/accounts/${pathSegment(accountName)}/chats/import`,

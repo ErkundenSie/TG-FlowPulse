@@ -509,7 +509,7 @@ class ChatMigrationService:
             results: List[Dict[str, Any]] = []
             stop_after_flood = False
 
-            for item in items:
+            for index, item in enumerate(items):
                 if stop_after_flood:
                     results.append(
                         self._base_result(
@@ -537,7 +537,7 @@ class ChatMigrationService:
                 if result["status"] == "flood_wait":
                     stop_after_flood = True
                     continue
-                if delay_seconds > 0:
+                if delay_seconds > 0 and index < len(items) - 1:
                     await asyncio.sleep(delay_seconds)
 
             summary: Dict[str, int] = {
@@ -554,6 +554,14 @@ class ChatMigrationService:
             for result in results:
                 status = str(result.get("status") or "failed")
                 summary[status] = summary.get(status, 0) + 1
+
+            logger.info(
+                "Chat migration import finished account=%s dry_run=%s total=%s summary=%s",
+                account_name,
+                dry_run,
+                len(results),
+                summary,
+            )
 
             return {
                 "success": not any(

@@ -508,6 +508,9 @@ async def export_account_chats(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
+        logger.exception(
+            "Export account chats failed account=%s scope=%s", account_name, scope
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"导出群组/频道失败: {str(e)}",
@@ -541,6 +544,7 @@ async def import_account_chats(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
+        logger.exception("Import account chats failed account=%s", account_name)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"导入群组/频道失败: {str(e)}",
