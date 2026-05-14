@@ -432,6 +432,8 @@ const translations: Translations = {
     chat_migration_view_details: "查看详情",
     chat_migration_stop_background: "停止任务",
     chat_migration_resume_background: "继续导入",
+    chat_migration_resume_unavailable:
+      "这条记录缺少原始导入清单，无法直接继续。请重新上传同一个 JSON 后后台运行。",
     chat_migration_clear_record: "清除记录",
     chat_migration_recent_records: "最近导入记录",
     chat_migration_background_canceling: "正在请求停止任务",
@@ -890,6 +892,8 @@ const translations: Translations = {
     chat_migration_view_details: "View details",
     chat_migration_stop_background: "Stop task",
     chat_migration_resume_background: "Resume import",
+    chat_migration_resume_unavailable:
+      "This record has no original import list, so it cannot resume directly. Upload the same JSON and run it in background again.",
     chat_migration_clear_record: "Clear record",
     chat_migration_recent_records: "Recent imports",
     chat_migration_background_canceling: "Stopping task",

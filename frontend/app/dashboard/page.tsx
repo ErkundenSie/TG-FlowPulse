@@ -2949,6 +2949,13 @@ export default function Dashboard() {
                               </div>
                             ))}
                           </div>
+                          {["canceled", "failed"].includes(
+                            historyItem.status,
+                          ) && !canResumeHistory ? (
+                            <div className="mt-3 rounded-lg border border-slate-500/15 bg-slate-500/10 px-3 py-2 text-xs text-main/55">
+                              {t("chat_migration_resume_unavailable")}
+                            </div>
+                          ) : null}
                           {attentionItems.length ? (
                             <div className="mt-3 overflow-hidden rounded-lg border border-amber-500/15 bg-amber-500/10">
                               <div className="px-3 py-2 text-xs font-bold text-amber-600 dark:text-amber-200">

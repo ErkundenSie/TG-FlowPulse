@@ -127,6 +127,14 @@ const saveJobToHistory = (job: ChatMigrationImportJobResponse) => {
   window.dispatchEvent(new CustomEvent("chat-import-job-history-updated"));
 };
 
+const mergeJobItems = (
+  nextJob: ChatMigrationImportJobResponse,
+  currentJob?: ChatMigrationImportJobResponse | null,
+) => ({
+  ...nextJob,
+  items: nextJob.items?.length ? nextJob.items : currentJob?.items,
+});
+
 export function ChatImportJobFloat() {
   const { t } = useLanguage();
   const [job, setJob] = useState<ChatMigrationImportJobResponse | null>(null);
@@ -191,18 +199,24 @@ export function ChatImportJobFloat() {
     resumableItems.length,
   );
 
-  const refreshJob = useCallback(async (jobId: string) => {
-    const token = getToken();
-    if (!token) return;
-    const nextJob = await getImportAccountChatsJob(token, jobId);
-    setJob(nextJob);
-    if (!isActiveJob(nextJob)) {
-      localStorage.removeItem(CHAT_IMPORT_JOB_STORAGE_KEY);
-      saveJobToHistory(nextJob);
-      setJobHistory(loadChatImportJobHistory());
-      setExpanded(true);
-    }
-  }, []);
+  const refreshJob = useCallback(
+    async (jobId: string) => {
+      const token = getToken();
+      if (!token) return;
+      const nextJob = mergeJobItems(
+        await getImportAccountChatsJob(token, jobId),
+        job,
+      );
+      setJob(nextJob);
+      if (!isActiveJob(nextJob)) {
+        localStorage.removeItem(CHAT_IMPORT_JOB_STORAGE_KEY);
+        saveJobToHistory(nextJob);
+        setJobHistory(loadChatImportJobHistory());
+        setExpanded(true);
+      }
+    },
+    [job],
+  );
 
   useEffect(() => {
     setPosition(loadStoredPosition());
@@ -307,9 +321,10 @@ export function ChatImportJobFloat() {
     try {
       setCancelLoading(true);
       const nextJob = await cancelImportAccountChatsJob(token, job.job_id);
-      setJob(nextJob);
-      if (!isActiveJob(nextJob)) {
-        saveJobToHistory(nextJob);
+      const mergedJob = mergeJobItems(nextJob, job);
+      setJob(mergedJob);
+      if (!isActiveJob(mergedJob)) {
+        saveJobToHistory(mergedJob);
         setJobHistory(loadChatImportJobHistory());
       }
     } finally {
@@ -338,7 +353,8 @@ export function ChatImportJobFloat() {
         },
       );
       localStorage.setItem(CHAT_IMPORT_JOB_STORAGE_KEY, nextJob.job_id);
-      setJob(nextJob);
+      const mergedJob = { ...nextJob, items: resumableItems };
+      setJob(mergedJob);
       setExpanded(true);
       window.dispatchEvent(
         new CustomEvent("chat-import-job-started", {
@@ -578,6 +594,14 @@ export function ChatImportJobFloat() {
             ) : !active && job.results?.length ? (
               <div className="mt-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-600 dark:text-emerald-300">
                 {t("chat_migration_no_attention")}
+              </div>
+            ) : null}
+
+            {!active &&
+            ["canceled", "failed"].includes(job.status) &&
+            !canResume ? (
+              <div className="mt-3 rounded-2xl border border-slate-500/15 bg-slate-500/10 px-3 py-2 text-xs text-main/55">
+                {t("chat_migration_resume_unavailable")}
               </div>
             ) : null}
 
