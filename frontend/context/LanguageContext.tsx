@@ -391,6 +391,7 @@ const translations: Translations = {
     chat_migration_import_failed: "群组/频道导入失败",
     chat_migration_import_empty: "请粘贴或上传迁移 JSON",
     chat_migration_file_read_failed: "读取文件失败",
+    chat_migration_notice_title: "导入限制说明",
     chat_migration_notice:
       "系统会尝试加入公开群/频道或导出包中的邀请链接；需要管理员审批、验证码机器人或缺少邀请链接的私密群，仍需在 Telegram 客户端人工处理。",
     chat_migration_delay: "加入间隔 (秒)",
@@ -841,6 +842,7 @@ const translations: Translations = {
     chat_migration_import_failed: "Failed to import chats",
     chat_migration_import_empty: "Paste or upload a migration JSON file",
     chat_migration_file_read_failed: "Failed to read file",
+    chat_migration_notice_title: "Import limitations",
     chat_migration_notice:
       "The system can join public chats or invite links from the export. Admin approval, verification bots, and private chats without links still need manual handling in Telegram.",
     chat_migration_delay: "Join delay (sec)",

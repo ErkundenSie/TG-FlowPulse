@@ -14,7 +14,6 @@ import {
   submitQrPassword,
   updateAccount,
   verifyAccountLogin,
-  cancelImportAccountChatsJob,
   deleteAccount,
   downloadChatMigrationJson,
   getImportAccountChatsJob,
@@ -53,6 +52,7 @@ import {
 } from "@phosphor-icons/react";
 import { ToastContainer, useToast } from "../../components/ui/toast";
 import { ThemeLanguageToggle } from "../../components/ThemeLanguageToggle";
+import { CHAT_IMPORT_JOB_STORAGE_KEY } from "../../components/ChatImportJobFloat";
 import { useLanguage } from "../../context/LanguageContext";
 
 type ChatMigrationSummary = Record<string, number>;
@@ -183,7 +183,6 @@ export default function Dashboard() {
     useState<ChatMigrationImportResponse | null>(null);
   const [chatImportJob, setChatImportJob] =
     useState<ChatMigrationImportJobResponse | null>(null);
-  const [showChatImportFloat, setShowChatImportFloat] = useState(false);
   const [chatImportJobActionLoading, setChatImportJobActionLoading] =
     useState(false);
 
@@ -692,7 +691,6 @@ export default function Dashboard() {
     setChatImportProgress("");
     setChatImportError("");
     setChatImportResult(null);
-    setShowChatImportFloat(false);
     setShowChatImportDialog(true);
   };
 
@@ -995,8 +993,13 @@ export default function Dashboard() {
         delay_seconds: requestedDelay,
       });
       syncImportJobToDialog(job);
+      localStorage.setItem(CHAT_IMPORT_JOB_STORAGE_KEY, job.job_id);
+      window.dispatchEvent(
+        new CustomEvent("chat-import-job-started", {
+          detail: { jobId: job.job_id },
+        }),
+      );
       setShowChatImportDialog(false);
-      setShowChatImportFloat(true);
       addToast(t("chat_migration_background_started"), "success");
     } catch (err: any) {
       const message = formatErrorMessage(
@@ -1011,26 +1014,6 @@ export default function Dashboard() {
     }
   };
 
-  const handleCancelImportJob = async () => {
-    if (!token || !chatImportJob) return;
-    try {
-      setChatImportJobActionLoading(true);
-      const job = await cancelImportAccountChatsJob(
-        token,
-        chatImportJob.job_id,
-      );
-      syncImportJobToDialog(job);
-      addToast(t("chat_migration_background_canceling"), "success");
-    } catch (err: any) {
-      addToast(
-        formatErrorMessage("chat_migration_import_failed", err),
-        "error",
-      );
-    } finally {
-      setChatImportJobActionLoading(false);
-    }
-  };
-
   useEffect(() => {
     if (!token || !chatImportJob) return;
     if (!["running", "canceling"].includes(chatImportJob.status)) return;
@@ -1039,7 +1022,6 @@ export default function Dashboard() {
         const job = await getImportAccountChatsJob(token, chatImportJob.job_id);
         syncImportJobToDialog(job);
         if (!["running", "canceling"].includes(job.status)) {
-          setShowChatImportFloat(true);
           const summary = job.summary || {};
           const failed = (summary.failed || 0) + (summary.flood_wait || 0);
           addToast(
@@ -1090,17 +1072,6 @@ export default function Dashboard() {
   const chatImportJobActive = Boolean(
     chatImportJob && ["running", "canceling"].includes(chatImportJob.status),
   );
-  const chatImportJobStatusClass = chatImportJob
-    ? chatImportJob.status === "completed"
-      ? "bg-emerald-500/15 text-emerald-500 border-emerald-500/20"
-      : chatImportJob.status === "failed"
-        ? "bg-rose-500/15 text-rose-500 border-rose-500/20"
-        : chatImportJob.status === "canceled"
-          ? "bg-slate-500/15 text-slate-500 border-slate-500/20"
-          : chatImportJob.status === "canceling"
-            ? "bg-amber-500/15 text-amber-500 border-amber-500/20"
-            : "bg-sky-500/15 text-sky-500 border-sky-500/20"
-    : "";
 
   const debugQr = useCallback((payload: Record<string, any>) => {
     if (process.env.NODE_ENV !== "production") {
@@ -2458,14 +2429,19 @@ export default function Dashboard() {
             </div>
 
             <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar">
-              <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-amber-300">
+              <div className="chat-import-notice">
                 <WarningCircle
                   weight="bold"
                   size={18}
-                  className="mt-0.5 shrink-0"
+                  className="chat-import-notice-icon"
                 />
-                <div className="text-xs leading-relaxed text-amber-200/90">
-                  {t("chat_migration_notice")}
+                <div>
+                  <div className="chat-import-notice-title">
+                    {t("chat_migration_notice_title")}
+                  </div>
+                  <div className="chat-import-notice-text">
+                    {t("chat_migration_notice")}
+                  </div>
                 </div>
               </div>
 
@@ -2714,24 +2690,12 @@ export default function Dashboard() {
                     {t("chat_migration_background_title")} ·{" "}
                     {chatImportJobProgressPercent}%
                   </span>
-                  <button
-                    className="text-[11px] font-bold hover:underline"
-                    onClick={() => {
-                      setShowChatImportDialog(false);
-                      setShowChatImportFloat(true);
-                    }}
-                  >
-                    {t("chat_migration_view_float")}
-                  </button>
                 </div>
               ) : null}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <button
                   className="btn-secondary h-10 !py-0 !text-xs"
-                  onClick={() => {
-                    setShowChatImportDialog(false);
-                    if (chatImportJob) setShowChatImportFloat(true);
-                  }}
+                  onClick={() => setShowChatImportDialog(false)}
                 >
                   {t("close")}
                 </button>
@@ -2778,130 +2742,6 @@ export default function Dashboard() {
                   )}
                 </button>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {chatImportJob && showChatImportFloat && (
-        <div className="fixed right-4 bottom-4 sm:right-6 sm:bottom-6 z-[80] w-[360px] max-w-[calc(100vw-2rem)] overflow-hidden rounded-3xl border border-white/20 bg-white/85 dark:bg-[#0b1120]/90 shadow-[0_24px_80px_rgba(15,23,42,0.28)] backdrop-blur-2xl">
-          <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-sky-400 via-violet-400 to-fuchsia-400" />
-          <div className="p-4">
-            <div className="flex items-start justify-between gap-3">
-              <div className="flex items-start gap-3 min-w-0">
-                <div className="relative mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-sky-500/10 text-sky-500">
-                  {chatImportJobActive ? (
-                    <span className="absolute inset-0 rounded-2xl animate-ping bg-sky-400/20" />
-                  ) : null}
-                  <UploadSimple weight="bold" size={18} className="relative" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-sm font-bold truncate">
-                    {t("chat_migration_background_title")}
-                  </div>
-                  <div className="mt-1 flex items-center gap-2 min-w-0">
-                    <span className="text-[11px] text-main/45 truncate">
-                      {chatImportJob.account_name}
-                    </span>
-                    <span
-                      className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-bold ${chatImportJobStatusClass}`}
-                    >
-                      {t(`chat_migration_job_${chatImportJob.status}`)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-              <button
-                className="action-icon !w-8 !h-8 opacity-70 hover:opacity-100"
-                onClick={() => setShowChatImportFloat(false)}
-                disabled={chatImportJobActive}
-                title={t("close")}
-              >
-                <X weight="bold" size={14} />
-              </button>
-            </div>
-
-            <div className="mt-4 rounded-2xl border border-sky-500/15 bg-gradient-to-br from-sky-500/10 to-violet-500/10 p-3 text-xs text-sky-700 dark:text-sky-200">
-              <div className="flex items-center justify-between gap-3 font-semibold">
-                <span className="truncate">
-                  {t("chat_migration_import_progress")
-                    .replace(
-                      "{done}",
-                      String(chatImportJob.progress?.done || 0),
-                    )
-                    .replace(
-                      "{total}",
-                      String(chatImportJob.progress?.total || 0),
-                    )}
-                </span>
-                <span className="shrink-0 text-sm font-black">
-                  {chatImportJobProgressPercent}%
-                </span>
-              </div>
-              <div className="mt-3 h-2.5 rounded-full bg-white/50 dark:bg-white/10 overflow-hidden shadow-inner">
-                <div
-                  className="h-full rounded-full bg-gradient-to-r from-sky-400 via-violet-400 to-fuchsia-400 transition-all duration-500"
-                  style={{ width: `${chatImportJobProgressPercent}%` }}
-                />
-              </div>
-            </div>
-
-            {chatImportJob.error ? (
-              <div className="mt-3 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-500 break-words">
-                {chatImportJob.error}
-              </div>
-            ) : null}
-
-            <div className="mt-3 grid grid-cols-4 gap-2 text-center">
-              {[
-                ["joined", t("chat_migration_joined")],
-                ["request_sent", t("chat_migration_request_sent")],
-                ["manual_required", t("chat_migration_manual")],
-                ["failed", t("failure")],
-              ].map(([key, label]) => (
-                <div
-                  key={key}
-                  className="rounded-2xl border border-black/5 bg-black/[0.03] p-2 dark:border-white/5 dark:bg-white/[0.04]"
-                >
-                  <div className="text-sm font-bold">
-                    {key === "failed"
-                      ? (chatImportJob.summary?.failed || 0) +
-                        (chatImportJob.summary?.flood_wait || 0)
-                      : chatImportJob.summary?.[key] || 0}
-                  </div>
-                  <div className="text-[9px] text-main/40 truncate">
-                    {label}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-3 flex gap-2">
-              <button
-                className="btn-gradient flex-1 h-9 !py-0 !text-xs"
-                onClick={() => {
-                  setShowChatImportDialog(true);
-                  setShowChatImportFloat(false);
-                }}
-              >
-                {t("chat_migration_view_details")}
-              </button>
-              {chatImportJobActive ? (
-                <button
-                  className="btn-secondary flex-1 h-9 !py-0 !text-xs !text-rose-500 hover:!bg-rose-500/10"
-                  onClick={handleCancelImportJob}
-                  disabled={
-                    chatImportJobActionLoading ||
-                    chatImportJob.status === "canceling"
-                  }
-                >
-                  {chatImportJob.status === "canceling" ? (
-                    <Spinner className="animate-spin" />
-                  ) : (
-                    t("chat_migration_stop_background")
-                  )}
-                </button>
-              ) : null}
             </div>
           </div>
         </div>

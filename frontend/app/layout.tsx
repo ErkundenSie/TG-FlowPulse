@@ -3,12 +3,14 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "../context/ThemeContext";
 import { LanguageProvider } from "../context/LanguageContext";
+import { ChatImportJobFloat } from "../components/ChatImportJobFloat";
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "TG-FlowPulse",
-  description: "Telegram 多账号自动化任务编排、消息监听、通知转发与签到管理面板",
+  description:
+    "Telegram 多账号自动化任务编排、消息监听、通知转发与签到管理面板",
 };
 
 export const viewport: Viewport = {
@@ -16,7 +18,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-}
+};
 
 export default function RootLayout({
   children,
@@ -29,6 +31,7 @@ export default function RootLayout({
         <LanguageProvider>
           <ThemeProvider>
             {children}
+            <ChatImportJobFloat />
           </ThemeProvider>
         </LanguageProvider>
       </body>
