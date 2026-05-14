@@ -16,6 +16,10 @@ import {
 import { useLanguage } from "../context/LanguageContext";
 
 const CHAT_IMPORT_JOB_STORAGE_KEY = "tg-flowpulse-chat-import-job-id";
+const CHAT_IMPORT_LAST_JOB_STORAGE_KEY = "tg-flowpulse-chat-import-last-job";
+const CHAT_IMPORT_JOB_HISTORY_STORAGE_KEY =
+  "tg-flowpulse-chat-import-job-history";
+const CHAT_IMPORT_JOB_HISTORY_LIMIT = 5;
 const CHAT_IMPORT_FLOAT_POSITION_KEY =
   "tg-flowpulse-chat-import-float-position";
 const ACTIVE_JOB_STATUSES = ["running", "canceling"];
@@ -78,9 +82,54 @@ const loadStoredPosition = () => {
   }
 };
 
+const loadJobHistory = () => {
+  if (typeof window === "undefined")
+    return [] as ChatMigrationImportJobResponse[];
+  try {
+    const storedHistory = localStorage.getItem(
+      CHAT_IMPORT_JOB_HISTORY_STORAGE_KEY,
+    );
+    if (storedHistory) {
+      const parsed = JSON.parse(storedHistory);
+      return Array.isArray(parsed)
+        ? (parsed as ChatMigrationImportJobResponse[]).slice(
+            0,
+            CHAT_IMPORT_JOB_HISTORY_LIMIT,
+          )
+        : [];
+    }
+
+    const legacyStored = localStorage.getItem(CHAT_IMPORT_LAST_JOB_STORAGE_KEY);
+    return legacyStored
+      ? [JSON.parse(legacyStored) as ChatMigrationImportJobResponse]
+      : [];
+  } catch {
+    localStorage.removeItem(CHAT_IMPORT_LAST_JOB_STORAGE_KEY);
+    localStorage.removeItem(CHAT_IMPORT_JOB_HISTORY_STORAGE_KEY);
+    return [];
+  }
+};
+
+const saveJobToHistory = (job: ChatMigrationImportJobResponse) => {
+  if (typeof window === "undefined") return;
+  const history = loadJobHistory();
+  const nextHistory = [
+    job,
+    ...history.filter((item) => item.job_id !== job.job_id),
+  ].slice(0, CHAT_IMPORT_JOB_HISTORY_LIMIT);
+  localStorage.setItem(
+    CHAT_IMPORT_JOB_HISTORY_STORAGE_KEY,
+    JSON.stringify(nextHistory),
+  );
+  localStorage.setItem(CHAT_IMPORT_LAST_JOB_STORAGE_KEY, JSON.stringify(job));
+};
+
 export function ChatImportJobFloat() {
   const { t } = useLanguage();
   const [job, setJob] = useState<ChatMigrationImportJobResponse | null>(null);
+  const [jobHistory, setJobHistory] = useState<
+    ChatMigrationImportJobResponse[]
+  >([]);
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
@@ -106,6 +155,15 @@ export function ChatImportJobFloat() {
       ),
     );
   }, [job]);
+  const attentionResults = useMemo(
+    () =>
+      (job?.results || []).filter((item) =>
+        ["manual_required", "failed", "flood_wait", "request_sent"].includes(
+          item.status,
+        ),
+      ),
+    [job],
+  );
   const active = isActiveJob(job);
 
   const refreshJob = useCallback(async (jobId: string) => {
@@ -115,6 +173,8 @@ export function ChatImportJobFloat() {
     setJob(nextJob);
     if (!isActiveJob(nextJob)) {
       localStorage.removeItem(CHAT_IMPORT_JOB_STORAGE_KEY);
+      saveJobToHistory(nextJob);
+      setJobHistory(loadJobHistory());
       setExpanded(true);
     }
   }, []);
@@ -122,9 +182,16 @@ export function ChatImportJobFloat() {
   useEffect(() => {
     setPosition(loadStoredPosition());
     const jobId = localStorage.getItem(CHAT_IMPORT_JOB_STORAGE_KEY);
+    const history = loadJobHistory();
+    setJobHistory(history);
     if (jobId) {
       setLoading(true);
       refreshJob(jobId).finally(() => setLoading(false));
+      return;
+    }
+
+    if (history.length) {
+      setJob(history[0]);
     }
   }, [refreshJob]);
 
@@ -216,6 +283,10 @@ export function ChatImportJobFloat() {
       setCancelLoading(true);
       const nextJob = await cancelImportAccountChatsJob(token, job.job_id);
       setJob(nextJob);
+      if (!isActiveJob(nextJob)) {
+        saveJobToHistory(nextJob);
+        setJobHistory(loadJobHistory());
+      }
     } finally {
       setCancelLoading(false);
     }
@@ -227,8 +298,29 @@ export function ChatImportJobFloat() {
       return;
     }
     setExpanded(false);
+  };
+
+  const handleClearRecord = () => {
+    if (active) return;
+    if (job) {
+      const nextHistory = jobHistory.filter(
+        (item) => item.job_id !== job.job_id,
+      );
+      setJobHistory(nextHistory);
+      localStorage.setItem(
+        CHAT_IMPORT_JOB_HISTORY_STORAGE_KEY,
+        JSON.stringify(nextHistory),
+      );
+      if (nextHistory.length) {
+        setJob(nextHistory[0]);
+        return;
+      }
+    }
+    setExpanded(false);
     setJob(null);
     localStorage.removeItem(CHAT_IMPORT_JOB_STORAGE_KEY);
+    localStorage.removeItem(CHAT_IMPORT_LAST_JOB_STORAGE_KEY);
+    localStorage.removeItem(CHAT_IMPORT_JOB_HISTORY_STORAGE_KEY);
   };
 
   if (!job && !loading) return null;
@@ -311,6 +403,37 @@ export function ChatImportJobFloat() {
               </div>
             </div>
 
+            {jobHistory.length > 1 ? (
+              <div className="mt-3 rounded-2xl border border-black/5 bg-black/[0.03] p-2 dark:border-white/5 dark:bg-white/[0.04]">
+                <div className="mb-2 flex items-center justify-between gap-2 px-1">
+                  <div className="text-[11px] font-bold text-main/55">
+                    {t("chat_migration_recent_records")}
+                  </div>
+                  <div className="text-[10px] text-main/35">
+                    {jobHistory.length}/5
+                  </div>
+                </div>
+                <div className="flex gap-1.5 overflow-x-auto custom-scrollbar pb-1">
+                  {jobHistory.map((historyItem, index) => {
+                    const isCurrent = historyItem.job_id === job.job_id;
+                    return (
+                      <button
+                        key={historyItem.job_id}
+                        className={`shrink-0 rounded-full border px-2.5 py-1 text-[10px] font-bold transition ${
+                          isCurrent
+                            ? "border-sky-500/30 bg-sky-500/15 text-sky-500"
+                            : "border-black/5 bg-white/40 text-main/45 hover:text-main dark:border-white/5 dark:bg-white/5"
+                        }`}
+                        onClick={() => setJob(historyItem)}
+                      >
+                        #{index + 1} · {historyItem.account_name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+
             {job.error ? (
               <div className="mt-3 rounded-2xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-500 break-words">
                 {job.error}
@@ -341,6 +464,65 @@ export function ChatImportJobFloat() {
               ))}
             </div>
 
+            {attentionResults.length ? (
+              <div className="mt-3 overflow-hidden rounded-2xl border border-amber-500/20 bg-amber-500/10">
+                <div className="flex items-center justify-between gap-3 border-b border-amber-500/15 px-3 py-2">
+                  <div className="text-xs font-bold text-amber-700 dark:text-amber-200">
+                    {t("chat_migration_attention_list")}
+                  </div>
+                  <div className="text-[10px] font-bold text-amber-600/80 dark:text-amber-200/70">
+                    {attentionResults.length}
+                  </div>
+                </div>
+                <div className="max-h-44 overflow-y-auto custom-scrollbar">
+                  {attentionResults.map((item, index) => {
+                    const statusTone =
+                      item.status === "failed" || item.status === "flood_wait"
+                        ? "text-rose-500"
+                        : "text-amber-600 dark:text-amber-300";
+                    return (
+                      <div
+                        key={`${item.title}-${item.status}-${index}`}
+                        className="border-b border-amber-500/10 px-3 py-2 last:border-0"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0 truncate text-xs font-bold">
+                            {item.title ||
+                              item.username ||
+                              item.join_ref ||
+                              "-"}
+                          </div>
+                          <div
+                            className={`shrink-0 text-[10px] font-black uppercase ${statusTone}`}
+                          >
+                            {item.status === "manual_required"
+                              ? t("chat_migration_manual")
+                              : item.status === "request_sent"
+                                ? t("chat_migration_request_sent")
+                                : item.status === "flood_wait"
+                                  ? "FLOOD"
+                                  : t("failure")}
+                          </div>
+                        </div>
+                        <div className="mt-1 truncate text-[11px] text-main/45">
+                          {item.username
+                            ? `@${item.username}`
+                            : item.join_ref || item.type || "-"}
+                        </div>
+                        <div className="mt-1 break-words text-[11px] leading-relaxed text-main/65">
+                          {item.message || t("chat_migration_attention_hint")}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : !active && job.results?.length ? (
+              <div className="mt-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-600 dark:text-emerald-300">
+                {t("chat_migration_no_attention")}
+              </div>
+            ) : null}
+
             <div className="mt-3 flex gap-2">
               <button
                 className="btn-gradient flex-1 h-9 !py-0 !text-xs"
@@ -361,7 +543,14 @@ export function ChatImportJobFloat() {
                     t("chat_migration_stop_background")
                   )}
                 </button>
-              ) : null}
+              ) : (
+                <button
+                  className="btn-secondary flex-1 h-9 !py-0 !text-xs !text-rose-500 hover:!bg-rose-500/10"
+                  onClick={handleClearRecord}
+                >
+                  {t("chat_migration_clear_record")}
+                </button>
+              )}
             </div>
           </div>
         </div>

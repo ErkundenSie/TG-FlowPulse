@@ -364,6 +364,66 @@ class ChatMigrationService:
 
         return "", "none"
 
+    def _item_membership_keys(self, item: Dict[str, Any]) -> set[str]:
+        keys: set[str] = set()
+        item_id = item.get("id")
+        if item_id is not None:
+            keys.add(f"id:{item_id}")
+
+        username = self._normalize_username(item.get("username"))
+        if username:
+            keys.add(f"username:{username.lower()}")
+
+        join = item.get("join")
+        if isinstance(join, dict):
+            join_type = self._clean_text(join.get("type"))
+            join_value = self._clean_text(join.get("value") or join.get("url"))
+            if join_type == "username":
+                username = self._normalize_username(join_value)
+                if username:
+                    keys.add(f"username:{username.lower()}")
+
+        return keys
+
+    def _chat_membership_keys(self, chat: Any) -> set[str]:
+        keys: set[str] = set()
+        chat_id = getattr(chat, "id", None)
+        if chat_id is not None:
+            keys.add(f"id:{chat_id}")
+
+        username = self._normalize_username(getattr(chat, "username", None))
+        if username:
+            keys.add(f"username:{username.lower()}")
+        return keys
+
+    async def _load_existing_membership_keys(self, client: Any) -> set[str]:
+        keys: set[str] = set()
+        async for dialog in client.get_dialogs():
+            chat = getattr(dialog, "chat", None)
+            if chat is None:
+                continue
+            chat_type = self._chat_type_name(chat)
+            if chat_type not in MIGRATABLE_CHAT_TYPES:
+                continue
+            keys.update(self._chat_membership_keys(chat))
+        return keys
+
+    def _already_member_result(self, item: Dict[str, Any], join_ref: str = "") -> Dict[str, Any]:
+        result = self._base_result(
+            item,
+            "already_member",
+            "目标账号已在该群组/频道中，已跳过。",
+        )
+        result["join_ref"] = join_ref or None
+        return result
+
+    def _is_already_member_item(
+        self,
+        item: Dict[str, Any],
+        existing_membership_keys: set[str],
+    ) -> bool:
+        return bool(self._item_membership_keys(item) & existing_membership_keys)
+
     @staticmethod
     def _base_result(item: Dict[str, Any], status: str, message: str) -> Dict[str, Any]:
         return {
@@ -510,6 +570,7 @@ class ChatMigrationService:
         async def _import(client: Any) -> Dict[str, Any]:
             results: List[Dict[str, Any]] = []
             stop_after_flood = False
+            existing_membership_keys = await self._load_existing_membership_keys(client)
 
             for index, item in enumerate(items):
                 if stop_after_flood:
@@ -523,6 +584,10 @@ class ChatMigrationService:
                     continue
 
                 join_ref, _join_type = self._join_ref_from_item(item)
+                if self._is_already_member_item(item, existing_membership_keys):
+                    results.append(self._already_member_result(item, join_ref))
+                    continue
+
                 if dry_run:
                     result = self._base_result(
                         item,
@@ -648,6 +713,7 @@ class ChatMigrationService:
 
         async def _import(client: Any) -> None:
             stop_after_flood = False
+            existing_membership_keys = await self._load_existing_membership_keys(client)
             for index, item in enumerate(items):
                 if job.get("cancel_requested"):
                     job["status"] = "canceled"
@@ -662,7 +728,9 @@ class ChatMigrationService:
                     )
                 else:
                     join_ref, _join_type = self._join_ref_from_item(item)
-                    if job["dry_run"]:
+                    if self._is_already_member_item(item, existing_membership_keys):
+                        result = self._already_member_result(item, join_ref)
+                    elif job["dry_run"]:
                         result = self._base_result(
                             item,
                             "ready" if join_ref else "manual_required",

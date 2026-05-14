@@ -170,6 +170,8 @@ export default function Dashboard() {
     string,
     any
   > | null>(null);
+  const [chatImportExistingPayload, setChatImportExistingPayload] =
+    useState<ChatMigrationExportPayload | null>(null);
   const [chatImportSelectedIds, setChatImportSelectedIds] = useState<
     Record<string, boolean>
   >({});
@@ -253,6 +255,43 @@ export default function Dashboard() {
     [],
   );
 
+  const getChatMembershipKeys = useCallback((item: ChatMigrationItem) => {
+    const keys: string[] = [];
+    if (item.id !== undefined && item.id !== null) keys.push(`id:${item.id}`);
+
+    const addUsername = (value?: string | null) => {
+      const normalized = String(value || "")
+        .trim()
+        .replace(/^@/, "")
+        .toLowerCase();
+      if (normalized) keys.push(`username:${normalized}`);
+    };
+
+    addUsername(item.username);
+    if (item.join?.type === "username") {
+      addUsername(item.join.value || item.join.url);
+    }
+    return keys;
+  }, []);
+
+  const getExistingChatMembershipKeys = useCallback(() => {
+    const keys = new Set<string>();
+    const items = (chatImportExistingPayload?.items ||
+      []) as ChatMigrationItem[];
+    for (const item of items) {
+      getChatMembershipKeys(item).forEach((key) => keys.add(key));
+    }
+    return keys;
+  }, [chatImportExistingPayload, getChatMembershipKeys]);
+
+  const isChatAlreadyJoined = useCallback(
+    (item: ChatMigrationItem) => {
+      const existingKeys = getExistingChatMembershipKeys();
+      return getChatMembershipKeys(item).some((key) => existingKeys.has(key));
+    },
+    [getChatMembershipKeys, getExistingChatMembershipKeys],
+  );
+
   const summarizeMigrationItems = useCallback(
     (items: Pick<ChatMigrationItem, "join">[]): ChatMigrationSummary => {
       const total = items.length;
@@ -330,29 +369,40 @@ export default function Dashboard() {
       selected: Record<string, boolean>,
       onToggle: (key: string) => void,
       disabled = false,
+      isItemDisabled?: (item: ChatMigrationItem) => boolean,
     ) => {
       const key = getChatMigrationItemKey(item, index);
       const joinType = getChatJoinType(item);
+      const itemDisabled = Boolean(isItemDisabled?.(item));
       const isSelected = Boolean(selected[key]);
       return (
         <label
           key={key}
-          className={`flex items-start gap-3 p-3 border-b border-white/5 last:border-0 cursor-pointer hover:bg-white/3 ${
+          className={`flex items-start gap-3 p-3 border-b border-white/5 last:border-0 hover:bg-white/3 ${
             isSelected ? "bg-white/3" : ""
-          }`}
+          } ${itemDisabled ? "cursor-not-allowed opacity-55" : "cursor-pointer"}`}
         >
           <input
             type="checkbox"
             className="mt-1"
             checked={isSelected}
-            onChange={() => onToggle(key)}
-            disabled={disabled}
+            onChange={() => {
+              if (!itemDisabled) onToggle(key);
+            }}
+            disabled={disabled || itemDisabled}
           />
           <div className="min-w-0 flex-1">
             <div className="flex items-center justify-between gap-3">
               <div className="font-semibold truncate">{item.title}</div>
-              <div className="text-[10px] text-main/35 uppercase shrink-0">
-                {item.type || "-"} / {joinType}
+              <div className="flex shrink-0 items-center gap-2">
+                {itemDisabled ? (
+                  <span className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-500">
+                    {t("chat_migration_already")}
+                  </span>
+                ) : null}
+                <div className="text-[10px] text-main/35 uppercase">
+                  {item.type || "-"} / {joinType}
+                </div>
               </div>
             </div>
             <div className="text-xs text-main/45 mt-1 truncate">
@@ -684,6 +734,7 @@ export default function Dashboard() {
     setChatImportJson("");
     setChatImportShowJson(true);
     setChatImportPayload(null);
+    setChatImportExistingPayload(null);
     setChatImportSelectedIds({});
     setChatImportSearch("");
     setChatImportDryRun(false);
@@ -693,6 +744,21 @@ export default function Dashboard() {
     setChatImportResult(null);
     setShowChatImportDialog(true);
   };
+
+  useEffect(() => {
+    if (!showChatImportDialog || !token || !chatImportAccount) return;
+    let canceled = false;
+    getAccountChatsExport(token, chatImportAccount, "all")
+      .then((payload) => {
+        if (!canceled) setChatImportExistingPayload(payload);
+      })
+      .catch(() => {
+        if (!canceled) setChatImportExistingPayload(null);
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [chatImportAccount, showChatImportDialog, token]);
 
   const parseChatImportJson = useCallback(
     (text: string) => {
@@ -712,7 +778,8 @@ export default function Dashboard() {
 
       const selected: Record<string, boolean> = {};
       items.forEach((item, index) => {
-        selected[getChatMigrationItemKey(item, index)] = true;
+        selected[getChatMigrationItemKey(item, index)] =
+          !isChatAlreadyJoined(item);
       });
 
       return {
@@ -724,7 +791,7 @@ export default function Dashboard() {
         selected,
       };
     },
-    [getChatMigrationItemKey, summarizeMigrationItems, t],
+    [getChatMigrationItemKey, isChatAlreadyJoined, summarizeMigrationItems, t],
   );
 
   const loadChatImportPreview = useCallback(
@@ -770,6 +837,10 @@ export default function Dashboard() {
   };
 
   const handleToggleChatImportItem = (key: string) => {
+    const item = ((chatImportPayload?.items || []) as ChatMigrationItem[]).find(
+      (candidate, index) => getChatMigrationItemKey(candidate, index) === key,
+    );
+    if (item && isChatAlreadyJoined(item)) return;
     setChatImportSelectedIds((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
@@ -778,7 +849,8 @@ export default function Dashboard() {
     const next: Record<string, boolean> = {};
     (chatImportPayload.items || []).forEach(
       (item: ChatMigrationItem, index: number) => {
-        next[getChatMigrationItemKey(item, index)] = checked;
+        next[getChatMigrationItemKey(item, index)] =
+          checked && !isChatAlreadyJoined(item);
       },
     );
     setChatImportSelectedIds(next);
@@ -840,7 +912,7 @@ export default function Dashboard() {
       const items = getSelectedMigrationItems(
         (migration.items || []) as ChatMigrationItem[],
         chatImportSelectedIds,
-      );
+      ).filter((item) => !isChatAlreadyJoined(item));
       if (!items.length) {
         throw new Error(t("chat_migration_select_required"));
       }
@@ -980,7 +1052,7 @@ export default function Dashboard() {
       const items = getSelectedMigrationItems(
         (migration.items || []) as ChatMigrationItem[],
         chatImportSelectedIds,
-      );
+      ).filter((item) => !isChatAlreadyJoined(item));
       if (!items.length) {
         throw new Error(t("chat_migration_select_required"));
       }
@@ -2546,7 +2618,9 @@ export default function Dashboard() {
                         <button
                           className="btn-secondary h-8 !py-0 !px-3 !text-[11px]"
                           onClick={() => setAllChatImportItems(true)}
-                          disabled={chatImportLoading}
+                          disabled={
+                            chatImportLoading || !chatImportExistingPayload
+                          }
                         >
                           {t("select_all")}
                         </button>
@@ -2577,6 +2651,7 @@ export default function Dashboard() {
                             chatImportSelectedIds,
                             handleToggleChatImportItem,
                             chatImportLoading,
+                            isChatAlreadyJoined,
                           ),
                         )
                       ) : (
