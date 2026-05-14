@@ -56,6 +56,7 @@ import { ThemeLanguageToggle } from "../../components/ThemeLanguageToggle";
 import { useLanguage } from "../../context/LanguageContext";
 
 type ChatMigrationSummary = Record<string, number>;
+const CHAT_IMPORT_BATCH_SIZE = 30;
 
 const EMPTY_LOGIN_DATA = {
   account_name: "",
