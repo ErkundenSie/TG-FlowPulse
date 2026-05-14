@@ -6,15 +6,18 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 from backend.core.auth import get_current_user
 from backend.models.user import User
+from backend.services.chat_migration import get_chat_migration_service
 from backend.services.telegram import get_telegram_service
 
 router = APIRouter()
@@ -190,6 +193,28 @@ class AccountStatusCheckResponse(BaseModel):
     """批量账号状态检测响应"""
 
     results: list[AccountStatusItem]
+
+
+class ChatMigrationImportRequest(BaseModel):
+    """群组/频道迁移导入请求"""
+
+    config_json: Optional[str] = None
+    migration: Optional[Dict[str, Any]] = None
+    dry_run: bool = False
+    delay_seconds: float = 5.0
+
+
+class ChatMigrationImportResponse(BaseModel):
+    """群组/频道迁移导入响应"""
+
+    success: bool
+    dry_run: bool = False
+    source_account: Optional[str] = None
+    target_account: str
+    imported_at: str
+    summary: Dict[str, int]
+    results: list[Dict[str, Any]]
+    notice: Optional[str] = None
 
 
 # ============ API Routes ============
@@ -453,6 +478,72 @@ async def check_accounts_status(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"账号状态检测失败: {str(e)}",
+        )
+
+
+@router.get("/{account_name}/chats/export")
+async def export_account_chats(
+    account_name: str,
+    scope: str = "all",
+    current_user: User = Depends(get_current_user),
+):
+    """导出账号已加入的群组/频道迁移 JSON。"""
+    try:
+        payload = await get_chat_migration_service().export_account_chats(
+            account_name,
+            scope=scope,
+        )
+        content = json.dumps(payload, ensure_ascii=False, indent=2)
+        safe_name = re.sub(r'[\\/:*?"<>|]+', "_", account_name)
+        safe_scope = re.sub(r'[\\/:*?"<>|]+', "_", payload.get("scope") or scope)
+        return Response(
+            content=content,
+            media_type="application/json; charset=utf-8",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="tg_chats_{safe_name}_{safe_scope}.json"'
+                )
+            },
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"导出群组/频道失败: {str(e)}",
+        )
+
+
+@router.post(
+    "/{account_name}/chats/import",
+    response_model=ChatMigrationImportResponse,
+)
+async def import_account_chats(
+    account_name: str,
+    request: ChatMigrationImportRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """将导出的群组/频道迁移 JSON 导入到当前账号。"""
+    try:
+        migration = request.migration
+        if migration is None:
+            migration = request.config_json
+        if not migration:
+            raise ValueError("请提供导入 JSON 内容")
+
+        result = await get_chat_migration_service().import_account_chats(
+            account_name=account_name,
+            migration=migration,
+            dry_run=request.dry_run,
+            delay_seconds=request.delay_seconds,
+        )
+        return ChatMigrationImportResponse(**result)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"导入群组/频道失败: {str(e)}",
         )
 
 

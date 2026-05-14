@@ -273,6 +273,40 @@ export interface AccountStatusCheckResponse {
   results: AccountStatusItem[];
 }
 
+export interface ChatMigrationResult {
+  id?: number | null;
+  title: string;
+  username?: string | null;
+  type?: string | null;
+  status:
+    | "joined"
+    | "already_member"
+    | "request_sent"
+    | "manual_required"
+    | "failed"
+    | "flood_wait"
+    | "skipped"
+    | "ready"
+    | string;
+  message: string;
+  needs_manual_check?: boolean;
+  join_ref?: string | null;
+  wait_seconds?: number | null;
+}
+
+export interface ChatMigrationImportResponse {
+  success: boolean;
+  dry_run: boolean;
+  source_account?: string | null;
+  target_account: string;
+  imported_at: string;
+  summary: Record<string, number>;
+  results: ChatMigrationResult[];
+  notice?: string | null;
+}
+
+export type ChatMigrationExportScope = "all" | "groups" | "channels";
+
 export const startAccountLogin = (token: string, data: LoginStartRequest) =>
   request<LoginStartResponse>(
     "/accounts/login/start",
@@ -302,6 +336,35 @@ export const checkAccountsStatus = (
 ) =>
   request<AccountStatusCheckResponse>(
     "/accounts/status/check",
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+    token,
+  );
+
+export const exportAccountChats = async (
+  token: string,
+  accountName: string,
+  scope: ChatMigrationExportScope = "all",
+) => {
+  const params = new URLSearchParams();
+  params.append("scope", scope);
+  const blob = await requestBlob(
+    `/accounts/${pathSegment(accountName)}/chats/export?${params.toString()}`,
+    {},
+    token,
+  );
+  downloadBlob(blob, `tg_chats_${safeFilenamePart(accountName)}_${scope}.json`);
+};
+
+export const importAccountChats = (
+  token: string,
+  accountName: string,
+  data: { config_json: string; dry_run?: boolean; delay_seconds?: number },
+) =>
+  request<ChatMigrationImportResponse>(
+    `/accounts/${pathSegment(accountName)}/chats/import`,
     {
       method: "POST",
       body: JSON.stringify(data),

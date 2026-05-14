@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, ChangeEvent } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -15,12 +15,16 @@ import {
   updateAccount,
   verifyAccountLogin,
   deleteAccount,
+  exportAccountChats,
+  importAccountChats,
   getAccountLogs,
   clearAccountLogs,
   listSignTasks,
   AccountInfo,
   AccountStatusItem,
   AccountLog,
+  ChatMigrationExportScope,
+  ChatMigrationImportResponse,
   SignTask,
 } from "../../lib/api";
 import {
@@ -35,6 +39,9 @@ import {
   PaperPlaneRight,
   Trash,
   ChatCircleText,
+  DownloadSimple,
+  UploadSimple,
+  WarningCircle,
 } from "@phosphor-icons/react";
 import { ToastContainer, useToast } from "../../components/ui/toast";
 import { ThemeLanguageToggle } from "../../components/ThemeLanguageToggle";
@@ -132,6 +139,18 @@ export default function Dashboard() {
     remark: "",
     proxy: "",
   });
+  const [showChatExportDialog, setShowChatExportDialog] = useState(false);
+  const [chatExportAccount, setChatExportAccount] = useState("");
+  const [chatExportScope, setChatExportScope] =
+    useState<ChatMigrationExportScope>("all");
+  const [showChatImportDialog, setShowChatImportDialog] = useState(false);
+  const [chatImportAccount, setChatImportAccount] = useState("");
+  const [chatImportJson, setChatImportJson] = useState("");
+  const [chatImportDryRun, setChatImportDryRun] = useState(false);
+  const [chatImportDelay, setChatImportDelay] = useState(5);
+  const [chatImportLoading, setChatImportLoading] = useState(false);
+  const [chatImportResult, setChatImportResult] =
+    useState<ChatMigrationImportResponse | null>(null);
 
   const normalizeAccountName = useCallback((name: string) => name.trim(), []);
 
@@ -373,6 +392,83 @@ export default function Dashboard() {
       addToast(formatErrorMessage("save_failed", err), "error");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const openChatExportDialog = (accountName: string) => {
+    setChatExportAccount(accountName);
+    setChatExportScope("all");
+    setShowChatExportDialog(true);
+  };
+
+  const handleExportChats = async () => {
+    if (!token) return;
+    if (!chatExportAccount) return;
+    try {
+      setLoading(true);
+      await exportAccountChats(token, chatExportAccount, chatExportScope);
+      addToast(t("chat_migration_export_success"), "success");
+      setShowChatExportDialog(false);
+    } catch (err: any) {
+      addToast(formatErrorMessage("chat_migration_export_failed", err), "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const openChatImportDialog = (accountName: string) => {
+    setChatImportAccount(accountName);
+    setChatImportJson("");
+    setChatImportDryRun(false);
+    setChatImportDelay(5);
+    setChatImportResult(null);
+    setShowChatImportDialog(true);
+  };
+
+  const handleChatImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      setChatImportJson(text);
+    } catch {
+      addToast(t("chat_migration_file_read_failed"), "error");
+    } finally {
+      event.target.value = "";
+    }
+  };
+
+  const handleImportChats = async () => {
+    if (!token || !chatImportAccount) return;
+    if (!chatImportJson.trim()) {
+      addToast(t("chat_migration_import_empty"), "error");
+      return;
+    }
+    try {
+      setChatImportLoading(true);
+      const result = await importAccountChats(token, chatImportAccount, {
+        config_json: chatImportJson,
+        dry_run: chatImportDryRun,
+        delay_seconds: chatImportDelay,
+      });
+      setChatImportResult(result);
+      const summary = result.summary || {};
+      const joined = summary.joined || 0;
+      const requestSent = summary.request_sent || 0;
+      const manual = summary.manual_required || 0;
+      const failed = (summary.failed || 0) + (summary.flood_wait || 0);
+      addToast(
+        t("chat_migration_import_summary")
+          .replace("{joined}", joined.toString())
+          .replace("{request}", requestSent.toString())
+          .replace("{manual}", manual.toString())
+          .replace("{failed}", failed.toString()),
+        failed > 0 ? "error" : "success",
+      );
+    } catch (err: any) {
+      addToast(formatErrorMessage("chat_migration_import_failed", err), "error");
+    } finally {
+      setChatImportLoading(false);
     }
   };
 
@@ -1035,7 +1131,7 @@ export default function Dashboard() {
 
                   <div className="flex-1"></div>
 
-                  <div className="card-bottom !pt-3">
+                  <div className="card-bottom !pt-3 !items-start !gap-2 !flex-col">
                     <div
                       className="create-time"
                       title={statusInfo?.message || acc.status_message || ""}
@@ -1045,7 +1141,7 @@ export default function Dashboard() {
                         {t(statusKey)}
                       </span>
                     </div>
-                    <div className="card-actions">
+                    <div className="card-actions w-full justify-end !gap-1.5">
                       <Link
                         href={`/dashboard/account-tasks?name=${encodeURIComponent(acc.name)}`}
                         className="action-icon !w-8 !h-8 !text-[#8a3ffc] hover:bg-[#8a3ffc]/10"
@@ -1071,6 +1167,26 @@ export default function Dashboard() {
                         }}
                       >
                         <PencilSimple weight="bold" size={16} />
+                      </div>
+                      <div
+                        className="action-icon !w-8 !h-8 !text-emerald-500 hover:bg-emerald-500/10"
+                        title={t("chat_migration_export")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openChatExportDialog(acc.name);
+                        }}
+                      >
+                        <DownloadSimple weight="bold" size={16} />
+                      </div>
+                      <div
+                        className="action-icon !w-8 !h-8 !text-sky-500 hover:bg-sky-500/10"
+                        title={t("chat_migration_import")}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openChatImportDialog(acc.name);
+                        }}
+                      >
+                        <UploadSimple weight="bold" size={16} />
                       </div>
                       <div
                         className="action-icon delete !w-8 !h-8"
@@ -1474,6 +1590,258 @@ export default function Dashboard() {
                   {loading ? <Spinner className="animate-spin" /> : t("save")}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showChatExportDialog && (
+        <div className="modal-overlay active">
+          <div
+            className="glass-panel modal-content !max-w-[420px] !p-6"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header !mb-5">
+              <div className="modal-title !text-lg">
+                {t("chat_migration_export")}
+              </div>
+              <div
+                className="modal-close"
+                onClick={() => setShowChatExportDialog(false)}
+              >
+                <X weight="bold" />
+              </div>
+            </div>
+
+            <div className="animate-float-up space-y-4">
+              <div>
+                <label className="text-[11px] mb-1">{t("session_name")}</label>
+                <input
+                  type="text"
+                  className="!py-2.5 !px-4 !mb-4"
+                  value={chatExportAccount}
+                  disabled
+                />
+
+                <label className="text-[11px] mb-2">
+                  {t("chat_migration_export_scope")}
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {[
+                    ["all", t("chat_migration_scope_all")],
+                    ["groups", t("chat_migration_scope_groups")],
+                    ["channels", t("chat_migration_scope_channels")],
+                  ].map(([value, label]) => (
+                    <button
+                      key={value}
+                      className={`h-10 text-xs font-bold rounded-lg ${
+                        chatExportScope === value
+                          ? "btn-gradient"
+                          : "btn-secondary"
+                      }`}
+                      onClick={() =>
+                        setChatExportScope(value as ChatMigrationExportScope)
+                      }
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="text-xs text-main/45 leading-relaxed rounded-xl bg-white/3 border border-white/5 p-3">
+                {t("chat_migration_export_scope_hint")}
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button
+                  className="btn-secondary flex-1 h-10 !py-0 !text-xs"
+                  onClick={() => setShowChatExportDialog(false)}
+                >
+                  {t("cancel")}
+                </button>
+                <button
+                  className="btn-gradient flex-1 h-10 !py-0 !text-xs"
+                  onClick={handleExportChats}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <Spinner className="animate-spin" />
+                  ) : (
+                    t("download_json")
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showChatImportDialog && (
+        <div className="modal-overlay active">
+          <div
+            className="glass-panel modal-content !max-w-3xl max-h-[90vh] flex flex-col overflow-hidden !p-0"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-5 border-b border-white/5 flex justify-between items-center bg-white/2">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="p-2 bg-sky-500/10 rounded-lg text-sky-500">
+                  <UploadSimple weight="bold" size={18} />
+                </div>
+                <div className="min-w-0">
+                  <div className="font-bold text-lg truncate">
+                    {t("chat_migration_import")}
+                  </div>
+                  <div className="text-xs text-main/40 truncate">
+                    {chatImportAccount}
+                  </div>
+                </div>
+              </div>
+              <div
+                className="modal-close"
+                onClick={() => setShowChatImportDialog(false)}
+              >
+                <X weight="bold" />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar">
+              <div className="flex items-start gap-3 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-amber-300">
+                <WarningCircle
+                  weight="bold"
+                  size={18}
+                  className="mt-0.5 shrink-0"
+                />
+                <div className="text-xs leading-relaxed text-amber-200/90">
+                  {t("chat_migration_notice")}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-[1fr_150px] gap-3 items-end">
+                <div>
+                  <label className="text-[11px] mb-1">
+                    {t("upload_json")}
+                  </label>
+                  <input
+                    type="file"
+                    accept="application/json,.json"
+                    className="!mb-0"
+                    onChange={handleChatImportFile}
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] mb-1">
+                    {t("chat_migration_delay")}
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    max={120}
+                    className="!mb-0"
+                    value={chatImportDelay}
+                    onChange={(e) =>
+                      setChatImportDelay(Number(e.target.value || 0))
+                    }
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] mb-1">
+                  {t("chat_migration_json")}
+                </label>
+                <textarea
+                  className="!mb-0 min-h-[180px] font-mono text-xs"
+                  placeholder={t("chat_migration_json_placeholder")}
+                  value={chatImportJson}
+                  onChange={(e) => setChatImportJson(e.target.value)}
+                />
+              </div>
+
+              <label className="flex items-center gap-2 !mb-0 text-xs text-main/60">
+                <input
+                  type="checkbox"
+                  checked={chatImportDryRun}
+                  onChange={(e) => setChatImportDryRun(e.target.checked)}
+                />
+                {t("chat_migration_dry_run")}
+              </label>
+
+              {chatImportResult ? (
+                <div className="rounded-xl border border-white/5 bg-white/2 overflow-hidden">
+                  <div className="p-3 border-b border-white/5 grid grid-cols-2 md:grid-cols-5 gap-2 text-center">
+                    {[
+                      ["joined", t("chat_migration_joined")],
+                      ["already_member", t("chat_migration_already")],
+                      ["request_sent", t("chat_migration_request_sent")],
+                      ["manual_required", t("chat_migration_manual")],
+                      ["failed", t("failure")],
+                    ].map(([key, label]) => (
+                      <div key={key} className="rounded-lg bg-white/3 p-2">
+                        <div className="text-base font-bold">
+                          {chatImportResult.summary?.[key] || 0}
+                        </div>
+                        <div className="text-[10px] text-main/40">{label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="max-h-[260px] overflow-y-auto custom-scrollbar">
+                    {chatImportResult.results.map((item, index) => {
+                      const statusColor =
+                        item.status === "joined" ||
+                        item.status === "already_member"
+                          ? "text-emerald-400"
+                          : item.status === "request_sent" ||
+                              item.status === "manual_required" ||
+                              item.status === "ready"
+                            ? "text-amber-300"
+                            : "text-rose-400";
+                      return (
+                        <div
+                          key={`${item.title}-${index}`}
+                          className="p-3 border-b border-white/5 last:border-0"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="font-semibold truncate">
+                              {item.title}
+                            </div>
+                            <div
+                              className={`text-[10px] font-bold uppercase shrink-0 ${statusColor}`}
+                            >
+                              {item.status}
+                            </div>
+                          </div>
+                          <div className="text-xs text-main/45 mt-1 leading-relaxed break-words">
+                            {item.message}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+
+            <div className="p-4 border-t border-white/5 flex gap-3 bg-white/2">
+              <button
+                className="btn-secondary flex-1 h-10 !py-0 !text-xs"
+                onClick={() => setShowChatImportDialog(false)}
+              >
+                {t("close")}
+              </button>
+              <button
+                className="btn-gradient flex-1 h-10 !py-0 !text-xs"
+                onClick={handleImportChats}
+                disabled={chatImportLoading || !chatImportJson.trim()}
+              >
+                {chatImportLoading ? (
+                  <Spinner className="animate-spin" />
+                ) : chatImportDryRun ? (
+                  t("chat_migration_preview")
+                ) : (
+                  t("chat_migration_start_import")
+                )}
+              </button>
             </div>
           </div>
         </div>
