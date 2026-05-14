@@ -17,7 +17,7 @@ import { useLanguage } from "../context/LanguageContext";
 
 const CHAT_IMPORT_JOB_STORAGE_KEY = "tg-flowpulse-chat-import-job-id";
 const CHAT_IMPORT_LAST_JOB_STORAGE_KEY = "tg-flowpulse-chat-import-last-job";
-const CHAT_IMPORT_JOB_HISTORY_STORAGE_KEY =
+export const CHAT_IMPORT_JOB_HISTORY_STORAGE_KEY =
   "tg-flowpulse-chat-import-job-history";
 const CHAT_IMPORT_JOB_HISTORY_LIMIT = 5;
 const CHAT_IMPORT_FLOAT_POSITION_KEY =
@@ -82,7 +82,7 @@ const loadStoredPosition = () => {
   }
 };
 
-const loadJobHistory = () => {
+export const loadChatImportJobHistory = () => {
   if (typeof window === "undefined")
     return [] as ChatMigrationImportJobResponse[];
   try {
@@ -112,7 +112,7 @@ const loadJobHistory = () => {
 
 const saveJobToHistory = (job: ChatMigrationImportJobResponse) => {
   if (typeof window === "undefined") return;
-  const history = loadJobHistory();
+  const history = loadChatImportJobHistory();
   const nextHistory = [
     job,
     ...history.filter((item) => item.job_id !== job.job_id),
@@ -122,6 +122,7 @@ const saveJobToHistory = (job: ChatMigrationImportJobResponse) => {
     JSON.stringify(nextHistory),
   );
   localStorage.setItem(CHAT_IMPORT_LAST_JOB_STORAGE_KEY, JSON.stringify(job));
+  window.dispatchEvent(new CustomEvent("chat-import-job-history-updated"));
 };
 
 export function ChatImportJobFloat() {
@@ -174,7 +175,7 @@ export function ChatImportJobFloat() {
     if (!isActiveJob(nextJob)) {
       localStorage.removeItem(CHAT_IMPORT_JOB_STORAGE_KEY);
       saveJobToHistory(nextJob);
-      setJobHistory(loadJobHistory());
+      setJobHistory(loadChatImportJobHistory());
       setExpanded(true);
     }
   }, []);
@@ -182,7 +183,7 @@ export function ChatImportJobFloat() {
   useEffect(() => {
     setPosition(loadStoredPosition());
     const jobId = localStorage.getItem(CHAT_IMPORT_JOB_STORAGE_KEY);
-    const history = loadJobHistory();
+    const history = loadChatImportJobHistory();
     setJobHistory(history);
     if (jobId) {
       setLoading(true);
@@ -285,7 +286,7 @@ export function ChatImportJobFloat() {
       setJob(nextJob);
       if (!isActiveJob(nextJob)) {
         saveJobToHistory(nextJob);
-        setJobHistory(loadJobHistory());
+        setJobHistory(loadChatImportJobHistory());
       }
     } finally {
       setCancelLoading(false);

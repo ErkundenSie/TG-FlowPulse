@@ -52,7 +52,11 @@ import {
 } from "@phosphor-icons/react";
 import { ToastContainer, useToast } from "../../components/ui/toast";
 import { ThemeLanguageToggle } from "../../components/ThemeLanguageToggle";
-import { CHAT_IMPORT_JOB_STORAGE_KEY } from "../../components/ChatImportJobFloat";
+import {
+  CHAT_IMPORT_JOB_HISTORY_STORAGE_KEY,
+  CHAT_IMPORT_JOB_STORAGE_KEY,
+  loadChatImportJobHistory,
+} from "../../components/ChatImportJobFloat";
 import { useLanguage } from "../../context/LanguageContext";
 
 type ChatMigrationSummary = Record<string, number>;
@@ -185,6 +189,9 @@ export default function Dashboard() {
     useState<ChatMigrationImportResponse | null>(null);
   const [chatImportJob, setChatImportJob] =
     useState<ChatMigrationImportJobResponse | null>(null);
+  const [chatImportJobHistory, setChatImportJobHistory] = useState<
+    ChatMigrationImportJobResponse[]
+  >([]);
   const [chatImportJobActionLoading, setChatImportJobActionLoading] =
     useState(false);
 
@@ -742,8 +749,26 @@ export default function Dashboard() {
     setChatImportProgress("");
     setChatImportError("");
     setChatImportResult(null);
+    setChatImportJobHistory(loadChatImportJobHistory());
     setShowChatImportDialog(true);
   };
+
+  useEffect(() => {
+    if (!showChatImportDialog) return;
+    setChatImportJobHistory(loadChatImportJobHistory());
+    const refreshHistory = () => {
+      setChatImportJobHistory(loadChatImportJobHistory());
+    };
+    window.addEventListener("chat-import-job-history-updated", refreshHistory);
+    window.addEventListener("storage", refreshHistory);
+    return () => {
+      window.removeEventListener(
+        "chat-import-job-history-updated",
+        refreshHistory,
+      );
+      window.removeEventListener("storage", refreshHistory);
+    };
+  }, [showChatImportDialog]);
 
   useEffect(() => {
     if (!showChatImportDialog || !token || !chatImportAccount) return;
@@ -842,6 +867,18 @@ export default function Dashboard() {
     );
     if (item && isChatAlreadyJoined(item)) return;
     setChatImportSelectedIds((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handleClearChatImportHistoryItem = (jobId: string) => {
+    const nextHistory = chatImportJobHistory.filter(
+      (item) => item.job_id !== jobId,
+    );
+    setChatImportJobHistory(nextHistory);
+    localStorage.setItem(
+      CHAT_IMPORT_JOB_HISTORY_STORAGE_KEY,
+      JSON.stringify(nextHistory),
+    );
+    window.dispatchEvent(new CustomEvent("chat-import-job-history-updated"));
   };
 
   const setAllChatImportItems = (checked: boolean) => {
@@ -2750,6 +2787,131 @@ export default function Dashboard() {
                           <div className="text-xs text-main/45 mt-1 leading-relaxed break-words">
                             {item.message}
                           </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
+
+              {chatImportJobHistory.length ? (
+                <div className="rounded-xl border border-white/5 bg-white/2 overflow-hidden">
+                  <div className="p-3 border-b border-white/5 flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-bold">
+                        {t("chat_migration_recent_records")}
+                      </div>
+                      <div className="text-xs text-main/40">
+                        {chatImportJobHistory.length}/5
+                      </div>
+                    </div>
+                  </div>
+                  <div className="max-h-[320px] overflow-y-auto custom-scrollbar">
+                    {chatImportJobHistory.map((historyItem, historyIndex) => {
+                      const failed =
+                        (historyItem.summary?.failed || 0) +
+                        (historyItem.summary?.flood_wait || 0);
+                      const attentionItems = (historyItem.results || []).filter(
+                        (item) =>
+                          [
+                            "manual_required",
+                            "failed",
+                            "flood_wait",
+                            "request_sent",
+                          ].includes(item.status),
+                      );
+                      return (
+                        <div
+                          key={historyItem.job_id}
+                          className="p-3 border-b border-white/5 last:border-0"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold truncate">
+                                #{historyIndex + 1} · {historyItem.account_name}
+                              </div>
+                              <div className="mt-1 text-[11px] text-main/45">
+                                {historyItem.finished_at ||
+                                  historyItem.updated_at}
+                              </div>
+                            </div>
+                            <button
+                              className="btn-secondary h-7 !py-0 !px-2 !text-[10px] !text-rose-500"
+                              onClick={() =>
+                                handleClearChatImportHistoryItem(
+                                  historyItem.job_id,
+                                )
+                              }
+                            >
+                              {t("chat_migration_clear_record")}
+                            </button>
+                          </div>
+                          <div className="mt-3 grid grid-cols-4 gap-2 text-center">
+                            {[
+                              ["joined", t("chat_migration_joined")],
+                              [
+                                "request_sent",
+                                t("chat_migration_request_sent"),
+                              ],
+                              ["manual_required", t("chat_migration_manual")],
+                              ["failed", t("failure")],
+                            ].map(([key, label]) => (
+                              <div
+                                key={key}
+                                className="rounded-lg bg-white/3 p-2"
+                              >
+                                <div className="text-sm font-bold">
+                                  {key === "failed"
+                                    ? failed
+                                    : historyItem.summary?.[key] || 0}
+                                </div>
+                                <div className="text-[9px] text-main/40">
+                                  {label}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          {attentionItems.length ? (
+                            <div className="mt-3 overflow-hidden rounded-lg border border-amber-500/15 bg-amber-500/10">
+                              <div className="px-3 py-2 text-xs font-bold text-amber-600 dark:text-amber-200">
+                                {t("chat_migration_attention_list")} ·{" "}
+                                {attentionItems.length}
+                              </div>
+                              <div className="max-h-40 overflow-y-auto custom-scrollbar">
+                                {attentionItems.map((item, index) => (
+                                  <div
+                                    key={`${historyItem.job_id}-${item.title}-${index}`}
+                                    className="border-t border-amber-500/10 px-3 py-2"
+                                  >
+                                    <div className="flex items-center justify-between gap-2">
+                                      <div className="min-w-0 truncate text-xs font-semibold">
+                                        {item.title ||
+                                          item.username ||
+                                          item.join_ref ||
+                                          "-"}
+                                      </div>
+                                      <div className="shrink-0 text-[10px] font-bold uppercase text-amber-600 dark:text-amber-300">
+                                        {item.status}
+                                      </div>
+                                    </div>
+                                    <div className="mt-1 truncate text-[11px] text-main/45">
+                                      {item.username
+                                        ? `@${item.username}`
+                                        : item.join_ref || item.type || "-"}
+                                    </div>
+                                    <div className="mt-1 break-words text-[11px] text-main/60">
+                                      {item.message ||
+                                        t("chat_migration_attention_hint")}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="mt-3 rounded-lg border border-emerald-500/15 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-500">
+                              {t("chat_migration_no_attention")}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
