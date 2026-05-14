@@ -217,6 +217,22 @@ class ChatMigrationImportResponse(BaseModel):
     notice: Optional[str] = None
 
 
+class ChatMigrationImportJobResponse(BaseModel):
+    job_id: str
+    status: str
+    account_name: str
+    dry_run: bool = False
+    delay_seconds: float = 5.0
+    created_at: str
+    updated_at: str
+    finished_at: Optional[str] = None
+    progress: Dict[str, int]
+    summary: Dict[str, int]
+    results: list[Dict[str, Any]]
+    error: Optional[str] = None
+    notice: Optional[str] = None
+
+
 # ============ API Routes ============
 
 
@@ -549,6 +565,71 @@ async def import_account_chats(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"导入群组/频道失败: {str(e)}",
         )
+
+
+@router.post(
+    "/{account_name}/chats/import-jobs",
+    response_model=ChatMigrationImportJobResponse,
+)
+async def start_import_account_chats_job(
+    account_name: str,
+    request: ChatMigrationImportRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """启动后台群组/频道导入任务。"""
+    try:
+        migration = request.migration
+        if migration is None:
+            migration = request.config_json
+        if not migration:
+            raise ValueError("请提供导入 JSON 内容")
+        job = get_chat_migration_service().start_import_job(
+            account_name=account_name,
+            migration=migration,
+            dry_run=request.dry_run,
+            delay_seconds=request.delay_seconds,
+        )
+        return ChatMigrationImportJobResponse(**job)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.exception("Start import chats job failed account=%s", account_name)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"启动后台导入失败: {str(e)}",
+        )
+
+
+@router.get(
+    "/chats/import-jobs/{job_id}",
+    response_model=ChatMigrationImportJobResponse,
+)
+async def get_import_account_chats_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return ChatMigrationImportJobResponse(
+            **get_chat_migration_service().get_import_job(job_id)
+        )
+    except KeyError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在")
+
+
+@router.post(
+    "/chats/import-jobs/{job_id}/cancel",
+    response_model=ChatMigrationImportJobResponse,
+)
+async def cancel_import_account_chats_job(
+    job_id: str,
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return ChatMigrationImportJobResponse(
+            **get_chat_migration_service().cancel_import_job(job_id)
+        )
+    except KeyError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="任务不存在")
 
 
 @router.delete("/{account_name}", response_model=DeleteAccountResponse)

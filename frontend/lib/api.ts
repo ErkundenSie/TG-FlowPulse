@@ -330,6 +330,28 @@ export interface ChatMigrationImportResponse {
   notice?: string | null;
 }
 
+export interface ChatMigrationImportJobResponse {
+  job_id: string;
+  status:
+    | "running"
+    | "canceling"
+    | "canceled"
+    | "completed"
+    | "failed"
+    | string;
+  account_name: string;
+  dry_run: boolean;
+  delay_seconds: number;
+  created_at: string;
+  updated_at: string;
+  finished_at?: string | null;
+  progress: { done: number; total: number };
+  summary: Record<string, number>;
+  results: ChatMigrationResult[];
+  error?: string | null;
+  notice?: string | null;
+}
+
 export type ChatMigrationExportScope = "all" | "groups" | "channels";
 
 export const startAccountLogin = (token: string, data: LoginStartRequest) =>
@@ -427,6 +449,39 @@ export const importAccountChats = (
       method: "POST",
       body: JSON.stringify(data),
     },
+    token,
+  );
+
+export const startImportAccountChatsJob = (
+  token: string,
+  accountName: string,
+  data: {
+    config_json?: string;
+    migration?: Record<string, unknown>;
+    dry_run?: boolean;
+    delay_seconds?: number;
+  },
+) =>
+  request<ChatMigrationImportJobResponse>(
+    `/accounts/${pathSegment(accountName)}/chats/import-jobs`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+    token,
+  );
+
+export const getImportAccountChatsJob = (token: string, jobId: string) =>
+  request<ChatMigrationImportJobResponse>(
+    `/accounts/chats/import-jobs/${pathSegment(jobId)}`,
+    {},
+    token,
+  );
+
+export const cancelImportAccountChatsJob = (token: string, jobId: string) =>
+  request<ChatMigrationImportJobResponse>(
+    `/accounts/chats/import-jobs/${pathSegment(jobId)}/cancel`,
+    { method: "POST" },
     token,
   );
 

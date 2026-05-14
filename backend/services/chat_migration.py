@@ -13,6 +13,7 @@ import json
 import logging
 import os
 import re
+import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -48,6 +49,7 @@ class ChatMigrationService:
         self.settings = get_settings()
         self.session_dir = self.settings.resolve_session_dir()
         self.session_dir.mkdir(parents=True, exist_ok=True)
+        self.background_jobs: Dict[str, Dict[str, Any]] = {}
 
     def _validate_account_name(self, account_name: str) -> str:
         return validate_name_segment(account_name, "account_name")
@@ -578,6 +580,157 @@ class ChatMigrationService:
             }
 
         return await self._with_client(account_name, _import)
+
+    def start_import_job(
+        self,
+        account_name: str,
+        migration: Any,
+        *,
+        dry_run: bool = False,
+        delay_seconds: float = 5.0,
+    ) -> Dict[str, Any]:
+        account_name = self._validate_account_name(account_name)
+        migration_data = self._load_migration(migration)
+        items = [
+            item
+            for item in migration_data.get("items", [])
+            if isinstance(item, dict)
+            and self._clean_text(item.get("type")).lower() in MIGRATABLE_CHAT_TYPES
+        ]
+        delay_seconds = max(0.0, min(float(delay_seconds or 0), 120.0))
+        job_id = uuid.uuid4().hex
+        job = {
+            "job_id": job_id,
+            "status": "running",
+            "account_name": account_name,
+            "dry_run": dry_run,
+            "delay_seconds": delay_seconds,
+            "created_at": self._utc_now(),
+            "updated_at": self._utc_now(),
+            "finished_at": None,
+            "progress": {"done": 0, "total": len(items)},
+            "summary": self._empty_import_summary(),
+            "results": [],
+            "error": None,
+            "notice": "需要审批、验证码或私密链接缺失的条目不会被绕过，需在 Telegram 客户端人工处理。",
+            "cancel_requested": False,
+        }
+        self.background_jobs[job_id] = job
+        asyncio.create_task(
+            self._run_import_job(job_id, account_name, migration_data, items)
+        )
+        return self.get_import_job(job_id)
+
+    def get_import_job(self, job_id: str) -> Dict[str, Any]:
+        job = self.background_jobs.get(job_id)
+        if not job:
+            raise KeyError(job_id)
+        return self._public_job(job)
+
+    def cancel_import_job(self, job_id: str) -> Dict[str, Any]:
+        job = self.background_jobs.get(job_id)
+        if not job:
+            raise KeyError(job_id)
+        if job["status"] in {"running", "canceling"}:
+            job["status"] = "canceling"
+            job["cancel_requested"] = True
+            job["updated_at"] = self._utc_now()
+        return self._public_job(job)
+
+    async def _run_import_job(
+        self,
+        job_id: str,
+        account_name: str,
+        migration_data: Dict[str, Any],
+        items: List[Dict[str, Any]],
+    ) -> None:
+        job = self.background_jobs[job_id]
+
+        async def _import(client: Any) -> None:
+            stop_after_flood = False
+            for index, item in enumerate(items):
+                if job.get("cancel_requested"):
+                    job["status"] = "canceled"
+                    job["finished_at"] = self._utc_now()
+                    return
+
+                if stop_after_flood:
+                    result = self._base_result(
+                        item,
+                        "skipped",
+                        "前序条目触发 Telegram 频率限制，本条已跳过。",
+                    )
+                else:
+                    join_ref, _join_type = self._join_ref_from_item(item)
+                    if job["dry_run"]:
+                        result = self._base_result(
+                            item,
+                            "ready" if join_ref else "manual_required",
+                            "可自动尝试加入。" if join_ref else "缺少公开用户名或邀请链接，需人工加入。",
+                        )
+                        result["join_ref"] = join_ref or None
+                        result["needs_manual_check"] = not bool(join_ref)
+                    else:
+                        result = await self._join_one(client, item)
+                        if result["status"] == "flood_wait":
+                            stop_after_flood = True
+
+                job["results"].append(result)
+                job["progress"] = {"done": len(job["results"]), "total": len(items)}
+                job["summary"] = self._summarize_import_results(job["results"])
+                job["updated_at"] = self._utc_now()
+
+                if (
+                    not job["dry_run"]
+                    and job["delay_seconds"] > 0
+                    and index < len(items) - 1
+                    and not stop_after_flood
+                ):
+                    await asyncio.sleep(job["delay_seconds"])
+
+        try:
+            await self._with_client(account_name, _import)
+            if job["status"] not in {"canceled"}:
+                failed = any(
+                    result.get("status") in {"failed", "flood_wait"}
+                    for result in job["results"]
+                )
+                job["status"] = "failed" if failed else "completed"
+                job["finished_at"] = self._utc_now()
+        except Exception as exc:
+            logger.exception("Background chat migration import failed job=%s", job_id)
+            job["status"] = "failed"
+            job["error"] = str(exc)
+            job["finished_at"] = self._utc_now()
+        finally:
+            job["updated_at"] = self._utc_now()
+            job["summary"] = self._summarize_import_results(job["results"])
+
+    @staticmethod
+    def _empty_import_summary() -> Dict[str, int]:
+        return {
+            "total": 0,
+            "joined": 0,
+            "already_member": 0,
+            "request_sent": 0,
+            "manual_required": 0,
+            "failed": 0,
+            "flood_wait": 0,
+            "skipped": 0,
+            "ready": 0,
+        }
+
+    def _summarize_import_results(self, results: List[Dict[str, Any]]) -> Dict[str, int]:
+        summary = self._empty_import_summary()
+        summary["total"] = len(results)
+        for result in results:
+            status = str(result.get("status") or "failed")
+            summary[status] = summary.get(status, 0) + 1
+        return summary
+
+    @staticmethod
+    def _public_job(job: Dict[str, Any]) -> Dict[str, Any]:
+        return {key: value for key, value in job.items() if key != "cancel_requested"}
 
 
 _chat_migration_service: Optional[ChatMigrationService] = None

@@ -369,7 +369,7 @@ select option {
 
 .main-content {
   flex: 1;
-  padding: 40px;
+  padding: 48px 56px;
   width: 100%;
   max-width: 1400px;
   margin: 0 auto;
@@ -385,31 +385,68 @@ select option {
 
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 24px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 28px;
+  align-items: stretch;
 }
 
 .card {
-  height: 190px;
+  min-height: 214px;
   padding: 24px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  transition: all 0.3s;
+  transition:
+    transform 0.25s ease,
+    border-color 0.25s ease,
+    box-shadow 0.25s ease,
+    background 0.25s ease;
   position: relative;
   overflow: hidden;
 }
 
+.account-card {
+  border-radius: 22px;
+  background:
+    radial-gradient(
+      circle at 16% 0%,
+      rgba(138, 63, 252, 0.08),
+      transparent 34%
+    ),
+    var(--glass-bg);
+}
+
+.account-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.16),
+    transparent 42%
+  );
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
 .card:hover {
-  transform: translateY(-5px);
+  transform: translateY(-6px);
   border-color: var(--accent-color);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 18px 44px rgba(25, 20, 60, 0.14);
+}
+
+.account-card:hover::before {
+  opacity: 1;
 }
 
 .card-top {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
+  gap: 18px;
+  position: relative;
+  z-index: 1;
 }
 
 .account-name {
@@ -418,13 +455,14 @@ select option {
   color: var(--text-main);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  min-width: 0;
 }
 
 .account-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
   background: linear-gradient(135deg, #3c40c6, #8a3ffc);
   display: flex;
   align-items: center;
@@ -432,16 +470,18 @@ select option {
   font-size: 12px;
   font-weight: bold;
   color: white;
+  box-shadow: 0 10px 24px rgba(138, 63, 252, 0.22);
 }
 
 .task-badge {
   background: rgba(138, 63, 252, 0.1);
   border: 1px solid rgba(138, 63, 252, 0.2);
   color: #b57dff;
-  padding: 4px 12px;
+  padding: 6px 12px;
   border-radius: 20px;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .light .task-badge,
@@ -450,12 +490,77 @@ select option {
   background: rgba(138, 63, 252, 0.08);
 }
 
+.account-card-body {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-top: 24px;
+  padding: 14px 0 4px;
+}
+
+.account-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: 70%;
+  padding: 7px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid transparent;
+}
+
+.account-status-pill.connected {
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.08);
+  border-color: rgba(16, 185, 129, 0.12);
+}
+
+.account-status-pill.invalid {
+  color: #fb7185;
+  background: rgba(251, 113, 133, 0.08);
+  border-color: rgba(251, 113, 133, 0.14);
+}
+
+.account-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 16%, transparent);
+}
+
+.account-card-hint {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-sub);
+  opacity: 0;
+  transform: translateX(6px);
+  transition: all 0.22s ease;
+  white-space: nowrap;
+}
+
+.account-card:hover .account-card-hint {
+  opacity: 0.72;
+  transform: translateX(0);
+}
+
 .card-bottom {
   display: flex;
   justify-content: space-between;
   align-items: center;
   padding-top: 16px;
   border-top: 1px solid var(--glass-border);
+}
+
+.account-card-footer {
+  position: relative;
+  z-index: 1;
+  justify-content: flex-end;
+  padding-top: 16px;
 }
 
 .create-time {
@@ -469,25 +574,65 @@ select option {
 
 .card-actions {
   display: flex;
-  gap: 8px;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .action-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--text-sub);
   cursor: pointer;
-  transition: 0.2s;
-  background: rgba(128, 128, 128, 0.1);
+  transition:
+    transform 0.18s ease,
+    color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease;
+  background: rgba(128, 128, 128, 0.08);
 }
 
 .action-icon:hover {
   color: var(--text-main);
-  background: rgba(128, 128, 128, 0.2);
+  background: rgba(128, 128, 128, 0.16);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+}
+
+.action-icon.action-primary {
+  color: #8a3ffc;
+}
+
+.action-icon.action-primary:hover {
+  background: rgba(138, 63, 252, 0.12);
+}
+
+.action-icon.action-cyan {
+  color: #06b6d4;
+}
+
+.action-icon.action-cyan:hover {
+  background: rgba(6, 182, 212, 0.12);
+}
+
+.action-icon.action-emerald {
+  color: #10b981;
+}
+
+.action-icon.action-emerald:hover {
+  background: rgba(16, 185, 129, 0.12);
+}
+
+.action-icon.action-sky {
+  color: #0ea5e9;
+}
+
+.action-icon.action-sky:hover {
+  background: rgba(14, 165, 233, 0.12);
 }
 
 .action-icon.delete:hover {
@@ -506,11 +651,16 @@ select option {
   box-shadow: none;
 }
 
+.account-card-add {
+  min-height: 214px;
+  border-radius: 22px;
+}
+
 .card-add:hover {
   border-color: var(--accent-color);
   background: rgba(138, 63, 252, 0.03);
-  transform: translateY(-5px);
-  box-shadow: none;
+  transform: translateY(-6px);
+  box-shadow: 0 18px 44px rgba(25, 20, 60, 0.08);
 }
 
 .add-icon-circle {
@@ -529,6 +679,7 @@ select option {
 .card-add:hover .add-icon-circle {
   background: var(--accent-color);
   color: white;
+  transform: scale(1.06);
 }
 
 /* ================= 3. 模态框 ================= */
@@ -547,7 +698,6 @@ select option {
   opacity: 0;
   visibility: hidden;
   transition: 0.3s;
-  padding: 20px;
 }
 
 .modal-overlay.active {
@@ -641,12 +791,21 @@ select option {
   }
 
   .main-content {
-    padding: 20px;
+    padding: 22px;
   }
 
   .card-grid {
     grid-template-columns: 1fr;
-    gap: 16px;
+    gap: 18px;
+  }
+
+  .card {
+    min-height: 208px;
+    padding: 22px;
+  }
+
+  .card-actions {
+    gap: 8px;
   }
 
   .modal-content {
