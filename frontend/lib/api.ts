@@ -348,6 +348,7 @@ export interface ChatMigrationImportJobResponse {
   progress: { done: number; total: number };
   summary: Record<string, number>;
   results: ChatMigrationResult[];
+  items?: ChatMigrationItem[];
   error?: string | null;
   notice?: string | null;
 }

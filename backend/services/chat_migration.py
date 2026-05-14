@@ -676,6 +676,7 @@ class ChatMigrationService:
             "progress": {"done": 0, "total": len(items)},
             "summary": self._empty_import_summary(),
             "results": [],
+            "items": items,
             "error": None,
             "notice": "需要审批、验证码或私密链接缺失的条目不会被绕过，需在 Telegram 客户端人工处理。",
             "cancel_requested": False,

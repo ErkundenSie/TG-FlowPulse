@@ -229,6 +229,7 @@ class ChatMigrationImportJobResponse(BaseModel):
     progress: Dict[str, int]
     summary: Dict[str, int]
     results: list[Dict[str, Any]]
+    items: list[Dict[str, Any]] = []
     error: Optional[str] = None
     notice: Optional[str] = None
 

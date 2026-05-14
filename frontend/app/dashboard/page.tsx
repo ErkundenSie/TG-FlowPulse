@@ -41,6 +41,7 @@ import {
   Clock,
   Spinner,
   X,
+  Play,
   PencilSimple,
   PaperPlaneRight,
   Trash,
@@ -879,6 +880,62 @@ export default function Dashboard() {
       JSON.stringify(nextHistory),
     );
     window.dispatchEvent(new CustomEvent("chat-import-job-history-updated"));
+  };
+
+  const getChatImportResumeItems = (job: ChatMigrationImportJobResponse) => {
+    if (!job.items?.length) return [];
+    const doneKeys = new Set(
+      (job.results || [])
+        .filter((item) => item.status !== "skipped")
+        .map(
+          (item) =>
+            `${item.id ?? item.username ?? item.title ?? "chat"}-${item.type ?? "unknown"}`,
+        ),
+    );
+    return job.items.filter((item) => {
+      const key = `${item.id ?? item.username ?? item.title ?? "chat"}-${item.type ?? "unknown"}`;
+      return !doneKeys.has(key);
+    });
+  };
+
+  const handleResumeChatImportHistoryItem = async (
+    job: ChatMigrationImportJobResponse,
+  ) => {
+    if (!token) return;
+    const resumeItems = getChatImportResumeItems(job);
+    if (!resumeItems.length) return;
+    try {
+      setChatImportJobActionLoading(true);
+      const nextJob = await startImportAccountChatsJob(
+        token,
+        job.account_name,
+        {
+          migration: {
+            kind: "tg-flowpulse-chat-migration",
+            version: 1,
+            source_account: job.account_name,
+            items: resumeItems,
+          },
+          dry_run: job.dry_run,
+          delay_seconds: job.delay_seconds,
+        },
+      );
+      syncImportJobToDialog(nextJob);
+      localStorage.setItem(CHAT_IMPORT_JOB_STORAGE_KEY, nextJob.job_id);
+      window.dispatchEvent(
+        new CustomEvent("chat-import-job-started", {
+          detail: { jobId: nextJob.job_id },
+        }),
+      );
+      setShowChatImportDialog(false);
+    } catch (err: any) {
+      addToast(
+        formatErrorMessage("chat_migration_import_failed", err),
+        "error",
+      );
+    } finally {
+      setChatImportJobActionLoading(false);
+    }
   };
 
   const setAllChatImportItems = (checked: boolean) => {
@@ -2811,6 +2868,10 @@ export default function Dashboard() {
                       const failed =
                         (historyItem.summary?.failed || 0) +
                         (historyItem.summary?.flood_wait || 0);
+                      const resumeItems = getChatImportResumeItems(historyItem);
+                      const canResumeHistory =
+                        ["canceled", "failed"].includes(historyItem.status) &&
+                        resumeItems.length > 0;
                       const attentionItems = (historyItem.results || []).filter(
                         (item) =>
                           [
@@ -2835,16 +2896,33 @@ export default function Dashboard() {
                                   historyItem.updated_at}
                               </div>
                             </div>
-                            <button
-                              className="btn-secondary h-7 !py-0 !px-2 !text-[10px] !text-rose-500"
-                              onClick={() =>
-                                handleClearChatImportHistoryItem(
-                                  historyItem.job_id,
-                                )
-                              }
-                            >
-                              {t("chat_migration_clear_record")}
-                            </button>
+                            <div className="flex shrink-0 gap-2">
+                              {canResumeHistory ? (
+                                <button
+                                  className="btn-secondary h-7 !py-0 !px-2 !text-[10px] !text-sky-500"
+                                  onClick={() =>
+                                    handleResumeChatImportHistoryItem(
+                                      historyItem,
+                                    )
+                                  }
+                                  disabled={chatImportJobActionLoading}
+                                  title={t("chat_migration_resume_background")}
+                                >
+                                  <Play weight="bold" size={12} />
+                                  {t("chat_migration_resume_background")}
+                                </button>
+                              ) : null}
+                              <button
+                                className="btn-secondary h-7 !py-0 !px-2 !text-[10px] !text-rose-500"
+                                onClick={() =>
+                                  handleClearChatImportHistoryItem(
+                                    historyItem.job_id,
+                                  )
+                                }
+                              >
+                                {t("chat_migration_clear_record")}
+                              </button>
+                            </div>
                           </div>
                           <div className="mt-3 grid grid-cols-4 gap-2 text-center">
                             {[

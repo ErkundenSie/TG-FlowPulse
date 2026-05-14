@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   DownloadSimple,
+  Play,
   Spinner,
   UploadSimple,
   X,
@@ -12,6 +13,7 @@ import {
   cancelImportAccountChatsJob,
   ChatMigrationImportJobResponse,
   getImportAccountChatsJob,
+  startImportAccountChatsJob,
 } from "../lib/api";
 import { useLanguage } from "../context/LanguageContext";
 
@@ -134,6 +136,7 @@ export function ChatImportJobFloat() {
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [cancelLoading, setCancelLoading] = useState(false);
+  const [resumeLoading, setResumeLoading] = useState(false);
   const [position, setPosition] = useState<FloatPosition>(() =>
     getDefaultPosition(),
   );
@@ -166,6 +169,27 @@ export function ChatImportJobFloat() {
     [job],
   );
   const active = isActiveJob(job);
+  const resumableItems = useMemo(() => {
+    if (!job?.items?.length) return [];
+    const doneKeys = new Set(
+      (job.results || [])
+        .filter((item) => item.status !== "skipped")
+        .map(
+          (item) =>
+            `${item.id ?? item.username ?? item.title ?? "chat"}-${item.type ?? "unknown"}`,
+        ),
+    );
+    return job.items.filter((item) => {
+      const key = `${item.id ?? item.username ?? item.title ?? "chat"}-${item.type ?? "unknown"}`;
+      return !doneKeys.has(key);
+    });
+  }, [job]);
+  const canResume = Boolean(
+    job &&
+    !active &&
+    ["canceled", "failed"].includes(job.status) &&
+    resumableItems.length,
+  );
 
   const refreshJob = useCallback(async (jobId: string) => {
     const token = getToken();
@@ -290,6 +314,39 @@ export function ChatImportJobFloat() {
       }
     } finally {
       setCancelLoading(false);
+    }
+  };
+
+  const handleResume = async () => {
+    if (!job || !canResume) return;
+    const token = getToken();
+    if (!token) return;
+    try {
+      setResumeLoading(true);
+      const nextJob = await startImportAccountChatsJob(
+        token,
+        job.account_name,
+        {
+          migration: {
+            kind: "tg-flowpulse-chat-migration",
+            version: 1,
+            source_account: job.account_name,
+            items: resumableItems,
+          },
+          dry_run: job.dry_run,
+          delay_seconds: job.delay_seconds,
+        },
+      );
+      localStorage.setItem(CHAT_IMPORT_JOB_STORAGE_KEY, nextJob.job_id);
+      setJob(nextJob);
+      setExpanded(true);
+      window.dispatchEvent(
+        new CustomEvent("chat-import-job-started", {
+          detail: { jobId: nextJob.job_id },
+        }),
+      );
+    } finally {
+      setResumeLoading(false);
     }
   };
 
@@ -542,6 +599,21 @@ export function ChatImportJobFloat() {
                     <Spinner className="animate-spin" />
                   ) : (
                     t("chat_migration_stop_background")
+                  )}
+                </button>
+              ) : canResume ? (
+                <button
+                  className="btn-secondary flex-1 h-9 !py-0 !text-xs !text-sky-500 hover:!bg-sky-500/10"
+                  onClick={handleResume}
+                  disabled={resumeLoading}
+                >
+                  {resumeLoading ? (
+                    <Spinner className="animate-spin" />
+                  ) : (
+                    <>
+                      <Play weight="bold" />
+                      {t("chat_migration_resume_background")}
+                    </>
                   )}
                 </button>
               ) : (
