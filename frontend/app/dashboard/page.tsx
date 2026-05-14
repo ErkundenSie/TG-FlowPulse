@@ -157,14 +157,17 @@ export default function Dashboard() {
   const [chatExportSelectedIds, setChatExportSelectedIds] = useState<
     Record<string, boolean>
   >({});
+  const [chatExportSearch, setChatExportSearch] = useState("");
   const [showChatImportDialog, setShowChatImportDialog] = useState(false);
   const [chatImportAccount, setChatImportAccount] = useState("");
   const [chatImportJson, setChatImportJson] = useState("");
+  const [chatImportShowJson, setChatImportShowJson] = useState(true);
   const [chatImportPayload, setChatImportPayload] =
     useState<Record<string, any> | null>(null);
   const [chatImportSelectedIds, setChatImportSelectedIds] = useState<
     Record<string, boolean>
   >({});
+  const [chatImportSearch, setChatImportSearch] = useState("");
   const [chatImportDryRun, setChatImportDryRun] = useState(false);
   const [chatImportDelay, setChatImportDelay] = useState(5);
   const [chatImportLoading, setChatImportLoading] = useState(false);
@@ -263,6 +266,88 @@ export default function Dashboard() {
         Boolean(selected[getChatMigrationItemKey(item, index)]),
       ),
     [getChatMigrationItemKey],
+  );
+
+  const filterMigrationItems = useCallback(
+    <T extends ChatMigrationItem>(items: T[], search: string) => {
+      const keyword = search.trim().toLowerCase();
+      if (!keyword) return items.map((item, index) => ({ item, index }));
+      return items
+        .map((item, index) => ({ item, index }))
+        .filter(({ item }) => {
+          const text = [
+            item.title,
+            item.username,
+            item.type,
+            item.export_note,
+            item.join?.url,
+            item.join?.value,
+          ]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          return text.includes(keyword);
+        });
+    },
+    [],
+  );
+
+  const getMigrationStatCards = useCallback(
+    (items: ChatMigrationItem[], selected: Record<string, boolean>) => {
+      const selectedItems = getSelectedMigrationItems(items, selected);
+      const selectedSummary = summarizeMigrationItems(selectedItems);
+      return [
+        ["total", t("chat_migration_total"), items.length],
+        ["selected", t("chat_migration_selected"), selectedItems.length],
+        ["joinable", t("chat_migration_joinable"), selectedSummary.joinable],
+        ["manual", t("chat_migration_manual"), selectedSummary.manual_required],
+      ];
+    },
+    [getSelectedMigrationItems, summarizeMigrationItems, t],
+  );
+
+  const renderMigrationItem = useCallback(
+    (
+      item: ChatMigrationItem,
+      index: number,
+      selected: Record<string, boolean>,
+      onToggle: (key: string) => void,
+      disabled = false,
+    ) => {
+      const key = getChatMigrationItemKey(item, index);
+      const joinType = getChatJoinType(item);
+      const isSelected = Boolean(selected[key]);
+      return (
+        <label
+          key={key}
+          className={`flex items-start gap-3 p-3 border-b border-white/5 last:border-0 cursor-pointer hover:bg-white/3 ${
+            isSelected ? "bg-white/3" : ""
+          }`}
+        >
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={isSelected}
+            onChange={() => onToggle(key)}
+            disabled={disabled}
+          />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-3">
+              <div className="font-semibold truncate">{item.title}</div>
+              <div className="text-[10px] text-main/35 uppercase shrink-0">
+                {item.type || "-"} / {joinType}
+              </div>
+            </div>
+            <div className="text-xs text-main/45 mt-1 truncate">
+              {item.username
+                ? `@${item.username}`
+                : item.export_note || t("chat_migration_manual")}
+            </div>
+          </div>
+        </label>
+      );
+    },
+    [getChatJoinType, getChatMigrationItemKey, t],
   );
 
   const loadData = useCallback(
@@ -472,32 +557,45 @@ export default function Dashboard() {
     setChatExportError("");
     setChatExportPayload(null);
     setChatExportSelectedIds({});
+    setChatExportSearch("");
     setShowChatExportDialog(true);
   };
 
-  const loadChatExportPreview = async (
-    scope: ChatMigrationExportScope = chatExportScope,
-  ) => {
-    if (!token) return;
-    if (!chatExportAccount) return;
-    try {
-      setChatExportLoading(true);
-      setChatExportError("");
-      const payload = await getAccountChatsExport(token, chatExportAccount, scope);
-      const selected: Record<string, boolean> = {};
-      (payload.items || []).forEach((item, index) => {
-        selected[getChatMigrationItemKey(item, index)] = true;
-      });
-      setChatExportPayload(payload);
-      setChatExportSelectedIds(selected);
-    } catch (err: any) {
-      const message = formatErrorMessage("chat_migration_export_failed", err, true);
-      setChatExportError(message);
-      addToast(message, "error");
-    } finally {
-      setChatExportLoading(false);
-    }
-  };
+  const loadChatExportPreview = useCallback(
+    async (scope: ChatMigrationExportScope = chatExportScope) => {
+      if (!token) return;
+      if (!chatExportAccount) return;
+      try {
+        setChatExportLoading(true);
+        setChatExportError("");
+        const payload = await getAccountChatsExport(token, chatExportAccount, scope);
+        const selected: Record<string, boolean> = {};
+        (payload.items || []).forEach((item, index) => {
+          selected[getChatMigrationItemKey(item, index)] = true;
+        });
+        setChatExportPayload(payload);
+        setChatExportSelectedIds(selected);
+      } catch (err: any) {
+        const message = formatErrorMessage(
+          "chat_migration_export_failed",
+          err,
+          true,
+        );
+        setChatExportError(message);
+        addToast(message, "error");
+      } finally {
+        setChatExportLoading(false);
+      }
+    },
+    [
+      addToast,
+      chatExportAccount,
+      chatExportScope,
+      formatErrorMessage,
+      getChatMigrationItemKey,
+      token,
+    ],
+  );
 
   const handleExportScopeChange = (scope: ChatMigrationExportScope) => {
     setChatExportScope(scope);
@@ -559,8 +657,10 @@ export default function Dashboard() {
   const openChatImportDialog = (accountName: string) => {
     setChatImportAccount(accountName);
     setChatImportJson("");
+    setChatImportShowJson(true);
     setChatImportPayload(null);
     setChatImportSelectedIds({});
+    setChatImportSearch("");
     setChatImportDryRun(false);
     setChatImportDelay(5);
     setChatImportProgress("");
@@ -607,6 +707,7 @@ export default function Dashboard() {
       const parsed = parseChatImportJson(text);
       setChatImportPayload(parsed.payload);
       setChatImportSelectedIds(parsed.selected);
+      setChatImportShowJson(false);
       setChatImportError("");
       setChatImportResult(null);
       setChatImportProgress("");
@@ -614,6 +715,20 @@ export default function Dashboard() {
     },
     [parseChatImportJson],
   );
+
+  useEffect(() => {
+    if (!showChatExportDialog || !token || !chatExportAccount) return;
+    if (chatExportPayload || chatExportLoading) return;
+    loadChatExportPreview(chatExportScope);
+  }, [
+    showChatExportDialog,
+    token,
+    chatExportAccount,
+    chatExportPayload,
+    chatExportLoading,
+    chatExportScope,
+    loadChatExportPreview,
+  ]);
 
   const handleChatImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -795,6 +910,24 @@ export default function Dashboard() {
       setChatImportLoading(false);
     }
   };
+
+  const chatExportVisibleItems = chatExportPayload
+    ? filterMigrationItems(chatExportPayload.items || [], chatExportSearch)
+    : [];
+  const chatImportVisibleItems = chatImportPayload
+    ? filterMigrationItems(
+        (chatImportPayload.items || []) as ChatMigrationItem[],
+        chatImportSearch,
+      )
+    : [];
+  const chatImportSelectedTotal = countSelectedChats(chatImportSelectedIds);
+  const chatImportProcessedTotal = chatImportResult?.summary?.total || 0;
+  const chatImportProgressPercent = Math.min(
+    100,
+    Math.round(
+      (chatImportProcessedTotal / Math.max(1, chatImportSelectedTotal)) * 100,
+    ),
+  );
 
   const debugQr = useCallback((payload: Record<string, any>) => {
     if (process.env.NODE_ENV !== "production") {
@@ -1983,6 +2116,23 @@ export default function Dashboard() {
                 {t("chat_migration_export_scope_hint")}
               </div>
 
+              {chatExportPayload ? (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                  {getMigrationStatCards(
+                    chatExportPayload.items || [],
+                    chatExportSelectedIds,
+                  ).map(([key, label, value]) => (
+                    <div
+                      key={key}
+                      className="rounded-xl border border-white/5 bg-white/2 p-3"
+                    >
+                      <div className="text-lg font-bold">{value}</div>
+                      <div className="text-[10px] text-main/40">{label}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
               <div className="rounded-xl border border-white/5 bg-white/2 overflow-hidden">
                 <div className="p-3 border-b border-white/5 flex flex-wrap items-center justify-between gap-3">
                   <div>
@@ -2030,6 +2180,18 @@ export default function Dashboard() {
                   </div>
                 </div>
 
+                {chatExportPayload ? (
+                  <div className="p-3 border-b border-white/5">
+                    <input
+                      type="search"
+                      className="!mb-0 !py-2 !px-3 text-xs"
+                      placeholder={t("chat_migration_search_placeholder")}
+                      value={chatExportSearch}
+                      onChange={(e) => setChatExportSearch(e.target.value)}
+                    />
+                  </div>
+                ) : null}
+
                 {chatExportError ? (
                   <div className="m-3 rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-200 break-words">
                     {chatExportError}
@@ -2038,38 +2200,20 @@ export default function Dashboard() {
 
                 {chatExportPayload ? (
                   <div className="max-h-[320px] overflow-y-auto custom-scrollbar">
-                    {chatExportPayload.items.map((item, index) => {
-                      const key = getChatMigrationItemKey(item, index);
-                      const joinType = getChatJoinType(item);
-                      return (
-                        <label
-                          key={key}
-                          className="flex items-start gap-3 p-3 border-b border-white/5 last:border-0 cursor-pointer hover:bg-white/3"
-                        >
-                          <input
-                            type="checkbox"
-                            className="mt-1"
-                            checked={Boolean(chatExportSelectedIds[key])}
-                            onChange={() => handleToggleChatExportItem(key)}
-                          />
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="font-semibold truncate">
-                                {item.title}
-                              </div>
-                              <div className="text-[10px] text-main/35 uppercase shrink-0">
-                                {item.type || "-"} / {joinType}
-                              </div>
-                            </div>
-                            <div className="text-xs text-main/45 mt-1 truncate">
-                              {item.username
-                                ? `@${item.username}`
-                                : item.export_note || t("chat_migration_manual")}
-                            </div>
-                          </div>
-                        </label>
-                      );
-                    })}
+                    {chatExportVisibleItems.length ? (
+                      chatExportVisibleItems.map(({ item, index }) =>
+                        renderMigrationItem(
+                          item,
+                          index,
+                          chatExportSelectedIds,
+                          handleToggleChatExportItem,
+                        ),
+                      )
+                    ) : (
+                      <div className="p-6 text-center text-xs text-main/40">
+                        {t("chat_migration_no_matches")}
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <div className="p-6 text-center text-xs text-main/40">
@@ -2093,8 +2237,13 @@ export default function Dashboard() {
               >
                 {chatExportLoading ? (
                   <Spinner className="animate-spin" />
+                ) : chatExportPayload ? (
+                  t("chat_migration_export_selected").replace(
+                    "{count}",
+                    countSelectedChats(chatExportSelectedIds).toString(),
+                  )
                 ) : (
-                  t("download_json")
+                  t("chat_migration_load_list")
                 )}
               </button>
             </div>
@@ -2172,29 +2321,55 @@ export default function Dashboard() {
               </div>
 
               <div>
-                <label className="text-[11px] mb-1">
-                  {t("chat_migration_json")}
-                </label>
-                <textarea
-                  className="!mb-0 min-h-[180px] font-mono text-xs"
-                  placeholder={t("chat_migration_json_placeholder")}
-                  value={chatImportJson}
-                  onChange={(e) => {
-                    setChatImportJson(e.target.value);
-                    try {
-                      loadChatImportPreview(e.target.value);
-                    } catch {
-                      setChatImportPayload(null);
-                      setChatImportSelectedIds({});
-                      setChatImportError("");
-                      setChatImportResult(null);
-                      setChatImportProgress("");
-                    }
-                  }}
-                />
+                <div className="flex items-center justify-between gap-3 mb-1">
+                  <label className="text-[11px] !mb-0">
+                    {t("chat_migration_json")}
+                  </label>
+                  <button
+                    className="btn-secondary h-8 !py-0 !px-3 !text-[11px]"
+                    onClick={() => setChatImportShowJson((prev) => !prev)}
+                  >
+                    {chatImportShowJson ? t("collapse") : t("expand")}
+                  </button>
+                </div>
+                {chatImportShowJson ? (
+                  <textarea
+                    className="!mb-0 min-h-[160px] font-mono text-xs"
+                    placeholder={t("chat_migration_json_placeholder")}
+                    value={chatImportJson}
+                    onChange={(e) => {
+                      setChatImportJson(e.target.value);
+                      try {
+                        loadChatImportPreview(e.target.value);
+                      } catch {
+                        setChatImportPayload(null);
+                        setChatImportSelectedIds({});
+                        setChatImportError("");
+                        setChatImportResult(null);
+                        setChatImportProgress("");
+                      }
+                    }}
+                  />
+                ) : null}
               </div>
 
               {chatImportPayload ? (
+                <>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    {getMigrationStatCards(
+                      (chatImportPayload.items || []) as ChatMigrationItem[],
+                      chatImportSelectedIds,
+                    ).map(([key, label, value]) => (
+                      <div
+                        key={key}
+                        className="rounded-xl border border-white/5 bg-white/2 p-3"
+                      >
+                        <div className="text-lg font-bold">{value}</div>
+                        <div className="text-[10px] text-main/40">{label}</div>
+                      </div>
+                    ))}
+                  </div>
+
                 <div className="rounded-xl border border-white/5 bg-white/2 overflow-hidden">
                   <div className="p-3 border-b border-white/5 flex flex-wrap items-center justify-between gap-3">
                     <div>
@@ -2230,44 +2405,34 @@ export default function Dashboard() {
                       </button>
                     </div>
                   </div>
+                  <div className="p-3 border-b border-white/5">
+                    <input
+                      type="search"
+                      className="!mb-0 !py-2 !px-3 text-xs"
+                      placeholder={t("chat_migration_search_placeholder")}
+                      value={chatImportSearch}
+                      onChange={(e) => setChatImportSearch(e.target.value)}
+                    />
+                  </div>
                   <div className="max-h-[260px] overflow-y-auto custom-scrollbar">
-                    {(chatImportPayload.items || []).map(
-                      (item: ChatMigrationItem, index: number) => {
-                        const key = getChatMigrationItemKey(item, index);
-                        const joinType = getChatJoinType(item);
-                        return (
-                          <label
-                            key={key}
-                            className="flex items-start gap-3 p-3 border-b border-white/5 last:border-0 cursor-pointer hover:bg-white/3"
-                          >
-                            <input
-                              type="checkbox"
-                              className="mt-1"
-                              checked={Boolean(chatImportSelectedIds[key])}
-                              onChange={() => handleToggleChatImportItem(key)}
-                              disabled={chatImportLoading}
-                            />
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="font-semibold truncate">
-                                  {item.title}
-                                </div>
-                                <div className="text-[10px] text-main/35 uppercase shrink-0">
-                                  {item.type || "-"} / {joinType}
-                                </div>
-                              </div>
-                              <div className="text-xs text-main/45 mt-1 truncate">
-                                {item.username
-                                  ? `@${item.username}`
-                                  : item.export_note || t("chat_migration_manual")}
-                              </div>
-                            </div>
-                          </label>
-                        );
-                      },
+                    {chatImportVisibleItems.length ? (
+                      chatImportVisibleItems.map(({ item, index }) =>
+                        renderMigrationItem(
+                          item,
+                          index,
+                          chatImportSelectedIds,
+                          handleToggleChatImportItem,
+                          chatImportLoading,
+                        ),
+                      )
+                    ) : (
+                      <div className="p-6 text-center text-xs text-main/40">
+                        {t("chat_migration_no_matches")}
+                      </div>
                     )}
                   </div>
                 </div>
+                </>
               ) : null}
 
               <label className="flex items-center gap-2 !mb-0 text-xs text-main/60">
@@ -2279,30 +2444,21 @@ export default function Dashboard() {
                 {t("chat_migration_dry_run")}
               </label>
 
-              {chatImportProgress ? (
+              {chatImportPayload ? (
                 <div className="rounded-xl border border-sky-500/15 bg-sky-500/10 p-3 text-xs text-sky-200">
                   <div className="flex items-center justify-between gap-3">
-                    <span>{chatImportProgress}</span>
                     <span>
-                      {chatImportResult?.summary?.total ||
-                        countSelectedChats(chatImportSelectedIds)}
+                      {chatImportProgress || t("chat_migration_import_ready")}
+                    </span>
+                    <span>
+                      {chatImportProcessedTotal}/{chatImportSelectedTotal}
                     </span>
                   </div>
                   <div className="mt-2 h-2 rounded-full bg-white/10 overflow-hidden">
                     <div
                       className="h-full rounded-full bg-sky-400 transition-all"
                       style={{
-                        width: `${Math.min(
-                          100,
-                          Math.round(
-                            ((chatImportResult?.summary?.total || 0) /
-                              Math.max(
-                                1,
-                                countSelectedChats(chatImportSelectedIds),
-                              )) *
-                              100,
-                          ),
-                        )}%`,
+                        width: `${chatImportProgressPercent}%`,
                       }}
                     />
                   </div>
@@ -2383,14 +2539,24 @@ export default function Dashboard() {
               <button
                 className="btn-gradient flex-1 h-10 !py-0 !text-xs"
                 onClick={handleImportChats}
-                disabled={chatImportLoading || !chatImportJson.trim()}
+                disabled={
+                  chatImportLoading ||
+                  !chatImportJson.trim() ||
+                  !chatImportSelectedTotal
+                }
               >
                 {chatImportLoading ? (
                   <Spinner className="animate-spin" />
                 ) : chatImportDryRun ? (
-                  t("chat_migration_preview")
+                  t("chat_migration_preview_selected").replace(
+                    "{count}",
+                    chatImportSelectedTotal.toString(),
+                  )
                 ) : (
-                  t("chat_migration_start_import")
+                  t("chat_migration_import_selected").replace(
+                    "{count}",
+                    chatImportSelectedTotal.toString(),
+                  )
                 )}
               </button>
             </div>
