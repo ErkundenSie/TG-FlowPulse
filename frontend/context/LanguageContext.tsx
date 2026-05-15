@@ -425,7 +425,7 @@ const translations: Translations = {
     chat_migration_import_ready: "导入就绪",
     chat_migration_import_progress: "导入进度：{done}/{total}",
     chat_migration_import_summary:
-      "导入完成：已加入 {joined}，待审批 {request}，需人工 {manual}，失败 {failed}",
+      "导入完成：已加入 {joined}，待审批 {request}，需人工 {manual}，失败 {failed}；单条失败不会中断后续导入",
     chat_migration_run_background: "后台运行",
     chat_migration_background_started: "已转入后台运行",
     chat_migration_background_title: "群/频道导入任务",
@@ -885,7 +885,7 @@ const translations: Translations = {
     chat_migration_import_ready: "Ready to import",
     chat_migration_import_progress: "Import progress: {done}/{total}",
     chat_migration_import_summary:
-      "Import done: joined {joined}, requested {request}, manual {manual}, failed {failed}",
+      "Import done: joined {joined}, requested {request}, manual {manual}, failed {failed}; single-item failures do not stop the remaining import",
     chat_migration_run_background: "Run in background",
     chat_migration_background_started: "Import is running in the background",
     chat_migration_background_title: "Chat import task",

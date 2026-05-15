@@ -546,6 +546,50 @@ class ChatMigrationService:
             result.update(mapped)
             return result
 
+    @staticmethod
+    def _delay_after_flood_wait(
+        result: Dict[str, Any],
+        *,
+        fallback_delay_seconds: float,
+    ) -> float:
+        """Return how long to pause before continuing after a FloodWait result."""
+
+        wait_seconds = result.get("wait_seconds")
+        try:
+            wait_seconds = float(wait_seconds)
+        except (TypeError, ValueError):
+            wait_seconds = 0.0
+        return max(wait_seconds, fallback_delay_seconds, 1.0)
+
+    async def _sleep_import_delay(
+        self,
+        seconds: float,
+        *,
+        cancel_requested=None,
+        step_seconds: float = 1.0,
+    ) -> bool:
+        """Sleep in small chunks so background imports can be canceled while waiting.
+
+        Returns True if cancellation was requested during the sleep.
+        """
+
+        remaining = max(0.0, float(seconds or 0))
+        while remaining > 0:
+            if cancel_requested and cancel_requested():
+                return True
+            chunk = min(step_seconds, remaining)
+            await asyncio.sleep(chunk)
+            remaining -= chunk
+        return bool(cancel_requested and cancel_requested())
+
+    def _note_flood_wait_retry(self, result: Dict[str, Any], wait_seconds: float) -> None:
+        result["status"] = "failed"
+        result["message"] = (
+            f"{result.get('message') or '触发 Telegram 频率限制。'}"
+            f" 已等待 {int(wait_seconds)} 秒后继续导入；该条保留为失败，可稍后单独重试。"
+        )
+        result["needs_manual_check"] = True
+
     async def import_account_chats(
         self,
         account_name: str,
@@ -569,20 +613,9 @@ class ChatMigrationService:
 
         async def _import(client: Any) -> Dict[str, Any]:
             results: List[Dict[str, Any]] = []
-            stop_after_flood = False
             existing_membership_keys = await self._load_existing_membership_keys(client)
 
             for index, item in enumerate(items):
-                if stop_after_flood:
-                    results.append(
-                        self._base_result(
-                            item,
-                            "skipped",
-                            "前序条目触发 Telegram 频率限制，本条已跳过。",
-                        )
-                    )
-                    continue
-
                 join_ref, _join_type = self._join_ref_from_item(item)
                 if self._is_already_member_item(item, existing_membership_keys):
                     results.append(self._already_member_result(item, join_ref))
@@ -600,10 +633,14 @@ class ChatMigrationService:
                     continue
 
                 result = await self._join_one(client, item)
-                results.append(result)
                 if result["status"] == "flood_wait":
-                    stop_after_flood = True
-                    continue
+                    wait_seconds = self._delay_after_flood_wait(
+                        result,
+                        fallback_delay_seconds=delay_seconds,
+                    )
+                    await self._sleep_import_delay(wait_seconds)
+                    self._note_flood_wait_retry(result, wait_seconds)
+                results.append(result)
                 if delay_seconds > 0 and index < len(items) - 1:
                     await asyncio.sleep(delay_seconds)
 
@@ -631,10 +668,7 @@ class ChatMigrationService:
             )
 
             return {
-                "success": not any(
-                    result.get("status") in {"failed", "flood_wait"}
-                    for result in results
-                ),
+                "success": True,
                 "dry_run": dry_run,
                 "source_account": migration_data.get("source_account"),
                 "target_account": account_name,
@@ -713,7 +747,6 @@ class ChatMigrationService:
         job = self.background_jobs[job_id]
 
         async def _import(client: Any) -> None:
-            stop_after_flood = False
             existing_membership_keys = await self._load_existing_membership_keys(client)
             for index, item in enumerate(items):
                 if job.get("cancel_requested"):
@@ -721,28 +754,33 @@ class ChatMigrationService:
                     job["finished_at"] = self._utc_now()
                     return
 
-                if stop_after_flood:
+                join_ref, _join_type = self._join_ref_from_item(item)
+                if self._is_already_member_item(item, existing_membership_keys):
+                    result = self._already_member_result(item, join_ref)
+                elif job["dry_run"]:
                     result = self._base_result(
                         item,
-                        "skipped",
-                        "前序条目触发 Telegram 频率限制，本条已跳过。",
+                        "ready" if join_ref else "manual_required",
+                        "可自动尝试加入。" if join_ref else "缺少公开用户名或邀请链接，需人工加入。",
                     )
+                    result["join_ref"] = join_ref or None
+                    result["needs_manual_check"] = not bool(join_ref)
                 else:
-                    join_ref, _join_type = self._join_ref_from_item(item)
-                    if self._is_already_member_item(item, existing_membership_keys):
-                        result = self._already_member_result(item, join_ref)
-                    elif job["dry_run"]:
-                        result = self._base_result(
-                            item,
-                            "ready" if join_ref else "manual_required",
-                            "可自动尝试加入。" if join_ref else "缺少公开用户名或邀请链接，需人工加入。",
+                    result = await self._join_one(client, item)
+                    if result["status"] == "flood_wait":
+                        wait_seconds = self._delay_after_flood_wait(
+                            result,
+                            fallback_delay_seconds=job["delay_seconds"],
                         )
-                        result["join_ref"] = join_ref or None
-                        result["needs_manual_check"] = not bool(join_ref)
-                    else:
-                        result = await self._join_one(client, item)
-                        if result["status"] == "flood_wait":
-                            stop_after_flood = True
+                        canceled = await self._sleep_import_delay(
+                            wait_seconds,
+                            cancel_requested=lambda: bool(job.get("cancel_requested")),
+                        )
+                        if canceled:
+                            job["status"] = "canceled"
+                            job["finished_at"] = self._utc_now()
+                            return
+                        self._note_flood_wait_retry(result, wait_seconds)
 
                 job["results"].append(result)
                 job["progress"] = {"done": len(job["results"]), "total": len(items)}
@@ -753,18 +791,20 @@ class ChatMigrationService:
                     not job["dry_run"]
                     and job["delay_seconds"] > 0
                     and index < len(items) - 1
-                    and not stop_after_flood
                 ):
-                    await asyncio.sleep(job["delay_seconds"])
+                    canceled = await self._sleep_import_delay(
+                        job["delay_seconds"],
+                        cancel_requested=lambda: bool(job.get("cancel_requested")),
+                    )
+                    if canceled:
+                        job["status"] = "canceled"
+                        job["finished_at"] = self._utc_now()
+                        return
 
         try:
             await self._with_client(account_name, _import)
             if job["status"] not in {"canceled"}:
-                failed = any(
-                    result.get("status") in {"failed", "flood_wait"}
-                    for result in job["results"]
-                )
-                job["status"] = "failed" if failed else "completed"
+                job["status"] = "completed"
                 job["finished_at"] = self._utc_now()
         except Exception as exc:
             logger.exception("Background chat migration import failed job=%s", job_id)

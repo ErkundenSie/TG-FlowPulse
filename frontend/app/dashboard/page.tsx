@@ -902,7 +902,7 @@ export default function Dashboard() {
     if (!job.items?.length) return [];
     const doneKeys = new Set(
       (job.results || [])
-        .filter((item) => item.status !== "skipped")
+        .filter((item) => item.status !== "failed")
         .map(
           (item) =>
             `${item.id ?? item.username ?? item.title ?? "chat"}-${item.type ?? "unknown"}`,
@@ -1118,27 +1118,16 @@ export default function Dashboard() {
         const summary = summarizeChatImportResults(allResults);
         setChatImportResult({
           ...result,
-          success: !allResults.some((item) =>
-            ["failed", "flood_wait"].includes(item.status),
-          ),
+          success: !allResults.some((item) => item.status === "failed"),
           summary,
           results: allResults,
         });
-
-        if (
-          !chatImportDryRun &&
-          result.results?.some((item) => item.status === "flood_wait")
-        ) {
-          break;
-        }
       }
 
       const finalSummary = summarizeChatImportResults(allResults);
       const result: ChatMigrationImportResponse = {
         ...(lastResult as ChatMigrationImportResponse),
-        success: !allResults.some((item) =>
-          ["failed", "flood_wait"].includes(item.status),
-        ),
+        success: !allResults.some((item) => item.status === "failed"),
         dry_run: chatImportDryRun,
         source_account: migration.source_account || null,
         target_account: chatImportAccount,
@@ -1157,7 +1146,7 @@ export default function Dashboard() {
       const joined = summary.joined || 0;
       const requestSent = summary.request_sent || 0;
       const manual = summary.manual_required || 0;
-      const failed = (summary.failed || 0) + (summary.flood_wait || 0);
+      const failed = (summary.failed || 0);
       addToast(
         t("chat_migration_import_summary")
           .replace("{joined}", joined.toString())
@@ -1296,7 +1285,7 @@ export default function Dashboard() {
           saveChatImportJobToHistory(job);
           setChatImportJobHistory(loadChatImportJobHistory());
           const summary = job.summary || {};
-          const failed = (summary.failed || 0) + (summary.flood_wait || 0);
+          const failed = (summary.failed || 0);
           addToast(
             job.status === "canceled"
               ? t("chat_migration_background_canceled")
@@ -2973,8 +2962,7 @@ export default function Dashboard() {
                       <div key={key} className="rounded-lg bg-white/3 p-2">
                         <div className="text-base font-bold">
                           {key === "failed"
-                            ? (chatImportResult.summary?.failed || 0) +
-                              (chatImportResult.summary?.flood_wait || 0)
+                            ? chatImportResult.summary?.failed || 0
                             : chatImportResult.summary?.[key] || 0}
                         </div>
                         <div className="text-[10px] text-main/40">{label}</div>
@@ -3033,9 +3021,7 @@ export default function Dashboard() {
                   </div>
                   <div className="max-h-[320px] overflow-y-auto custom-scrollbar">
                     {chatImportJobHistory.map((historyItem, historyIndex) => {
-                      const failed =
-                        (historyItem.summary?.failed || 0) +
-                        (historyItem.summary?.flood_wait || 0);
+                      const failed = historyItem.summary?.failed || 0;
                       const resumeItems = getChatImportResumeItems(historyItem);
                       const canResumeHistory =
                         ["canceled", "failed"].includes(historyItem.status) &&
@@ -3048,7 +3034,6 @@ export default function Dashboard() {
                           [
                             "manual_required",
                             "failed",
-                            "flood_wait",
                             "request_sent",
                           ].includes(item.status),
                       );
