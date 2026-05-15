@@ -9,6 +9,7 @@ import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlsplit, urlunsplit
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from backend.core.config import get_settings
@@ -23,6 +24,22 @@ from backend.utils.storage import (
 settings = get_settings()
 REDACTED_SECRET = "__REDACTED__"
 logger = logging.getLogger("backend.config")
+
+
+def normalize_openai_base_url(base_url: Optional[str]) -> Optional[str]:
+    value = (base_url or "").strip().rstrip("/")
+    if not value:
+        return None
+
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        raise ValueError("Base URL 必须是 http(s) 绝对地址")
+
+    path = parsed.path.rstrip("/")
+    if not path.endswith("/v1"):
+        path = f"{path}/v1" if path else "/v1"
+
+    return urlunsplit((parsed.scheme, parsed.netloc, path, parsed.query, ""))
 
 
 def validate_timezone(timezone: Optional[str]) -> str:
@@ -564,8 +581,8 @@ class ConfigService:
             raise ValueError("API Key 不能为空")
 
         config = {"api_key": final_api_key}
-        config["base_url"] = base_url if base_url else None
-        config["model"] = model if model else None
+        config["base_url"] = normalize_openai_base_url(base_url)
+        config["model"] = model.strip() if model and model.strip() else None
 
         config_file = self._get_ai_config_file()
 
@@ -607,8 +624,8 @@ class ConfigService:
             return {"success": False, "message": "未配置 AI API Key"}
 
         api_key = config.get("api_key")
-        base_url = config.get("base_url")
-        model = config.get("model", "gpt-4o")
+        base_url = normalize_openai_base_url(config.get("base_url"))
+        model = (config.get("model") or "gpt-4o").strip()
 
         if not api_key:
             return {"success": False, "message": "API Key 为空"}
@@ -616,13 +633,13 @@ class ConfigService:
         try:
             from openai import AsyncOpenAI
 
-            client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+            client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=20)
 
             # 发送一个简单的测试请求
             response = await client.chat.completions.create(
                 model=model,
                 messages=[{"role": "user", "content": "Say 'test ok' in 2 words"}],
-                max_tokens=10,
+                max_completion_tokens=10,
             )
 
             return {

@@ -449,10 +449,10 @@ export default function SettingsPage() {
       const res = await testAIConnection(token);
       if (res.success) {
         setAITestStatus("success");
-        setAITestResult(t("connect_success"));
+        setAITestResult(res.message || t("connect_success"));
       } else {
         setAITestStatus("error");
-        setAITestResult(t("connect_failed"));
+        setAITestResult(res.message || t("connect_failed"));
       }
     } catch (err: any) {
       setAITestStatus("error");
