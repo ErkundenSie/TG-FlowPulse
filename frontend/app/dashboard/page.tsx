@@ -20,6 +20,7 @@ import {
   getAccountChatsExport,
   importAccountChats,
   startImportAccountChatsJob,
+  cancelImportAccountChatsJob,
   getAccountLogs,
   clearAccountLogs,
   listSignTasks,
@@ -50,6 +51,7 @@ import {
   UploadSimple,
   WarningCircle,
   ArrowsOutSimple,
+  Stop,
 } from "@phosphor-icons/react";
 import { ToastContainer, useToast } from "../../components/ui/toast";
 import { ThemeLanguageToggle } from "../../components/ThemeLanguageToggle";
@@ -57,7 +59,8 @@ import {
   CHAT_IMPORT_JOB_HISTORY_STORAGE_KEY,
   CHAT_IMPORT_JOB_STORAGE_KEY,
   loadChatImportJobHistory,
-} from "../../components/ChatImportJobFloat";
+  saveChatImportJobToHistory,
+} from "../../lib/chat-import-jobs";
 import { useLanguage } from "../../context/LanguageContext";
 
 type ChatMigrationSummary = Record<string, number>;
@@ -750,15 +753,19 @@ export default function Dashboard() {
     setChatImportProgress("");
     setChatImportError("");
     setChatImportResult(null);
+    setChatImportJob(null);
     setChatImportJobHistory(loadChatImportJobHistory());
     setShowChatImportDialog(true);
   };
 
   useEffect(() => {
     if (!showChatImportDialog) return;
-    setChatImportJobHistory(loadChatImportJobHistory());
-    const refreshHistory = () => {
+    const loadHistory = () => {
       setChatImportJobHistory(loadChatImportJobHistory());
+    };
+    loadHistory();
+    const refreshHistory = () => {
+      loadHistory();
     };
     window.addEventListener("chat-import-job-history-updated", refreshHistory);
     window.addEventListener("storage", refreshHistory);
@@ -879,6 +886,15 @@ export default function Dashboard() {
       CHAT_IMPORT_JOB_HISTORY_STORAGE_KEY,
       JSON.stringify(nextHistory),
     );
+    if (chatImportJob?.job_id === jobId) {
+      setChatImportJob(null);
+      setChatImportResult(null);
+      setChatImportProgress("");
+      setChatImportLoading(false);
+    }
+    if (localStorage.getItem(CHAT_IMPORT_JOB_STORAGE_KEY) === jobId) {
+      localStorage.removeItem(CHAT_IMPORT_JOB_STORAGE_KEY);
+    }
     window.dispatchEvent(new CustomEvent("chat-import-job-history-updated"));
   };
 
@@ -920,14 +936,71 @@ export default function Dashboard() {
           delay_seconds: job.delay_seconds,
         },
       );
-      syncImportJobToDialog(nextJob);
+      syncImportJobToDialog({ ...nextJob, items: resumeItems });
       localStorage.setItem(CHAT_IMPORT_JOB_STORAGE_KEY, nextJob.job_id);
       window.dispatchEvent(
         new CustomEvent("chat-import-job-started", {
           detail: { jobId: nextJob.job_id },
         }),
       );
-      setShowChatImportDialog(false);
+      setChatImportJobHistory(loadChatImportJobHistory());
+      addToast(t("chat_migration_background_started"), "success");
+    } catch (err: any) {
+      addToast(
+        formatErrorMessage("chat_migration_import_failed", err),
+        "error",
+      );
+    } finally {
+      setChatImportJobActionLoading(false);
+    }
+  };
+
+  const handleInspectChatImportHistoryItem = async (
+    historyItem: ChatMigrationImportJobResponse,
+  ) => {
+    if (!token) return;
+    try {
+      setChatImportJobActionLoading(true);
+      let job = historyItem;
+      if (["running", "canceling"].includes(historyItem.status)) {
+        job = await getImportAccountChatsJob(token, historyItem.job_id);
+      }
+      const mergedJob = {
+        ...job,
+        items: job.items?.length ? job.items : historyItem.items,
+      };
+      syncImportJobToDialog(mergedJob);
+      if (["running", "canceling"].includes(mergedJob.status)) {
+        localStorage.setItem(CHAT_IMPORT_JOB_STORAGE_KEY, mergedJob.job_id);
+      } else {
+        localStorage.removeItem(CHAT_IMPORT_JOB_STORAGE_KEY);
+        saveChatImportJobToHistory(mergedJob);
+      }
+      setChatImportJobHistory(loadChatImportJobHistory());
+    } catch (err: any) {
+      addToast(
+        formatErrorMessage("chat_migration_import_failed", err),
+        "error",
+      );
+    } finally {
+      setChatImportJobActionLoading(false);
+    }
+  };
+
+  const handleStopChatImportJob = async (
+    job: ChatMigrationImportJobResponse,
+  ) => {
+    if (!token) return;
+    try {
+      setChatImportJobActionLoading(true);
+      const nextJob = await cancelImportAccountChatsJob(token, job.job_id);
+      const mergedJob = {
+        ...nextJob,
+        items: nextJob.items?.length ? nextJob.items : job.items,
+      };
+      syncImportJobToDialog(mergedJob);
+      saveChatImportJobToHistory(mergedJob);
+      setChatImportJobHistory(loadChatImportJobHistory());
     } catch (err: any) {
       addToast(
         formatErrorMessage("chat_migration_import_failed", err),
@@ -1132,6 +1205,34 @@ export default function Dashboard() {
     [t],
   );
 
+  useEffect(() => {
+    if (!showChatImportDialog || !token) return;
+    const jobId = localStorage.getItem(CHAT_IMPORT_JOB_STORAGE_KEY);
+    if (!jobId) return;
+    let canceled = false;
+    getImportAccountChatsJob(token, jobId)
+      .then((job) => {
+        if (canceled) return;
+        syncImportJobToDialog(job);
+        if (["running", "canceling"].includes(job.status)) {
+          setChatImportJobHistory((history) => [
+            job,
+            ...history.filter((item) => item.job_id !== job.job_id),
+          ]);
+          return;
+        }
+        localStorage.removeItem(CHAT_IMPORT_JOB_STORAGE_KEY);
+        saveChatImportJobToHistory(job);
+        setChatImportJobHistory(loadChatImportJobHistory());
+      })
+      .catch(() => {
+        if (!canceled) localStorage.removeItem(CHAT_IMPORT_JOB_STORAGE_KEY);
+      });
+    return () => {
+      canceled = true;
+    };
+  }, [showChatImportDialog, syncImportJobToDialog, token]);
+
   const handleImportChatsInBackground = async () => {
     if (!token || !chatImportAccount) return;
     if (!chatImportJson.trim()) {
@@ -1160,12 +1261,15 @@ export default function Dashboard() {
       });
       syncImportJobToDialog(job);
       localStorage.setItem(CHAT_IMPORT_JOB_STORAGE_KEY, job.job_id);
+      setChatImportJobHistory((history) => [
+        job,
+        ...history.filter((item) => item.job_id !== job.job_id),
+      ]);
       window.dispatchEvent(
         new CustomEvent("chat-import-job-started", {
           detail: { jobId: job.job_id },
         }),
       );
-      setShowChatImportDialog(false);
       addToast(t("chat_migration_background_started"), "success");
     } catch (err: any) {
       const message = formatErrorMessage(
@@ -1188,6 +1292,9 @@ export default function Dashboard() {
         const job = await getImportAccountChatsJob(token, chatImportJob.job_id);
         syncImportJobToDialog(job);
         if (!["running", "canceling"].includes(job.status)) {
+          localStorage.removeItem(CHAT_IMPORT_JOB_STORAGE_KEY);
+          saveChatImportJobToHistory(job);
+          setChatImportJobHistory(loadChatImportJobHistory());
           const summary = job.summary || {};
           const failed = (summary.failed || 0) + (summary.flood_wait || 0);
           addToast(
@@ -1200,7 +1307,12 @@ export default function Dashboard() {
                   .replace("{failed}", String(failed)),
             failed > 0 || job.status === "failed" ? "error" : "success",
           );
+          return;
         }
+        setChatImportJobHistory((history) => [
+          job,
+          ...history.filter((item) => item.job_id !== job.job_id),
+        ]);
       } catch {
         // Keep last known status; the next poll may succeed.
       }
@@ -2569,12 +2681,12 @@ export default function Dashboard() {
       {showChatImportDialog && (
         <div className="modal-overlay active">
           <div
-            className="glass-panel modal-content !max-w-3xl max-h-[90vh] flex flex-col overflow-hidden !p-0"
+            className="glass-panel modal-content chat-import-modal !max-w-5xl max-h-[90vh] flex flex-col overflow-hidden !p-0"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="p-5 border-b border-white/5 flex justify-between items-center bg-white/2">
+            <div className="chat-import-header">
               <div className="flex items-center gap-3 min-w-0">
-                <div className="p-2 bg-sky-500/10 rounded-lg text-sky-500">
+                <div className="chat-import-header-icon">
                   <UploadSimple weight="bold" size={18} />
                 </div>
                 <div className="min-w-0">
@@ -2594,82 +2706,136 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar">
-              <div className="chat-import-notice">
-                <WarningCircle
-                  weight="bold"
-                  size={18}
-                  className="chat-import-notice-icon"
-                />
-                <div>
-                  <div className="chat-import-notice-title">
-                    {t("chat_migration_notice_title")}
-                  </div>
-                  <div className="chat-import-notice-text">
-                    {t("chat_migration_notice")}
-                  </div>
-                </div>
-              </div>
+            <div className="flex-1 overflow-y-auto p-5 custom-scrollbar">
+              <div className="chat-import-grid">
+                <div className="chat-import-main space-y-4">
+                  {chatImportJob ? (
+                    <div className="chat-import-job-banner">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-sm font-black">
+                            {t("chat_migration_background_title")}
+                          </span>
+                          <span className="chat-import-status-pill">
+                            {t(`chat_migration_job_${chatImportJob.status}`)}
+                          </span>
+                        </div>
+                        <div className="mt-2 text-xs text-main/60">
+                          {t("chat_migration_import_progress")
+                            .replace(
+                              "{done}",
+                              String(chatImportJob.progress?.done || 0),
+                            )
+                            .replace(
+                              "{total}",
+                              String(chatImportJob.progress?.total || 0),
+                            )}
+                        </div>
+                        <div className="mt-3 h-2 rounded-full bg-white/60 dark:bg-white/10 overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-sky-400 transition-all"
+                            style={{
+                              width: `${chatImportJobProgressPercent}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                      {chatImportJobActive ? (
+                        <button
+                          className="btn-secondary h-9 !py-0 !px-3 !text-xs !text-rose-500"
+                          onClick={() => handleStopChatImportJob(chatImportJob)}
+                          disabled={chatImportJobActionLoading}
+                        >
+                          {chatImportJobActionLoading ? (
+                            <Spinner className="animate-spin" />
+                          ) : (
+                            <>
+                              <Stop weight="bold" />
+                              {t("chat_migration_stop_background")}
+                            </>
+                          )}
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
 
-              <div className="grid grid-cols-1 md:grid-cols-[1fr_150px] gap-3 items-end">
-                <div>
-                  <label className="text-[11px] mb-1">{t("upload_json")}</label>
-                  <input
-                    type="file"
-                    accept="application/json,.json"
-                    className="!mb-0"
-                    onChange={handleChatImportFile}
-                  />
-                </div>
-                <div>
-                  <label className="text-[11px] mb-1">
-                    {t("chat_migration_delay")}
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={120}
-                    className="!mb-0"
-                    value={chatImportDelay}
-                    onChange={(e) =>
-                      setChatImportDelay(Number(e.target.value || 0))
-                    }
-                  />
-                </div>
-              </div>
+                  <div className="chat-import-notice">
+                    <WarningCircle
+                      weight="bold"
+                      size={18}
+                      className="chat-import-notice-icon"
+                    />
+                    <div>
+                      <div className="chat-import-notice-title">
+                        {t("chat_migration_notice_title")}
+                      </div>
+                      <div className="chat-import-notice-text">
+                        {t("chat_migration_notice")}
+                      </div>
+                    </div>
+                  </div>
 
-              <div>
-                <div className="flex items-center justify-between gap-3 mb-1">
-                  <label className="text-[11px] !mb-0">
-                    {t("chat_migration_json")}
-                  </label>
-                  <button
-                    className="btn-secondary h-8 !py-0 !px-3 !text-[11px]"
-                    onClick={() => setChatImportShowJson((prev) => !prev)}
-                  >
-                    {chatImportShowJson ? t("collapse") : t("expand")}
-                  </button>
-                </div>
-                {chatImportShowJson ? (
-                  <textarea
-                    className="!mb-0 min-h-[160px] font-mono text-xs"
-                    placeholder={t("chat_migration_json_placeholder")}
-                    value={chatImportJson}
-                    onChange={(e) => {
-                      setChatImportJson(e.target.value);
-                      try {
-                        loadChatImportPreview(e.target.value);
-                      } catch {
-                        setChatImportPayload(null);
-                        setChatImportSelectedIds({});
-                        setChatImportError("");
-                        setChatImportResult(null);
-                        setChatImportProgress("");
-                      }
-                    }}
-                  />
-                ) : null}
-              </div>
+                  <div className="chat-import-controls">
+                    <div className="min-w-0">
+                      <label className="text-[11px] mb-1">
+                        {t("upload_json")}
+                      </label>
+                      <input
+                        type="file"
+                        accept="application/json,.json"
+                        className="!mb-0"
+                        onChange={handleChatImportFile}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[11px] mb-1">
+                        {t("chat_migration_delay")}
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        max={120}
+                        className="!mb-0"
+                        value={chatImportDelay}
+                        onChange={(e) =>
+                          setChatImportDelay(Number(e.target.value || 0))
+                        }
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between gap-3 mb-1">
+                      <label className="text-[11px] !mb-0">
+                        {t("chat_migration_json")}
+                      </label>
+                      <button
+                        className="btn-secondary h-8 !py-0 !px-3 !text-[11px]"
+                        onClick={() => setChatImportShowJson((prev) => !prev)}
+                      >
+                        {chatImportShowJson ? t("collapse") : t("expand")}
+                      </button>
+                    </div>
+                    {chatImportShowJson ? (
+                      <textarea
+                        className="!mb-0 min-h-[150px] font-mono text-xs"
+                        placeholder={t("chat_migration_json_placeholder")}
+                        value={chatImportJson}
+                        onChange={(e) => {
+                          setChatImportJson(e.target.value);
+                          try {
+                            loadChatImportPreview(e.target.value);
+                          } catch {
+                            setChatImportPayload(null);
+                            setChatImportSelectedIds({});
+                            setChatImportError("");
+                            setChatImportResult(null);
+                            setChatImportProgress("");
+                          }
+                        }}
+                      />
+                    ) : null}
+                  </div>
 
               {chatImportPayload ? (
                 <>
@@ -2851,6 +3017,8 @@ export default function Dashboard() {
                 </div>
               ) : null}
 
+                </div>
+              <div className="chat-import-side">
               {chatImportJobHistory.length ? (
                 <div className="rounded-xl border border-white/5 bg-white/2 overflow-hidden">
                   <div className="p-3 border-b border-white/5 flex items-center justify-between gap-3">
@@ -2872,6 +3040,9 @@ export default function Dashboard() {
                       const canResumeHistory =
                         ["canceled", "failed"].includes(historyItem.status) &&
                         resumeItems.length > 0;
+                      const isHistoryActive = ["running", "canceling"].includes(
+                        historyItem.status,
+                      );
                       const attentionItems = (historyItem.results || []).filter(
                         (item) =>
                           [
@@ -2888,15 +3059,49 @@ export default function Dashboard() {
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
-                              <div className="text-xs font-bold truncate">
-                                #{historyIndex + 1} · {historyItem.account_name}
+                              <div className="flex flex-wrap items-center gap-2">
+                                <div className="text-xs font-bold truncate">
+                                  #{historyIndex + 1} ·{" "}
+                                  {historyItem.account_name}
+                                </div>
+                                <span className="chat-import-status-pill">
+                                  {t(
+                                    `chat_migration_job_${historyItem.status}`,
+                                  )}
+                                </span>
                               </div>
                               <div className="mt-1 text-[11px] text-main/45">
                                 {historyItem.finished_at ||
                                   historyItem.updated_at}
                               </div>
                             </div>
-                            <div className="flex shrink-0 gap-2">
+                            <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                              <button
+                                className="btn-secondary h-7 !py-0 !px-2 !text-[10px]"
+                                onClick={() =>
+                                  handleInspectChatImportHistoryItem(
+                                    historyItem,
+                                  )
+                                }
+                                disabled={chatImportJobActionLoading}
+                              >
+                                {t("chat_migration_view_details")}
+                              </button>
+                              {isHistoryActive ? (
+                                <button
+                                  className="btn-secondary h-7 !py-0 !px-2 !text-[10px] !text-rose-500"
+                                  onClick={() =>
+                                    handleStopChatImportJob(historyItem)
+                                  }
+                                  disabled={
+                                    chatImportJobActionLoading ||
+                                    historyItem.status === "canceling"
+                                  }
+                                >
+                                  <Stop weight="bold" size={12} />
+                                  {t("chat_migration_stop_background")}
+                                </button>
+                              ) : null}
                               {canResumeHistory ? (
                                 <button
                                   className="btn-secondary h-7 !py-0 !px-2 !text-[10px] !text-sky-500"
@@ -3002,9 +3207,14 @@ export default function Dashboard() {
                     })}
                   </div>
                 </div>
-              ) : null}
+              ) : (
+                <div className="rounded-xl border border-white/5 bg-white/2 p-5 text-center text-xs text-main/40">
+                  {t("chat_migration_recent_records")}
+                </div>
+              )}
+              </div>
+              </div>
             </div>
-
             <div className="p-4 border-t border-white/5 bg-white/2">
               {chatImportJobActive ? (
                 <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-sky-500/15 bg-sky-500/10 px-3 py-2 text-xs text-sky-600 dark:text-sky-200">

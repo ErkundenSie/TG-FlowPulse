@@ -3,7 +3,6 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "../context/ThemeContext";
 import { LanguageProvider } from "../context/LanguageContext";
-import { ChatImportJobFloat } from "../components/ChatImportJobFloat";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -31,7 +30,6 @@ export default function RootLayout({
         <LanguageProvider>
           <ThemeProvider>
             {children}
-            <ChatImportJobFloat />
           </ThemeProvider>
         </LanguageProvider>
       </body>
