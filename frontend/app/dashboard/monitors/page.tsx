@@ -59,6 +59,11 @@ const emptyRule = (): MonitorRule => ({
     auto_reply_text: "",
     ai_auto_reply: false,
     ai_prompt: "",
+    ai_persona: "",
+    ai_context_messages: 0,
+    ai_whitelist_users: [],
+    ai_blacklist_users: [],
+    ai_daily_limit: null,
     continue_action_interval: 1,
     continue_actions: [],
 });
@@ -82,6 +87,13 @@ const splitTopicIds = (value: string) => {
         .split(/\n|,|，/)
         .map((item) => parseOptionalInt(item))
         .filter((item): item is number => typeof item === "number");
+};
+
+const splitUserList = (value: string) => {
+    return value
+        .split(/\n|,|，/)
+        .map((item) => item.trim())
+        .filter(Boolean);
 };
 
 const normalizeChatIdInput = (value: string) => {
@@ -117,6 +129,8 @@ type SelectedMonitorChat = { chat_id: NonNullable<MonitorRule["chat_id"]>; chat_
 type RuleDraft = MonitorRule & {
     keywordsText: string;
     topicIdsText: string;
+    aiWhitelistText: string;
+    aiBlacklistText: string;
     selectedChats: SelectedMonitorChat[];
 };
 
@@ -131,6 +145,8 @@ const toDraftRule = (rule?: MonitorRule, allRules?: MonitorRule[]): RuleDraft =>
                 ? [rule.message_thread_id]
                 : []
     ).join("\n"),
+    aiWhitelistText: (rule?.ai_whitelist_users || []).join("\n"),
+    aiBlacklistText: (rule?.ai_blacklist_users || []).join("\n"),
     selectedChats: (allRules || (rule ? [rule] : []))
         .filter((item) => (item.monitor_scope || "selected") === "selected" && item.chat_id !== undefined && item.chat_id !== null && item.chat_id !== "")
         .map((item) => ({
@@ -211,6 +227,16 @@ export default function MonitorTasksPage() {
         aiAutoReply: isZh ? "AI 自动回复" : "AI Auto Reply",
         aiPrompt: isZh ? "AI 回复提示词" : "AI Reply Prompt",
         aiPromptPlaceholder: isZh ? "可选：例如“你是客服助手，回答要简短友好。”" : "Optional: e.g. You are a support assistant. Keep replies short and friendly.",
+        aiPersona: isZh ? "账号独立 Persona" : "Account Persona",
+        aiPersonaPlaceholder: isZh ? "可选：例如“你是小明，语气轻松，只回答业务相关问题。”" : "Optional: e.g. You are Alex, casual tone, answer business questions only.",
+        aiContextMessages: isZh ? "最近上下文条数" : "Recent Context",
+        aiContextHint: isZh ? "0=不带历史，建议 4-10；最多 20 条。" : "0=no history; 4-10 recommended; max 20.",
+        aiWhitelist: isZh ? "白名单联系人" : "Contact Allowlist",
+        aiWhitelistPlaceholder: isZh ? "留空=不限；每行一个 user_id / username" : "Blank = all; one user_id / username per line",
+        aiBlacklist: isZh ? "黑名单联系人" : "Contact Blocklist",
+        aiBlacklistPlaceholder: isZh ? "每行一个 user_id / username，命中后不回复" : "One user_id / username per line; matched users are skipped",
+        aiDailyLimit: isZh ? "每日回复上限" : "Daily Reply Limit",
+        aiDailyLimitHint: isZh ? "留空=不限；0=今天不自动回复。" : "Blank = unlimited; 0 = do not auto reply today.",
         barkUrl: "Bark URL",
         customUrl: isZh ? "自定义推送 URL" : "Custom Push URL",
         enabled: isZh ? "启用监听" : "Enabled",
@@ -420,6 +446,14 @@ export default function MonitorTasksPage() {
                         : []
             )
             : [];
+        const aiContextMessages = Math.min(Math.max(Number(form.rule.ai_context_messages || 0), 0), 20);
+        const rawDailyLimit = String(form.rule.ai_daily_limit ?? "").trim();
+        const parsedDailyLimit = rawDailyLimit ? Number.parseInt(rawDailyLimit, 10) : null;
+        const aiDailyLimit = parsedDailyLimit === null || Number.isNaN(parsedDailyLimit)
+            ? null
+            : Math.max(parsedDailyLimit, 0);
+        const aiWhitelistUsers = splitUserList(form.rule.aiWhitelistText || "");
+        const aiBlacklistUsers = splitUserList(form.rule.aiBlacklistText || "");
         const baseRule: MonitorRule = {
             ...form.rule,
             monitor_scope: monitorScope,
@@ -442,10 +476,23 @@ export default function MonitorTasksPage() {
             auto_reply_text: String(form.rule.auto_reply_text || "").trim() || null,
             ai_auto_reply: Boolean(form.rule.ai_auto_reply),
             ai_prompt: String(form.rule.ai_prompt || "").trim() || null,
+            ai_persona: String(form.rule.ai_persona || "").trim() || null,
+            ai_context_messages: aiContextMessages,
+            ai_whitelist_users: aiWhitelistUsers,
+            ai_blacklist_users: aiBlacklistUsers,
+            ai_daily_limit: aiDailyLimit,
             continue_actions: form.rule.push_channel === "continue"
                 ? (
                     form.rule.ai_auto_reply
-                        ? [{ action: 11, prompt: String(form.rule.ai_prompt || "").trim() || undefined }]
+                        ? [{
+                            action: 11,
+                            prompt: String(form.rule.ai_prompt || "").trim() || undefined,
+                            persona: String(form.rule.ai_persona || "").trim() || undefined,
+                            context_messages: aiContextMessages,
+                            whitelist_users: aiWhitelistUsers,
+                            blacklist_users: aiBlacklistUsers,
+                            daily_limit: aiDailyLimit ?? undefined,
+                        }]
                         : String(form.rule.auto_reply_text || "").trim()
                             ? [{ action: 1, text: String(form.rule.auto_reply_text || "").trim() }]
                             : []
@@ -941,9 +988,37 @@ export default function MonitorTasksPage() {
                                                 <span className="font-bold flex items-center gap-1"><Robot weight="bold" />{labels.aiAutoReply}</span>
                                             </label>
                                             {currentRule.ai_auto_reply ? (
-                                                <div>
-                                                    <label className="text-[10px] uppercase tracking-wider flex items-center gap-1"><Robot weight="bold" />{labels.aiPrompt}</label>
-                                                    <textarea className="!mb-0 min-h-[112px] custom-scrollbar" value={currentRule.ai_prompt || ""} onChange={(e) => updateRule({ ai_prompt: e.target.value })} placeholder={labels.aiPromptPlaceholder} />
+                                                <div className="space-y-3">
+                                                    <div>
+                                                        <label className="text-[10px] uppercase tracking-wider flex items-center gap-1"><Robot weight="bold" />{labels.aiPrompt}</label>
+                                                        <textarea className="!mb-0 min-h-[96px] custom-scrollbar" value={currentRule.ai_prompt || ""} onChange={(e) => updateRule({ ai_prompt: e.target.value })} placeholder={labels.aiPromptPlaceholder} />
+                                                    </div>
+                                                    <div>
+                                                        <label className="text-[10px] uppercase tracking-wider">{labels.aiPersona}</label>
+                                                        <textarea className="!mb-0 min-h-[88px] custom-scrollbar" value={currentRule.ai_persona || ""} onChange={(e) => updateRule({ ai_persona: e.target.value })} placeholder={labels.aiPersonaPlaceholder} />
+                                                    </div>
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                        <div>
+                                                            <label className="text-[10px] uppercase tracking-wider">{labels.aiContextMessages}</label>
+                                                            <input className="!mb-0" type="number" min={0} max={20} value={currentRule.ai_context_messages ?? 0} onChange={(e) => updateRule({ ai_context_messages: Math.min(Math.max(Number(e.target.value || 0), 0), 20) })} />
+                                                            <div className="text-[10px] text-main/35 mt-1">{labels.aiContextHint}</div>
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[10px] uppercase tracking-wider">{labels.aiDailyLimit}</label>
+                                                            <input className="!mb-0" type="number" min={0} value={currentRule.ai_daily_limit ?? ""} onChange={(e) => updateRule({ ai_daily_limit: e.target.value === "" ? null : Math.max(Number(e.target.value || 0), 0) })} placeholder={isZh ? "不限" : "Unlimited"} />
+                                                            <div className="text-[10px] text-main/35 mt-1">{labels.aiDailyLimitHint}</div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                                        <div>
+                                                            <label className="text-[10px] uppercase tracking-wider">{labels.aiWhitelist}</label>
+                                                            <textarea className="!mb-0 min-h-[88px] custom-scrollbar" value={currentRule.aiWhitelistText || ""} onChange={(e) => updateRule({ aiWhitelistText: e.target.value })} placeholder={labels.aiWhitelistPlaceholder} />
+                                                        </div>
+                                                        <div>
+                                                            <label className="text-[10px] uppercase tracking-wider">{labels.aiBlacklist}</label>
+                                                            <textarea className="!mb-0 min-h-[88px] custom-scrollbar" value={currentRule.aiBlacklistText || ""} onChange={(e) => updateRule({ aiBlacklistText: e.target.value })} placeholder={labels.aiBlacklistPlaceholder} />
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             ) : (
                                                 <div>

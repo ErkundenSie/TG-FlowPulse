@@ -67,6 +67,16 @@ def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
     return text or None
 
 
+def _clean_text_lines(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        raw_items = value
+    else:
+        raw_items = re.split(r"[\n,，]+", str(value))
+    return [str(item).strip() for item in raw_items if str(item).strip()]
+
+
 def _keyword_action_from_rule(rule: "MonitorRule") -> dict[str, Any]:
     push_channel = rule.push_channel
     auto_reply_text = _normalize_optional_text(rule.auto_reply_text)
@@ -111,13 +121,45 @@ def _keyword_action_from_rule(rule: "MonitorRule") -> dict[str, Any]:
         action["continue_message_thread_id"] = rule.continue_message_thread_id
     if rule.continue_action_interval is not None:
         action["continue_action_interval"] = rule.continue_action_interval
+    has_ai_reply_action = ai_auto_reply
+    for item in rule.continue_actions or []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            if int(item.get("action") or 0) == 11:
+                has_ai_reply_action = True
+                break
+        except (TypeError, ValueError):
+            continue
+    if has_ai_reply_action:
+        ai_fields = {
+            "ai_persona": rule.ai_persona,
+            "ai_context_messages": rule.ai_context_messages,
+            "ai_whitelist_users": rule.ai_whitelist_users,
+            "ai_blacklist_users": rule.ai_blacklist_users,
+            "ai_daily_limit": rule.ai_daily_limit,
+        }
+        for key, value in ai_fields.items():
+            if value not in (None, "", []):
+                action[key] = value
     if rule.continue_actions:
         action["continue_actions"] = rule.continue_actions
     elif ai_auto_reply:
-        action["continue_actions"] = [{"action": 11}]
+        ai_reply_action: dict[str, Any] = {"action": 11}
         if rule.ai_prompt:
             action["ai_prompt"] = rule.ai_prompt
-            action["continue_actions"][0]["prompt"] = rule.ai_prompt
+            ai_reply_action["prompt"] = rule.ai_prompt
+        ai_continue_fields = {
+            "persona": rule.ai_persona,
+            "context_messages": rule.ai_context_messages,
+            "whitelist_users": rule.ai_whitelist_users,
+            "blacklist_users": rule.ai_blacklist_users,
+            "daily_limit": rule.ai_daily_limit,
+        }
+        for key, value in ai_continue_fields.items():
+            if value not in (None, "", []):
+                ai_reply_action[key] = value
+        action["continue_actions"] = [ai_reply_action]
     elif auto_reply_text:
         action["continue_actions"] = [{"action": 1, "text": auto_reply_text}]
     elif push_channel == "continue":
@@ -146,16 +188,44 @@ def _rule_from_chat(task_name: str, account_name: str, chat: dict[str, Any]) -> 
             auto_reply_text = continue_actions[0].get("text")
         ai_auto_reply = bool(action.get("ai_auto_reply"))
         ai_prompt = action.get("ai_prompt")
+        ai_persona = action.get("ai_persona")
+        ai_context_messages = action.get("ai_context_messages")
+        ai_whitelist_users = action.get("ai_whitelist_users") or []
+        ai_blacklist_users = action.get("ai_blacklist_users") or []
+        ai_daily_limit = action.get("ai_daily_limit")
+        has_single_ai_action = False
         if (
-            not ai_auto_reply
-            and action.get("push_channel") == "continue"
+            action.get("push_channel") == "continue"
             and isinstance(continue_actions, list)
             and len(continue_actions) == 1
             and isinstance(continue_actions[0], dict)
-            and int(continue_actions[0].get("action") or 0) == 11
         ):
+            try:
+                has_single_ai_action = int(continue_actions[0].get("action") or 0) == 11
+            except (TypeError, ValueError):
+                has_single_ai_action = False
+        if not ai_auto_reply and has_single_ai_action:
             ai_auto_reply = True
-            ai_prompt = continue_actions[0].get("prompt") or ai_prompt
+        if ai_auto_reply and has_single_ai_action:
+            ai_action = continue_actions[0]
+            ai_prompt = ai_action.get("prompt") or ai_prompt
+            ai_persona = ai_action.get("persona") or ai_persona
+            ai_context_messages = (
+                ai_action.get("context_messages")
+                if ai_action.get("context_messages") not in (None, "")
+                else ai_context_messages
+            )
+            ai_whitelist_users = (
+                ai_action.get("whitelist_users") or ai_whitelist_users
+            )
+            ai_blacklist_users = (
+                ai_action.get("blacklist_users") or ai_blacklist_users
+            )
+            ai_daily_limit = (
+                ai_action.get("daily_limit")
+                if ai_action.get("daily_limit") not in (None, "")
+                else ai_daily_limit
+            )
         rules.append(
             {
                 "id": f"{task_name}:{len(rules) + 1}",
@@ -187,6 +257,11 @@ def _rule_from_chat(task_name: str, account_name: str, chat: dict[str, Any]) -> 
                 "auto_reply_text": auto_reply_text,
                 "ai_auto_reply": ai_auto_reply,
                 "ai_prompt": ai_prompt,
+                "ai_persona": ai_persona,
+                "ai_context_messages": ai_context_messages,
+                "ai_whitelist_users": ai_whitelist_users,
+                "ai_blacklist_users": ai_blacklist_users,
+                "ai_daily_limit": ai_daily_limit,
                 "continue_chat_id": action.get("continue_chat_id"),
                 "continue_message_thread_id": action.get("continue_message_thread_id"),
                 "continue_action_interval": action.get("continue_action_interval", 1),
@@ -218,6 +293,11 @@ class MonitorRule(BaseModel):
     auto_reply_text: Optional[str] = None
     ai_auto_reply: bool = False
     ai_prompt: Optional[str] = None
+    ai_persona: Optional[str] = None
+    ai_context_messages: int = 0
+    ai_whitelist_users: list[str] = Field(default_factory=list)
+    ai_blacklist_users: list[str] = Field(default_factory=list)
+    ai_daily_limit: Optional[int] = None
     continue_chat_id: Optional[MonitorChatId] = None
     continue_message_thread_id: Optional[int] = None
     continue_action_interval: float = 1
@@ -292,6 +372,35 @@ class MonitorRule(BaseModel):
     @validator("ai_prompt", pre=True)
     def normalize_ai_prompt(cls, value):
         return _normalize_optional_text(value)
+
+    @validator("ai_persona", pre=True)
+    def normalize_ai_persona(cls, value):
+        return _normalize_optional_text(value)
+
+    @validator("ai_context_messages", pre=True)
+    def normalize_ai_context_messages(cls, value):
+        if value in (None, ""):
+            return 0
+        try:
+            return min(max(int(value), 0), 20)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("context messages must be a number") from exc
+
+    @validator("ai_whitelist_users", "ai_blacklist_users", pre=True)
+    def normalize_ai_user_list(cls, value):
+        return _clean_text_lines(value)
+
+    @validator("ai_daily_limit", pre=True)
+    def normalize_ai_daily_limit(cls, value):
+        if value in (None, ""):
+            return None
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("daily limit must be a number") from exc
+        if parsed < 0:
+            raise ValueError("daily limit must be greater than or equal to 0")
+        return parsed
 
 
 class MonitorTaskCreate(BaseModel):

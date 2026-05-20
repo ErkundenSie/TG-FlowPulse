@@ -58,11 +58,29 @@ def load_keyword_monitor(monkeypatch):
     return importlib.import_module("backend.services.keyword_monitor")
 
 
+class FakeUser:
+    def __init__(self, user_id=1001, username="alice", first_name="Alice"):
+        self.id = user_id
+        self.username = username
+        self.first_name = first_name
+        self.last_name = None
+        self.is_self = False
+
+
 class FakeChat:
-    def __init__(self, chat_id=-100123, title="Source"):
+    def __init__(
+        self,
+        chat_id=-100123,
+        title="Source",
+        chat_type="supergroup",
+        username=None,
+        first_name=None,
+    ):
         self.id = chat_id
         self.title = title
-        self.username = None
+        self.type = chat_type
+        self.username = username
+        self.first_name = first_name
 
 
 class FakeButton:
@@ -72,14 +90,14 @@ class FakeButton:
 
 
 class FakeMessage:
-    def __init__(self, message_id, chat, text="", reply_markup=None):
+    def __init__(self, message_id, chat, text="", reply_markup=None, from_user=None):
         self.id = message_id
         self.chat = chat
         self.text = text
         self.caption = None
         self.reply_markup = reply_markup
         self.photo = None
-        self.from_user = None
+        self.from_user = from_user
         self.message_thread_id = None
         self.reply_to_top_message_id = None
         self.edit_date = None
@@ -117,6 +135,144 @@ def test_regex_keyword_input_does_not_split_commas(monkeypatch):
         r"gift code\s*:\s*([A-Z0-9]{8,12})",
         split_commas=False,
     ) == [r"gift code\s*:\s*([A-Z0-9]{8,12})"]
+
+
+def test_ai_sender_whitelist_blacklist(monkeypatch):
+    keyword_monitor = load_keyword_monitor(monkeypatch)
+    service = keyword_monitor.KeywordMonitorService()
+    chat = FakeChat(
+        chat_id=1001,
+        title="Alice",
+        chat_type="private",
+        username="alice_chat",
+        first_name="Alice",
+    )
+    message = FakeMessage(
+        1,
+        chat,
+        text="hello",
+        from_user=FakeUser(1001, username="alice"),
+    )
+    rule = keyword_monitor.KeywordMonitorRule(
+        account_name="acct",
+        task_name="ai",
+        chat_id="private",
+        chat_name="Private",
+        message_thread_id=None,
+        action={
+            "ai_whitelist_users": ["alice", "2002"],
+            "ai_blacklist_users": [],
+        },
+    )
+
+    assert service._rule_allows_sender(rule, message) is True
+
+    blocked_rule = keyword_monitor.KeywordMonitorRule(
+        account_name="acct",
+        task_name="ai",
+        chat_id="private",
+        chat_name="Private",
+        message_thread_id=None,
+        action={
+            "ai_whitelist_users": ["alice"],
+            "ai_blacklist_users": ["1001"],
+        },
+    )
+    assert service._rule_allows_sender(blocked_rule, message) is False
+
+    other_rule = keyword_monitor.KeywordMonitorRule(
+        account_name="acct",
+        task_name="ai",
+        chat_id="private",
+        chat_name="Private",
+        message_thread_id=None,
+        action={
+            "ai_whitelist_users": ["bob"],
+            "ai_blacklist_users": [],
+        },
+    )
+    assert service._rule_allows_sender(other_rule, message) is False
+
+
+@pytest.mark.asyncio
+async def test_ai_auto_reply_uses_context_persona_and_daily_limit(monkeypatch, tmp_path):
+    keyword_monitor = load_keyword_monitor(monkeypatch)
+    monkeypatch.setattr(
+        keyword_monitor.KeywordMonitorService,
+        "_resolve_memory_file",
+        lambda self: tmp_path / "ai_memory.json",
+    )
+    service = keyword_monitor.KeywordMonitorService()
+
+    calls = []
+    saved = {"called": False}
+
+    class FakeAITools:
+        async def get_reply(self, prompt, query, context=None):
+            calls.append(
+                {
+                    "prompt": prompt,
+                    "query": query,
+                    "context": list(context or []),
+                }
+            )
+            return f"reply-{len(calls)}"
+
+    class FakeClient:
+        def __init__(self):
+            self.sent_messages = []
+
+        async def send_message(self, chat_id, text, **kwargs):
+            self.sent_messages.append((chat_id, text, kwargs))
+
+    monkeypatch.setattr(service, "_get_ai_tools", lambda: FakeAITools())
+    monkeypatch.setattr(service, "_save_ai_memory", lambda: saved.update(called=True))
+
+    chat = FakeChat(
+        chat_id=1001,
+        title="Alice",
+        chat_type="private",
+        username="alice_chat",
+        first_name="Alice",
+    )
+    user = FakeUser(1001, username="alice")
+    client = FakeClient()
+    action = {
+        "action": 11,
+        "prompt": "请简短回复",
+        "persona": "你是账号 A 的客服。",
+        "context_messages": 2,
+        "daily_limit": 2,
+    }
+
+    for index in range(3):
+        await service._execute_continue_action(
+            client,
+            chat.id,
+            None,
+            action,
+            source_message=FakeMessage(
+                index + 1,
+                chat,
+                text=f"@acct hello {index}",
+                from_user=user,
+            ),
+            variables={"account_name": "acct", "task_name": "ai"},
+        )
+
+    assert client.sent_messages == [
+        (chat.id, "reply-1", {}),
+        (chat.id, "reply-2", {}),
+    ]
+    assert len(calls) == 2
+    assert "账号 A 的客服" in calls[0]["prompt"]
+    assert calls[0]["query"] == "hello 0"
+    assert calls[0]["context"] == []
+    assert calls[1]["context"] == [
+        {"role": "user", "content": "hello 0"},
+        {"role": "assistant", "content": "reply-1"},
+    ]
+    assert saved["called"] is True
 
 
 @pytest.mark.asyncio

@@ -280,6 +280,7 @@ class AITools:
         self,
         prompt: str,
         query: str,
+        context: Optional[list[dict[str, str]]] = None,
         client: "AsyncOpenAI" = None,
         model: str = None,
     ) -> str:
@@ -289,9 +290,14 @@ class AITools:
             {
                 "role": "system",
                 "content": prompt,
-            },
-            {"role": "user", "content": f"{query}"},
+            }
         ]
+        for item in context or []:
+            role = item.get("role")
+            content = str(item.get("content") or "").strip()
+            if role in {"user", "assistant"} and content:
+                messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": f"{query}"})
         # noinspection PyTypeChecker
         completion = await client.chat.completions.create(
             messages=messages,

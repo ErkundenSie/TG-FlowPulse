@@ -262,6 +262,11 @@ class KeywordNotifyAction(SignAction):
     match_all: bool = False
     ai_auto_reply: bool = False
     ai_prompt: Optional[str] = None
+    ai_persona: Optional[str] = None
+    ai_context_messages: int = 0
+    ai_whitelist_users: List[str] = Field(default_factory=list)
+    ai_blacklist_users: List[str] = Field(default_factory=list)
+    ai_daily_limit: Optional[int] = None
     bark_url: Optional[str] = None
     custom_url: Optional[str] = None
     forward_chat_id: Optional[Union[int, str]] = None

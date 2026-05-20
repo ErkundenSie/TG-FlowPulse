@@ -1192,6 +1192,11 @@ export interface MonitorRule {
   auto_reply_text?: string | null;
   ai_auto_reply?: boolean;
   ai_prompt?: string | null;
+  ai_persona?: string | null;
+  ai_context_messages?: number;
+  ai_whitelist_users?: string[];
+  ai_blacklist_users?: string[];
+  ai_daily_limit?: number | null;
   continue_chat_id?: MonitorChatId | null;
   continue_message_thread_id?: number | null;
   continue_action_interval?: number;
