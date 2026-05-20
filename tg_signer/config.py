@@ -255,10 +255,13 @@ class ClickButtonByCalculationProblemAction(SignAction):
 
 class KeywordNotifyAction(SignAction):
     action: Literal[SupportAction.KEYWORD_NOTIFY] = SupportAction.KEYWORD_NOTIFY
-    keywords: List[str]
+    keywords: List[str] = Field(default_factory=list)
     match_mode: Literal["contains", "exact", "regex"] = "contains"
     ignore_case: bool = True
     push_channel: Literal["telegram", "forward", "bark", "custom", "continue"] = "telegram"
+    match_all: bool = False
+    ai_auto_reply: bool = False
+    ai_prompt: Optional[str] = None
     bark_url: Optional[str] = None
     custom_url: Optional[str] = None
     forward_chat_id: Optional[Union[int, str]] = None

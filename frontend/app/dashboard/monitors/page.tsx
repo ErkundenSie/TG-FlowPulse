@@ -52,10 +52,13 @@ const emptyRule = (): MonitorRule => ({
     time_window_enabled: false,
     active_time_start: "",
     active_time_end: "",
+    match_all: false,
     push_channel: "telegram",
     forward_chat_id: "",
     forward_message_thread_id: null,
     auto_reply_text: "",
+    ai_auto_reply: false,
+    ai_prompt: "",
     continue_action_interval: 1,
     continue_actions: [],
 });
@@ -205,6 +208,9 @@ export default function MonitorTasksPage() {
         forwardChat: isZh ? "转发目标 Chat ID / @username" : "Forward Target Chat ID / @username",
         forwardTopic: isZh ? "转发目标话题 ID" : "Forward Topic ID",
         autoReply: isZh ? "自动回复文本" : "Auto Reply Text",
+        aiAutoReply: isZh ? "AI 自动回复" : "AI Auto Reply",
+        aiPrompt: isZh ? "AI 回复提示词" : "AI Reply Prompt",
+        aiPromptPlaceholder: isZh ? "可选：例如“你是客服助手，回答要简短友好。”" : "Optional: e.g. You are a support assistant. Keep replies short and friendly.",
         barkUrl: "Bark URL",
         customUrl: isZh ? "自定义推送 URL" : "Custom Push URL",
         enabled: isZh ? "启用监听" : "Enabled",
@@ -240,6 +246,8 @@ export default function MonitorTasksPage() {
         timeWindowHint: isZh ? "关闭时全天实时监控；开启后只在这个时间段内处理命中消息，支持跨午夜。" : "Off means always realtime; when enabled, matches only during this time window, including overnight ranges.",
         startTime: isZh ? "开始时间" : "Start Time",
         endTime: isZh ? "结束时间" : "End Time",
+        matchAll: isZh ? "任意私聊消息都触发" : "Trigger on any private message",
+        matchAllHint: isZh ? "适合私聊自动回复；开启后可不填写关键词，仍受时间段限制。" : "Useful for private auto replies; keywords become optional and active time still applies.",
     }), [isZh]);
 
     const matchModeHelp = useMemo(() => ({
@@ -426,13 +434,22 @@ export default function MonitorTasksPage() {
             time_window_enabled: Boolean(form.rule.time_window_enabled),
             active_time_start: form.rule.time_window_enabled ? String(form.rule.active_time_start || "").trim() || null : null,
             active_time_end: form.rule.time_window_enabled ? String(form.rule.active_time_end || "").trim() || null : null,
+            match_all: Boolean(form.rule.match_all),
             forward_chat_id: normalizeChatIdInput(String(form.rule.forward_chat_id || "")) || null,
             forward_message_thread_id: parseOptionalInt(String(form.rule.forward_message_thread_id || "")),
             bark_url: String(form.rule.bark_url || "").trim() || null,
             custom_url: String(form.rule.custom_url || "").trim() || null,
             auto_reply_text: String(form.rule.auto_reply_text || "").trim() || null,
-            continue_actions: form.rule.push_channel === "continue" && String(form.rule.auto_reply_text || "").trim()
-                ? [{ action: 1, text: String(form.rule.auto_reply_text || "").trim() }]
+            ai_auto_reply: Boolean(form.rule.ai_auto_reply),
+            ai_prompt: String(form.rule.ai_prompt || "").trim() || null,
+            continue_actions: form.rule.push_channel === "continue"
+                ? (
+                    form.rule.ai_auto_reply
+                        ? [{ action: 11, prompt: String(form.rule.ai_prompt || "").trim() || undefined }]
+                        : String(form.rule.auto_reply_text || "").trim()
+                            ? [{ action: 1, text: String(form.rule.auto_reply_text || "").trim() }]
+                            : []
+                )
                 : [],
         };
         const rules: MonitorRule[] = monitorScope === "selected"
@@ -442,8 +459,8 @@ export default function MonitorTasksPage() {
                 chat_name: chat.chat_name,
             }))
             : [baseRule];
-        if (!name || !accountName || (monitorScope === "selected" && selectedChats.length === 0) || baseRule.keywords.length === 0) {
-            addToast(isZh ? "请填写名称、账号、监听来源和关键词" : "Name, account, source chat, and keywords are required", "error");
+        if (!name || !accountName || (monitorScope === "selected" && selectedChats.length === 0) || (!baseRule.match_all && baseRule.keywords.length === 0)) {
+            addToast(isZh ? "请填写名称、账号、监听来源；未开启任意消息触发时还需要关键词" : "Name, account, source chat are required; keywords are required unless trigger-any is enabled", "error");
             return;
         }
         if (baseRule.time_window_enabled && (!baseRule.active_time_start || !baseRule.active_time_end)) {
@@ -454,8 +471,8 @@ export default function MonitorTasksPage() {
             addToast(isZh ? "请填写转发目标 Chat ID" : "Forward target Chat ID is required", "error");
             return;
         }
-        if (baseRule.push_channel === "continue" && !baseRule.auto_reply_text) {
-            addToast(isZh ? "请填写自动回复文本" : "Auto reply text is required", "error");
+        if (baseRule.push_channel === "continue" && !baseRule.ai_auto_reply && !baseRule.auto_reply_text) {
+            addToast(isZh ? "请填写自动回复文本，或开启 AI 自动回复" : "Auto reply text is required, or enable AI auto reply", "error");
             return;
         }
         try {
@@ -856,6 +873,18 @@ export default function MonitorTasksPage() {
                                     </div>
                                     <textarea className="!mb-0 min-h-[120px] custom-scrollbar" value={currentRule.keywordsText} onChange={(e) => updateRule({ keywordsText: e.target.value })} placeholder={labels.keywords} />
                                     <div className="text-[10px] text-main/35">{labels.keywordsHint}</div>
+                                    <label className="inline-flex items-start gap-2 text-xs cursor-pointer">
+                                        <input
+                                            type="checkbox"
+                                            checked={Boolean(currentRule.match_all)}
+                                            onChange={(e) => updateRule({ match_all: e.target.checked })}
+                                            className="accent-[#8a3ffc] mt-0.5"
+                                        />
+                                        <span>
+                                            <span className="block">{extraLabels.matchAll}</span>
+                                            <span className="block text-[10px] text-main/35 mt-0.5">{extraLabels.matchAllHint}</span>
+                                        </span>
+                                    </label>
                                     <label className="inline-flex items-center gap-2 text-xs cursor-pointer">
                                         <input type="checkbox" checked={currentRule.ignore_case} onChange={(e) => updateRule({ ignore_case: e.target.checked })} className="accent-[#8a3ffc]" />
                                         {labels.ignoreCase}
@@ -901,9 +930,27 @@ export default function MonitorTasksPage() {
                                     )}
 
                                     {currentRule.push_channel === "continue" && (
-                                        <div>
-                                            <label className="text-[10px] uppercase tracking-wider flex items-center gap-1"><Robot weight="bold" />{labels.autoReply}</label>
-                                            <textarea className="!mb-0 min-h-[96px] custom-scrollbar" value={currentRule.auto_reply_text || ""} onChange={(e) => updateRule({ auto_reply_text: e.target.value })} placeholder="{keyword}" />
+                                        <div className="space-y-3">
+                                            <label className="inline-flex items-center gap-2 text-xs cursor-pointer">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={Boolean(currentRule.ai_auto_reply)}
+                                                    onChange={(e) => updateRule({ ai_auto_reply: e.target.checked })}
+                                                    className="accent-emerald-400"
+                                                />
+                                                <span className="font-bold flex items-center gap-1"><Robot weight="bold" />{labels.aiAutoReply}</span>
+                                            </label>
+                                            {currentRule.ai_auto_reply ? (
+                                                <div>
+                                                    <label className="text-[10px] uppercase tracking-wider flex items-center gap-1"><Robot weight="bold" />{labels.aiPrompt}</label>
+                                                    <textarea className="!mb-0 min-h-[112px] custom-scrollbar" value={currentRule.ai_prompt || ""} onChange={(e) => updateRule({ ai_prompt: e.target.value })} placeholder={labels.aiPromptPlaceholder} />
+                                                </div>
+                                            ) : (
+                                                <div>
+                                                    <label className="text-[10px] uppercase tracking-wider flex items-center gap-1"><Robot weight="bold" />{labels.autoReply}</label>
+                                                    <textarea className="!mb-0 min-h-[96px] custom-scrollbar" value={currentRule.auto_reply_text || ""} onChange={(e) => updateRule({ auto_reply_text: e.target.value })} placeholder="{keyword}" />
+                                                </div>
+                                            )}
                                         </div>
                                     )}
 

@@ -1183,12 +1183,15 @@ export interface MonitorRule {
   time_window_enabled?: boolean;
   active_time_start?: string | null;
   active_time_end?: string | null;
+  match_all?: boolean;
   push_channel: "telegram" | "forward" | "bark" | "custom" | "continue";
   bark_url?: string | null;
   custom_url?: string | null;
   forward_chat_id?: MonitorChatId | null;
   forward_message_thread_id?: number | null;
   auto_reply_text?: string | null;
+  ai_auto_reply?: boolean;
+  ai_prompt?: string | null;
   continue_chat_id?: MonitorChatId | null;
   continue_message_thread_id?: number | null;
   continue_action_interval?: number;

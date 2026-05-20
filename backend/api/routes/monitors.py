@@ -3,10 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from typing import Any, Literal, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, root_validator, validator
 
 from backend.core.auth import get_current_user
 from backend.models.user import User
@@ -69,7 +70,8 @@ def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
 def _keyword_action_from_rule(rule: "MonitorRule") -> dict[str, Any]:
     push_channel = rule.push_channel
     auto_reply_text = _normalize_optional_text(rule.auto_reply_text)
-    if auto_reply_text:
+    ai_auto_reply = bool(rule.ai_auto_reply)
+    if auto_reply_text or ai_auto_reply:
         push_channel = "continue"
     thread_ids = [
         int(item)
@@ -88,6 +90,8 @@ def _keyword_action_from_rule(rule: "MonitorRule") -> dict[str, Any]:
         "include_self_messages": rule.include_self_messages,
         "message_thread_ids": thread_ids,
         "time_window_enabled": rule.time_window_enabled,
+        "match_all": rule.match_all,
+        "ai_auto_reply": ai_auto_reply,
     }
     if rule.active_time_start:
         action["active_time_start"] = rule.active_time_start
@@ -109,6 +113,11 @@ def _keyword_action_from_rule(rule: "MonitorRule") -> dict[str, Any]:
         action["continue_action_interval"] = rule.continue_action_interval
     if rule.continue_actions:
         action["continue_actions"] = rule.continue_actions
+    elif ai_auto_reply:
+        action["continue_actions"] = [{"action": 11}]
+        if rule.ai_prompt:
+            action["ai_prompt"] = rule.ai_prompt
+            action["continue_actions"][0]["prompt"] = rule.ai_prompt
     elif auto_reply_text:
         action["continue_actions"] = [{"action": 1, "text": auto_reply_text}]
     elif push_channel == "continue":
@@ -135,6 +144,18 @@ def _rule_from_chat(task_name: str, account_name: str, chat: dict[str, Any]) -> 
             and int(continue_actions[0].get("action") or 0) == 1
         ):
             auto_reply_text = continue_actions[0].get("text")
+        ai_auto_reply = bool(action.get("ai_auto_reply"))
+        ai_prompt = action.get("ai_prompt")
+        if (
+            not ai_auto_reply
+            and action.get("push_channel") == "continue"
+            and isinstance(continue_actions, list)
+            and len(continue_actions) == 1
+            and isinstance(continue_actions[0], dict)
+            and int(continue_actions[0].get("action") or 0) == 11
+        ):
+            ai_auto_reply = True
+            ai_prompt = continue_actions[0].get("prompt") or ai_prompt
         rules.append(
             {
                 "id": f"{task_name}:{len(rules) + 1}",
@@ -157,12 +178,15 @@ def _rule_from_chat(task_name: str, account_name: str, chat: dict[str, Any]) -> 
                 "time_window_enabled": bool(action.get("time_window_enabled", False)),
                 "active_time_start": action.get("active_time_start"),
                 "active_time_end": action.get("active_time_end"),
+                "match_all": bool(action.get("match_all", False)),
                 "push_channel": action.get("push_channel") or "telegram",
                 "bark_url": action.get("bark_url"),
                 "custom_url": action.get("custom_url"),
                 "forward_chat_id": action.get("forward_chat_id"),
                 "forward_message_thread_id": action.get("forward_message_thread_id"),
                 "auto_reply_text": auto_reply_text,
+                "ai_auto_reply": ai_auto_reply,
+                "ai_prompt": ai_prompt,
                 "continue_chat_id": action.get("continue_chat_id"),
                 "continue_message_thread_id": action.get("continue_message_thread_id"),
                 "continue_action_interval": action.get("continue_action_interval", 1),
@@ -185,12 +209,15 @@ class MonitorRule(BaseModel):
     time_window_enabled: bool = False
     active_time_start: Optional[str] = None
     active_time_end: Optional[str] = None
+    match_all: bool = False
     push_channel: Literal["telegram", "forward", "bark", "custom", "continue"] = "telegram"
     bark_url: Optional[str] = None
     custom_url: Optional[str] = None
     forward_chat_id: Optional[MonitorChatId] = None
     forward_message_thread_id: Optional[int] = None
     auto_reply_text: Optional[str] = None
+    ai_auto_reply: bool = False
+    ai_prompt: Optional[str] = None
     continue_chat_id: Optional[MonitorChatId] = None
     continue_message_thread_id: Optional[int] = None
     continue_action_interval: float = 1
@@ -239,11 +266,32 @@ class MonitorRule(BaseModel):
         return text
 
     @validator("keywords")
-    def keywords_required(cls, value):
+    def clean_keywords(cls, value):
         cleaned = [str(item).strip() for item in value if str(item).strip()]
-        if not cleaned:
-            raise ValueError("at least one keyword or regex is required")
         return cleaned
+
+    @root_validator
+    def keywords_or_match_all_required(cls, values):
+        keywords = values.get("keywords") or []
+        if values.get("match_all"):
+            return values
+        raw_auto_reply_text = _normalize_optional_text(values.get("auto_reply_text"))
+        has_ai_auto_reply = bool(values.get("ai_auto_reply", False))
+        if (
+            not keywords
+            and values.get("monitor_scope") == "private"
+            and values.get("push_channel") == "continue"
+            and (raw_auto_reply_text or has_ai_auto_reply)
+        ):
+            values["match_all"] = True
+            return values
+        if not keywords:
+            raise ValueError("at least one keyword or enable match_all is required")
+        return values
+
+    @validator("ai_prompt", pre=True)
+    def normalize_ai_prompt(cls, value):
+        return _normalize_optional_text(value)
 
 
 class MonitorTaskCreate(BaseModel):
