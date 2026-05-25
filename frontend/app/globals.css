@@ -379,7 +379,7 @@ select option {
 }
 
 .main-content.settings-main {
-  max-width: 1180px;
+  max-width: 1440px;
   padding-inline: 28px;
 }
 
@@ -1028,7 +1028,7 @@ select option {
 }
 
 #settings-view .settings-shell {
-  max-width: 1120px;
+  max-width: 1380px;
   margin: 0 auto;
   align-items: start;
   display: grid;

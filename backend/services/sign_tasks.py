@@ -1820,32 +1820,24 @@ class SignTaskService:
                         raise ValueError("未配置 Telegram API ID 或 API Hash")
 
                     session_dir = settings.resolve_session_dir()
-                    session_mode = get_session_mode()
-                    session_string = None
-                    use_in_memory = False
+                    session_string = (
+                        get_account_session_string(account_name)
+                        or load_session_string_file(session_dir, account_name)
+                    )
+                    use_in_memory = bool(session_string)
                     proxy_dict = None
                     proxy_value = self._get_effective_proxy(account_name)
                     if proxy_value:
                         proxy_dict = build_proxy_dict(proxy_value)
 
-                    if session_mode == "string":
-                        session_string = (
-                            get_account_session_string(account_name)
-                            or load_session_string_file(session_dir, account_name)
-                        )
-                        if not session_string:
-                            account_invalid_detected = True
-                            raise ValueError(f"账号 {account_name} 的 session_string 不存在")
-                        use_in_memory = True
-                    else:
-                        session_string = None
-                        use_in_memory = False
+                    if not session_string and get_session_mode() == "string":
+                        account_invalid_detected = True
+                        raise ValueError(f"账号 {account_name} 的 session_string 不存在")
 
-                        if os.getenv("SIGN_TASK_FORCE_IN_MEMORY") == "1":
-                            session_string = load_session_string_file(
-                                session_dir, account_name
-                            )
-                            use_in_memory = bool(session_string)
+                    if use_in_memory:
+                        self._active_logs[task_key].append(
+                            "会话模式: 内存 session_string，避免 SQLite session 文件锁冲突"
+                        )
 
                     self._active_logs[task_key].append(
                         f"消息更新监听: {'开启' if requires_updates else '关闭'}"

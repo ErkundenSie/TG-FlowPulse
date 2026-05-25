@@ -84,17 +84,6 @@ sqlite3.connect = _patched_sqlite3_connect
 
 # Monkeypatch pyrogram.Client.invoke to add backpressure and retry logic for updates
 _original_invoke = BaseClient.invoke
-_get_channel_diff_semaphore = asyncio.Semaphore(50)
-
-
-def _read_positive_float_env(name: str, default: float, minimum: float = 1.0) -> float:
-    raw = os.getenv(name)
-    if raw is None:
-        return default
-    try:
-        return max(float(raw), minimum)
-    except (TypeError, ValueError):
-        return default
 
 
 def _read_positive_int_env(name: str, default: int, minimum: int = 1) -> int:
@@ -103,6 +92,21 @@ def _read_positive_int_env(name: str, default: int, minimum: int = 1) -> int:
         return default
     try:
         return max(int(raw), minimum)
+    except (TypeError, ValueError):
+        return default
+
+
+_get_channel_diff_semaphore = asyncio.Semaphore(
+    _read_positive_int_env("TG_UPDATES_MAX_CONCURRENCY", 8, 1)
+)
+
+
+def _read_positive_float_env(name: str, default: float, minimum: float = 1.0) -> float:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return max(float(raw), minimum)
     except (TypeError, ValueError):
         return default
 
@@ -122,7 +126,16 @@ async def _patched_invoke(self, query, *args, **kwargs):
                     return await _original_invoke(self, query, *args, **kwargs)
                 except Exception as e:
                     err_str = str(e).lower()
-                    if isinstance(e, asyncio.TimeoutError) or "timeout" in err_str or "connection" in err_str or "flood" in err_str or "network" in err_str:
+                    is_recoverable_updates_error = (
+                        isinstance(e, asyncio.TimeoutError)
+                        or "timeout" in err_str
+                        or "connection" in err_str
+                        or "flood" in err_str
+                        or "network" in err_str
+                        or "msg_id" in err_str
+                        or "client time" in err_str
+                    )
+                    if is_recoverable_updates_error:
                         if attempt < max_retries:
                             delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
                             if "flood" in err_str and hasattr(e, "value"):
@@ -130,7 +143,8 @@ async def _patched_invoke(self, query, *args, **kwargs):
                             await asyncio.sleep(delay)
                             continue
 
-                        logger.warning(f"Drop updates for {type(query).__name__} due to error: {e}")
+                        if not ("msg_id" in err_str or "client time" in err_str):
+                            logger.warning(f"Drop updates for {type(query).__name__} due to error: {e}")
 
                         if isinstance(query, raw.functions.updates.GetChannelDifference):
                             from pyrogram.raw.types.updates import (
