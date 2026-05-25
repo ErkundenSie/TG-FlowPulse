@@ -365,8 +365,7 @@ class Client(BaseClient):
                         if is_locked and attempt < max_retries - 1:
                             # Cleanup before retry
                             try:
-                                if self.is_connected:
-                                    await self.stop()
+                                await _stop_client_safely(self)
                             except Exception:
                                 pass
 
@@ -382,7 +381,7 @@ class Client(BaseClient):
                             _CLIENT_REFS.pop(self.key, None)
                             _CLIENT_INSTANCES.pop(self.key, None)
                             try:
-                                await self.stop()
+                                await _stop_client_safely(self)
                             except Exception:
                                 pass
                         raise e
@@ -396,7 +395,7 @@ class Client(BaseClient):
             _CLIENT_REFS[self.key] -= 1
             if _CLIENT_REFS[self.key] == 0:
                 try:
-                    await self.stop()
+                    await _stop_client_safely(self)
                 except Exception:
                     pass
                 # DO NOT POP FROM _CLIENT_INSTANCES HERE.
@@ -424,6 +423,34 @@ class Client(BaseClient):
         await super().log_out()
         if self.session_string_file.is_file():
             os.remove(self.session_string_file)
+
+
+def _is_client_already_stopped_error(exc: BaseException) -> bool:
+    text = str(exc).lower()
+    return "already terminated" in text or "already disconnected" in text
+
+
+async def _stop_client_safely(client):
+    if getattr(client, "is_initialized", False):
+        try:
+            await client.stop()
+        except ConnectionError as exc:
+            if not _is_client_already_stopped_error(exc):
+                raise
+            if getattr(client, "is_connected", False):
+                try:
+                    await client.disconnect()
+                except ConnectionError as disconnect_exc:
+                    if not _is_client_already_stopped_error(disconnect_exc):
+                        raise
+        return
+
+    if getattr(client, "is_connected", False):
+        try:
+            await client.disconnect()
+        except ConnectionError as exc:
+            if not _is_client_already_stopped_error(exc):
+                raise
 
 
 def get_api_config():
@@ -537,8 +564,7 @@ async def close_client_by_name(name: str, workdir: Union[str, pathlib.Path] = ".
     client = _CLIENT_INSTANCES.get(key)
     if client:
         try:
-            if client.is_connected:
-                await client.stop()
+            await _stop_client_safely(client)
         except Exception as e:
             logger.warning(f"Error stopping client {name}: {e}")
         finally:
@@ -1431,7 +1457,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             )
         finally:
             if started_here:
-                await self.app.stop()
+                await _stop_client_safely(self.app)
 
     async def normal_run(
         self, num_of_dialogs=20, only_once: bool = False, force_rerun: bool = False

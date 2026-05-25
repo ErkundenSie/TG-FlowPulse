@@ -48,3 +48,63 @@ def test_get_client_keeps_connected_cache_when_no_updates_changes(monkeypatch, t
     second = core.get_client("account", workdir=tmp_path, no_updates=False)
 
     assert second is first
+
+
+class DummyStoppableClient:
+    def __init__(self, *, is_connected=False, is_initialized=False):
+        self.is_connected = is_connected
+        self.is_initialized = is_initialized
+        self.stopped = 0
+        self.disconnected = 0
+
+    async def stop(self):
+        self.stopped += 1
+        if not self.is_initialized:
+            raise ConnectionError("Client is already terminated")
+        self.is_initialized = False
+        self.is_connected = False
+
+    async def disconnect(self):
+        self.disconnected += 1
+        if not self.is_connected:
+            raise ConnectionError("Client is already disconnected")
+        self.is_connected = False
+
+
+@pytest.mark.asyncio
+async def test_stop_client_safely_disconnects_connected_uninitialized_client():
+    from tg_signer import core
+
+    client = DummyStoppableClient(is_connected=True, is_initialized=False)
+
+    await core._stop_client_safely(client)
+
+    assert client.stopped == 0
+    assert client.disconnected == 1
+    assert client.is_connected is False
+
+
+@pytest.mark.asyncio
+async def test_stop_client_safely_stops_initialized_client():
+    from tg_signer import core
+
+    client = DummyStoppableClient(is_connected=True, is_initialized=True)
+
+    await core._stop_client_safely(client)
+
+    assert client.stopped == 1
+    assert client.disconnected == 0
+    assert client.is_connected is False
+    assert client.is_initialized is False
+
+
+@pytest.mark.asyncio
+async def test_stop_client_safely_ignores_already_stopped_client():
+    from tg_signer import core
+
+    client = DummyStoppableClient(is_connected=False, is_initialized=False)
+
+    await core._stop_client_safely(client)
+
+    assert client.stopped == 0
+    assert client.disconnected == 0
