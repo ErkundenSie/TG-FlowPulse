@@ -6,6 +6,7 @@ import logging
 import re
 from datetime import datetime
 from typing import Any, Literal, Optional, Union
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field, root_validator, validator
@@ -67,6 +68,27 @@ def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _build_download_content_disposition(
+    filename: str,
+    fallback_stem: str = "download",
+) -> str:
+    safe_filename = re.sub(r'[\\/:*?"<>|]+', "_", str(filename)).strip().strip(".")
+    if not safe_filename:
+        safe_filename = fallback_stem
+
+    ascii_fallback = safe_filename.encode("ascii", "ignore").decode("ascii")
+    ascii_fallback = re.sub(r"[^A-Za-z0-9._-]+", "_", ascii_fallback).strip("._")
+    if not ascii_fallback:
+        suffix_match = re.search(r"(\.[A-Za-z0-9]+)$", safe_filename)
+        suffix = suffix_match.group(1) if suffix_match else ""
+        ascii_fallback = f"{fallback_stem}{suffix}"
+
+    return (
+        f'attachment; filename="{ascii_fallback}"; '
+        f"filename*=UTF-8''{quote(safe_filename)}"
+    )
 
 
 def _clean_text_lines(value: Any) -> list[str]:
@@ -801,7 +823,12 @@ def export_monitor_records(
         return Response(
             content=workbook,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            headers={
+                "Content-Disposition": _build_download_content_disposition(
+                    filename,
+                    fallback_stem="monitor_records",
+                )
+            },
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"failed to export monitor records: {exc}") from exc
