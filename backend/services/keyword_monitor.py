@@ -1,10 +1,12 @@
 ﻿from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
 import re
+import threading
 import time
 import unicodedata
 from dataclasses import dataclass
@@ -34,6 +36,7 @@ DEFAULT_CONTINUE_TIMEOUT = 25
 DEFAULT_HISTORY_LIMIT = 10
 DEFAULT_CLIENT_START_TIMEOUT = 20
 DEFAULT_AI_MEMORY_MAX_ITEMS = 2000
+DEFAULT_MATCH_RECORD_MAX_ITEMS = 5000
 
 
 def _is_callback_data_invalid(exc: BaseException) -> bool:
@@ -207,6 +210,7 @@ def _message_user_identifiers(message: Message) -> set[str]:
 
 
 _TEMPLATE_PATTERN = re.compile(r"(?:\$\{|\{)([a-zA-Z_][a-zA-Z0-9_]*)\}")
+_CONTAINS_ALL_SPLIT_PATTERN = re.compile(r"\s*(?:&&|＆＆|\band\b|且|并且)\s*", re.IGNORECASE)
 
 
 def _read_positive_int_env(name: str, default: int, minimum: int = 1) -> int:
@@ -252,6 +256,13 @@ def _render_template(value: Any, variables: Dict[str, str]) -> Any:
         return variables.get(match.group(1), "")
 
     return _TEMPLATE_PATTERN.sub(replace, value)
+
+
+def _split_contains_all_terms(keyword: str) -> list[str]:
+    if not isinstance(keyword, str):
+        return []
+    parts = [item.strip() for item in _CONTAINS_ALL_SPLIT_PATTERN.split(keyword) if item.strip()]
+    return parts if len(parts) > 1 else []
 
 
 def _strip_ai_reply_mention(text: str, variables: Dict[str, str]) -> str:
@@ -447,6 +458,9 @@ class KeywordMonitorService:
         self._memory_lock = asyncio.Lock()
         self._memory_file = self._resolve_memory_file()
         self._ai_memory: dict[str, dict[str, Any]] = self._load_ai_memory()
+        self._records_lock = threading.RLock()
+        self._records_file = self._memory_file.parent / "match_records.json"
+        self._match_records: dict[str, dict[str, Any]] = self._load_match_records()
 
     def _task_key(self, account_name: str, task_name: str) -> tuple[str, str]:
         return account_name, task_name
@@ -519,6 +533,13 @@ class KeywordMonitorService:
             10,
         )
 
+    def _match_records_max_items(self) -> int:
+        return _read_positive_int_env(
+            "KEYWORD_MONITOR_RECORD_MAX_ITEMS",
+            DEFAULT_MATCH_RECORD_MAX_ITEMS,
+            100,
+        )
+
     def _trim_ai_memory(self) -> None:
         max_items = self._memory_max_items()
         if len(self._ai_memory) <= max_items:
@@ -529,6 +550,162 @@ class KeywordMonitorService:
         )
         for key, _value in sorted_items[: len(self._ai_memory) - max_items]:
             self._ai_memory.pop(key, None)
+
+    def _load_match_records(self) -> dict[str, dict[str, Any]]:
+        try:
+            if not self._records_file.exists():
+                return {}
+            with self._records_file.open("r", encoding="utf-8") as fp:
+                data = json.load(fp)
+            if not isinstance(data, dict):
+                return {}
+            records = data.get("records")
+            if not isinstance(records, dict):
+                return {}
+            return {
+                str(key): value
+                for key, value in records.items()
+                if isinstance(value, dict)
+            }
+        except Exception as exc:
+            logger.debug("Failed to load keyword monitor match records: %s", exc)
+            return {}
+
+    def _save_match_records(self) -> None:
+        payload = {
+            "version": 1,
+            "records": self._match_records,
+        }
+        try:
+            self._records_file.parent.mkdir(parents=True, exist_ok=True)
+            tmp_path = self._records_file.with_suffix(".json.tmp")
+            with tmp_path.open("w", encoding="utf-8") as fp:
+                json.dump(payload, fp, ensure_ascii=False, indent=2)
+            tmp_path.replace(self._records_file)
+        except Exception as exc:
+            logger.debug("Failed to save keyword monitor match records: %s", exc)
+
+    def _trim_match_records(self) -> None:
+        max_items = self._match_records_max_items()
+        if len(self._match_records) <= max_items:
+            return
+        sorted_items = sorted(
+            self._match_records.items(),
+            key=lambda item: (
+                str(item[1].get("last_seen_at") or ""),
+                str(item[1].get("first_seen_at") or ""),
+            ),
+        )
+        for key, _value in sorted_items[: len(self._match_records) - max_items]:
+            self._match_records.pop(key, None)
+
+    def _match_record_key(
+        self,
+        *,
+        rule: KeywordMonitorRule,
+        chat_id: Any,
+        thread_id: Optional[int],
+        text: str,
+    ) -> str:
+        payload = json.dumps(
+            {
+                "account_name": rule.account_name,
+                "task_name": rule.task_name,
+                "chat_id": str(chat_id or rule.chat_id or ""),
+                "thread_id": thread_id,
+                "text": _clean_text_for_match(text),
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        return hashlib.sha1(payload.encode("utf-8")).hexdigest()
+
+    def _record_message_match(
+        self,
+        *,
+        rule: KeywordMonitorRule,
+        message: Message,
+        text: str,
+        matched: str,
+        chat_title: str,
+        sender: str,
+        url: str,
+    ) -> dict[str, Any]:
+        from_user = getattr(message, "from_user", None)
+        chat_id = getattr(message.chat, "id", rule.chat_id)
+        message_thread_id = self._message_thread_id(message)
+        now = datetime.now().isoformat(timespec="seconds")
+        fingerprint = self._match_record_key(
+            rule=rule,
+            chat_id=chat_id,
+            thread_id=message_thread_id,
+            text=text,
+        )
+        with self._records_lock:
+            existing = self._match_records.get(fingerprint)
+            record = dict(existing or {})
+            record.update(
+                {
+                    "fingerprint": fingerprint,
+                    "account_name": rule.account_name,
+                    "task_name": rule.task_name,
+                    "chat_id": chat_id,
+                    "chat_name": chat_title,
+                    "message_thread_id": message_thread_id,
+                    "matched_keyword": matched or "任意消息",
+                    "match_mode": str(rule.action.get("match_mode") or "contains"),
+                    "message_text": text,
+                    "message_preview": text.replace("\n", " ").strip()[:500],
+                    "sender": sender,
+                    "sender_id": str(getattr(from_user, "id", "") or ""),
+                    "sender_username": str(getattr(from_user, "username", "") or ""),
+                    "message_url": url,
+                    "last_seen_at": now,
+                    "last_message_id": getattr(message, "id", None),
+                }
+            )
+            if existing:
+                record["hit_count"] = int(existing.get("hit_count") or 1) + 1
+                record["first_seen_at"] = existing.get("first_seen_at") or now
+                record["first_message_id"] = existing.get("first_message_id")
+                if not record["first_message_id"]:
+                    record["first_message_id"] = getattr(message, "id", None)
+            else:
+                record["hit_count"] = 1
+                record["first_seen_at"] = now
+                record["first_message_id"] = getattr(message, "id", None)
+            self._match_records[fingerprint] = record
+            self._trim_match_records()
+            self._save_match_records()
+            return dict(record)
+
+    def get_match_records(
+        self,
+        task_name: str,
+        account_name: Optional[str] = None,
+        *,
+        limit: Optional[int] = 200,
+    ) -> list[dict[str, Any]]:
+        with self._records_lock:
+            records = [
+                dict(record)
+                for record in self._match_records.values()
+                if str(record.get("task_name") or "") == task_name
+                and (
+                    account_name is None
+                    or str(record.get("account_name") or "") == account_name
+                )
+            ]
+        records.sort(
+            key=lambda item: (
+                str(item.get("last_seen_at") or ""),
+                str(item.get("first_seen_at") or ""),
+            ),
+            reverse=True,
+        )
+        if limit is None or limit <= 0:
+            return records
+        return records[:limit]
 
     def _append_task_log(
         self,
@@ -766,6 +943,14 @@ class KeywordMonitorService:
                         return _regex_keyword_value(match)
                 except re.error as exc:
                     logger.warning("Invalid keyword monitor regex %r: %s", keyword, exc)
+                continue
+            contains_all_terms = _split_contains_all_terms(keyword)
+            if mode not in {"exact", "regex"} and contains_all_terms:
+                normalized_terms = [
+                    item.lower() if ignore_case else item for item in contains_all_terms
+                ]
+                if all(term in haystack for term in normalized_terms):
+                    return keyword
                 continue
             if mode not in {"exact", "regex"} and needle in haystack:
                 return keyword
@@ -1711,13 +1896,23 @@ class KeywordMonitorService:
                 if matched is None:
                     continue
                 matched_label = matched or "任意消息"
+                record = self._record_message_match(
+                    rule=rule,
+                    message=message,
+                    text=text,
+                    matched=matched_label,
+                    chat_title=chat_title,
+                    sender=sender,
+                    url=url,
+                )
                 text_preview = text.replace("\n", " ").strip()
                 if len(text_preview) > 160:
                     text_preview = text_preview[:157] + "..."
                 self._append_rule_log(
                     rule,
                     f"关键词命中：Chat={chat_title}({getattr(message.chat, 'id', '')})，"
-                    f"消息ID={getattr(message, 'id', '')}，捕获值={matched_label}，消息={text_preview}",
+                    f"消息ID={getattr(message, 'id', '')}，捕获值={matched_label}，"
+                    f"去重记录数={record.get('hit_count', 1)}，消息={text_preview}",
                     active=True,
                 )
                 body_lines = [

@@ -1218,6 +1218,28 @@ export interface MonitorStatus {
   logs: string[];
 }
 
+export interface MonitorMatchRecord {
+  fingerprint: string;
+  account_name: string;
+  task_name: string;
+  chat_id?: MonitorChatId | null;
+  chat_name: string;
+  message_thread_id?: number | null;
+  matched_keyword: string;
+  match_mode: string;
+  message_text: string;
+  message_preview: string;
+  sender: string;
+  sender_id: string;
+  sender_username: string;
+  message_url: string;
+  hit_count: number;
+  first_seen_at: string;
+  last_seen_at: string;
+  first_message_id?: number | null;
+  last_message_id?: number | null;
+}
+
 export interface CreateMonitorTaskRequest {
   name: string;
   account_name: string;
@@ -1301,4 +1323,44 @@ export const getMonitorStatus = (
     {},
     token,
   );
+};
+
+export const getMonitorRecords = (
+  token: string,
+  name: string,
+  accountName?: string,
+  limit: number = 200,
+) => {
+  const params = new URLSearchParams();
+  if (accountName) params.append("account_name", accountName);
+  params.append("limit", String(limit));
+  return request<MonitorMatchRecord[]>(
+    `/monitors/${pathSegment(name)}/records?${params.toString()}`,
+    {},
+    token,
+  );
+};
+
+export const exportMonitorRecords = async (
+  token: string,
+  name: string,
+  accountName?: string,
+) => {
+  const params = new URLSearchParams();
+  if (accountName) params.append("account_name", accountName);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const blob = await requestBlob(
+    `/monitors/${pathSegment(name)}/records/export${suffix}`,
+    {},
+    token,
+  );
+  const filenameBase = [
+    "monitor_records",
+    accountName || "account",
+    name,
+  ]
+    .filter(Boolean)
+    .map(safeFilenamePart)
+    .join("_");
+  downloadBlob(blob, `${filenameBase}.xlsx`);
 };

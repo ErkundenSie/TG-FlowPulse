@@ -137,6 +137,34 @@ def test_regex_keyword_input_does_not_split_commas(monkeypatch):
     ) == [r"gift code\s*:\s*([A-Z0-9]{8,12})"]
 
 
+def test_contains_keyword_supports_all_terms_expression(monkeypatch):
+    keyword_monitor = load_keyword_monitor(monkeypatch)
+    service = keyword_monitor.KeywordMonitorService()
+
+    assert (
+        service._match_keyword(
+            {
+                "keywords": ["ai 且 出", "ai && 卡网"],
+                "match_mode": "contains",
+                "ignore_case": True,
+            },
+            "这个群里说 ai 已经 出 结果了",
+        )
+        == "ai 且 出"
+    )
+    assert (
+        service._match_keyword(
+            {
+                "keywords": ["ai 且 出", "ai && 卡网"],
+                "match_mode": "contains",
+                "ignore_case": True,
+            },
+            "AI 现在又卡网了",
+        )
+        == "ai && 卡网"
+    )
+
+
 def test_ai_sender_whitelist_blacklist(monkeypatch):
     keyword_monitor = load_keyword_monitor(monkeypatch)
     service = keyword_monitor.KeywordMonitorService()
@@ -411,6 +439,66 @@ async def test_keyword_monitor_handles_repeated_matching_messages(monkeypatch):
     )
 
     assert matched_codes == ["ABC123ABC", "XYZ789XYZ"]
+    records = service.get_match_records("redeem", "acct", limit=0)
+    assert len(records) == 2
+    assert {record["matched_keyword"] for record in records} == {"ABC123ABC", "XYZ789XYZ"}
     monitor_logs = service.get_task_logs("redeem", "acct")
     assert any("关键词命中" in line and "捕获值=ABC123ABC" in line for line in monitor_logs)
     assert any("关键词命中" in line and "捕获值=XYZ789XYZ" in line for line in monitor_logs)
+
+
+@pytest.mark.asyncio
+async def test_keyword_monitor_deduplicates_same_message_into_one_record(monkeypatch, tmp_path):
+    keyword_monitor = load_keyword_monitor(monkeypatch)
+
+    monkeypatch.setattr(
+        keyword_monitor.KeywordMonitorService,
+        "_resolve_memory_file",
+        lambda self: tmp_path / "ai_memory.json",
+    )
+
+    class FakeConfigService:
+        def get_global_settings(self):
+            return {}
+
+    import backend.services.config as config_service
+
+    monkeypatch.setattr(
+        config_service,
+        "get_config_service",
+        lambda: FakeConfigService(),
+    )
+
+    chat = FakeChat()
+    service = keyword_monitor.KeywordMonitorService()
+    service._rules = [
+        keyword_monitor.KeywordMonitorRule(
+            account_name="acct",
+            task_name="redeem",
+            chat_id=chat.id,
+            chat_name=chat.title,
+            message_thread_id=None,
+            action={
+                "keywords": ["ai", "卡网"],
+                "match_mode": "contains",
+                "ignore_case": True,
+                "push_channel": "telegram",
+            },
+        )
+    ]
+
+    await service._on_message(
+        "acct",
+        object(),
+        FakeMessage(1, chat, text="AI 卡网 了"),
+    )
+    await service._on_message(
+        "acct",
+        object(),
+        FakeMessage(2, chat, text="AI 卡网 了"),
+    )
+
+    records = service.get_match_records("redeem", "acct", limit=0)
+    assert len(records) == 1
+    assert records[0]["hit_count"] == 2
+    assert records[0]["message_text"] == "AI 卡网 了"

@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import re
+from datetime import datetime
 from typing import Any, Literal, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -12,6 +13,7 @@ from pydantic import BaseModel, Field, root_validator, validator
 from backend.core.auth import get_current_user
 from backend.models.user import User
 from backend.services.sign_tasks import get_sign_task_service
+from backend.utils.xlsx_export import build_xlsx_bytes
 from backend.utils.names import validate_name_segment
 
 router = APIRouter()
@@ -448,6 +450,28 @@ class MonitorStatusOut(BaseModel):
     logs: list[str] = Field(default_factory=list)
 
 
+class MonitorMatchRecordOut(BaseModel):
+    fingerprint: str = ""
+    account_name: str = ""
+    task_name: str = ""
+    chat_id: Optional[MonitorChatId] = None
+    chat_name: str = ""
+    message_thread_id: Optional[int] = None
+    matched_keyword: str = ""
+    match_mode: str = "contains"
+    message_text: str = ""
+    message_preview: str = ""
+    sender: str = ""
+    sender_id: str = ""
+    sender_username: str = ""
+    message_url: str = ""
+    hit_count: int = 1
+    first_seen_at: str = ""
+    last_seen_at: str = ""
+    first_message_id: Optional[int] = None
+    last_message_id: Optional[int] = None
+
+
 def _task_to_monitor(task: dict[str, Any]) -> Optional[MonitorTaskOut]:
     chats = task.get("chats") or []
     rules: list[dict[str, Any]] = []
@@ -473,6 +497,16 @@ def _task_to_monitor(task: dict[str, Any]) -> Optional[MonitorTaskOut]:
 
 def _is_standalone_monitor(task: dict[str, Any]) -> bool:
     return bool(task.get("monitor_only")) or str(task.get("group") or "") == "monitors"
+
+
+def _ensure_monitor_task(
+    task_name: str,
+    account_name: Optional[str] = None,
+) -> dict[str, Any]:
+    task = get_sign_task_service().get_task(task_name, account_name=account_name)
+    if not task or not _is_standalone_monitor(task):
+        raise HTTPException(status_code=404, detail=f"monitor {task_name} not found")
+    return task
 
 
 def _build_chats(rules: list[MonitorRule]) -> list[dict[str, Any]]:
@@ -654,9 +688,7 @@ def get_monitor_status(
     account_name: Optional[str] = None,
     current_user: User = Depends(get_current_user),
 ):
-    existing = get_sign_task_service().get_task(task_name, account_name=account_name)
-    if not existing or not _is_standalone_monitor(existing):
-        raise HTTPException(status_code=404, detail=f"monitor {task_name} not found")
+    existing = _ensure_monitor_task(task_name, account_name)
 
     try:
         from backend.services.keyword_monitor import get_keyword_monitor_service
@@ -676,6 +708,103 @@ def get_monitor_status(
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"failed to read monitor status: {exc}") from exc
+
+
+@router.get("/{task_name}/records", response_model=list[MonitorMatchRecordOut])
+def list_monitor_records(
+    task_name: str,
+    account_name: Optional[str] = None,
+    limit: int = 200,
+    current_user: User = Depends(get_current_user),
+):
+    existing = _ensure_monitor_task(task_name, account_name)
+    resolved_account = str(existing.get("account_name") or account_name or "")
+
+    try:
+        from backend.services.keyword_monitor import get_keyword_monitor_service
+
+        service = get_keyword_monitor_service()
+        records = service.get_match_records(
+            task_name,
+            resolved_account,
+            limit=limit,
+        )
+        return [MonitorMatchRecordOut(**record) for record in records]
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"failed to read monitor records: {exc}") from exc
+
+
+@router.get("/{task_name}/records/export")
+def export_monitor_records(
+    task_name: str,
+    account_name: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+):
+    existing = _ensure_monitor_task(task_name, account_name)
+    resolved_account = str(existing.get("account_name") or account_name or "")
+
+    try:
+        from backend.services.keyword_monitor import get_keyword_monitor_service
+
+        service = get_keyword_monitor_service()
+        records = service.get_match_records(task_name, resolved_account, limit=0)
+        headers = [
+            "账号",
+            "监控任务",
+            "群组/会话",
+            "Chat ID",
+            "话题ID",
+            "命中关键词",
+            "匹配方式",
+            "命中次数",
+            "发送人",
+            "发送人用户名",
+            "发送人ID",
+            "首次命中时间",
+            "最近命中时间",
+            "首次消息ID",
+            "最近消息ID",
+            "消息链接",
+            "消息内容",
+            "去重指纹",
+        ]
+        rows = [
+            [
+                record.get("account_name", ""),
+                record.get("task_name", ""),
+                record.get("chat_name", ""),
+                record.get("chat_id", ""),
+                record.get("message_thread_id", ""),
+                record.get("matched_keyword", ""),
+                record.get("match_mode", ""),
+                record.get("hit_count", 1),
+                record.get("sender", ""),
+                record.get("sender_username", ""),
+                record.get("sender_id", ""),
+                record.get("first_seen_at", ""),
+                record.get("last_seen_at", ""),
+                record.get("first_message_id", ""),
+                record.get("last_message_id", ""),
+                record.get("message_url", ""),
+                record.get("message_text", ""),
+                record.get("fingerprint", ""),
+            ]
+            for record in records
+        ]
+        workbook = build_xlsx_bytes(
+            headers,
+            rows,
+            sheet_name="Keyword Records",
+        )
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"monitor_records_{resolved_account}_{task_name}_{timestamp}.xlsx"
+        return Response(
+            content=workbook,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"failed to export monitor records: {exc}") from exc
 
 
 @router.get("/{task_name}/export")

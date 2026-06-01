@@ -9,6 +9,7 @@ import {
     ChatCircleText,
     Check,
     Copy,
+    DownloadSimple,
     Eye,
     Lightning,
     PaperPlaneTilt,
@@ -23,12 +24,15 @@ import { getToken } from "../../../lib/auth";
 import {
     AccountInfo,
     ChatInfo,
+    MonitorMatchRecord,
     MonitorRule,
     MonitorStatus,
     MonitorTask,
     createMonitorTask,
     deleteMonitorTask,
+    exportMonitorRecords,
     getMonitorStatus,
+    getMonitorRecords,
     getAccountChats,
     listAccounts,
     listMonitorTasks,
@@ -189,7 +193,9 @@ export default function MonitorTasksPage() {
     const [cloneDialog, setCloneDialog] = useState<{ source: MonitorTask; name: string } | null>(null);
     const [statusTask, setStatusTask] = useState<MonitorTask | null>(null);
     const [statusInfo, setStatusInfo] = useState<MonitorStatus | null>(null);
+    const [statusRecords, setStatusRecords] = useState<MonitorMatchRecord[]>([]);
     const [statusLoading, setStatusLoading] = useState(false);
+    const [exportingRecords, setExportingRecords] = useState(false);
     const [showEditor, setShowEditor] = useState(false);
     const [form, setForm] = useState({
         name: "",
@@ -253,6 +259,16 @@ export default function MonitorTasksPage() {
         status: isZh ? "运行状态" : "Runtime Status",
         statusEmpty: isZh ? "暂无运行日志，保存后请稍等几秒再刷新。" : "No runtime logs yet. Wait a few seconds after saving, then refresh.",
         viewStatus: isZh ? "查看运行状态" : "View Runtime Status",
+        exportRecords: isZh ? "导出命中记录" : "Export Match Records",
+        recordsTitle: isZh ? "去重命中记录" : "Deduplicated Match Records",
+        recordsEmpty: isZh ? "还没有命中记录。" : "No matched records yet.",
+        recordsCount: isZh ? "去重条数" : "Unique Records",
+        hitCount: isZh ? "命中次数" : "Hits",
+        latestHit: isZh ? "最近命中" : "Latest Hit",
+        firstHit: isZh ? "首次命中" : "First Hit",
+        recordKeyword: isZh ? "关键词" : "Keyword",
+        recordSender: isZh ? "发送人" : "Sender",
+        openLink: isZh ? "打开链接" : "Open Link",
         clone: isZh ? "克隆监控" : "Clone Monitor",
         cloneName: isZh ? "新监控名称" : "New Monitor Name",
         cloneDesc: isZh ? "将复制当前监控的监听来源、关键词和处理方式。" : "Copies the source, keywords, and match handling.",
@@ -609,14 +625,31 @@ export default function MonitorTasksPage() {
         if (!token) return;
         setStatusTask(task);
         setStatusInfo(null);
+        setStatusRecords([]);
         setStatusLoading(true);
         try {
-            const info = await getMonitorStatus(token, task.name, task.account_name);
+            const [info, records] = await Promise.all([
+                getMonitorStatus(token, task.name, task.account_name),
+                getMonitorRecords(token, task.name, task.account_name, 200),
+            ]);
             setStatusInfo(info);
+            setStatusRecords(records);
         } catch (err: any) {
             addToast(formatError(t("load_failed"), err), "error");
         } finally {
             setStatusLoading(false);
+        }
+    };
+
+    const downloadRecords = async (task: MonitorTask) => {
+        if (!token) return;
+        try {
+            setExportingRecords(true);
+            await exportMonitorRecords(token, task.name, task.account_name);
+        } catch (err: any) {
+            addToast(formatError(labels.exportRecords, err), "error");
+        } finally {
+            setExportingRecords(false);
         }
     };
 
@@ -1120,7 +1153,7 @@ export default function MonitorTasksPage() {
 
             {statusTask && (
                 <div className="modal-overlay active">
-                    <div className="glass-panel modal-content !max-w-3xl !p-0 overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+                    <div className="glass-panel modal-content !max-w-5xl !p-0 overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
                         <div className="p-5 border-b border-white/5 flex justify-between items-center bg-white/2">
                             <div>
                                 <div className="text-lg font-bold">{labels.status}</div>
@@ -1130,7 +1163,7 @@ export default function MonitorTasksPage() {
                                 <X weight="bold" />
                             </button>
                         </div>
-                        <div className="p-5 space-y-4 max-h-[65vh] overflow-y-auto custom-scrollbar">
+                        <div className="p-5 space-y-5 max-h-[70vh] overflow-y-auto custom-scrollbar">
                             {statusLoading ? (
                                 <div className="py-12 flex justify-center text-main/35">
                                     <Spinner className="animate-spin" size={28} />
@@ -1141,8 +1174,74 @@ export default function MonitorTasksPage() {
                                         <div className="text-sm font-bold">{statusInfo.message || labels.statusEmpty}</div>
                                         {statusInfo.time && <div className="text-[10px] opacity-70 mt-1">{statusInfo.time}</div>}
                                     </div>
-                                    <div className="rounded-xl border border-white/5 bg-black/20 p-4 font-mono text-xs leading-6 text-main/70 whitespace-pre-wrap">
-                                        {statusLogs.length > 0 ? statusLogs.join("\n") : labels.statusEmpty}
+                                    <div className="grid grid-cols-1 xl:grid-cols-[1.1fr_0.9fr] gap-4">
+                                        <div className="rounded-xl border border-white/5 bg-black/20 p-4 font-mono text-xs leading-6 text-main/70 whitespace-pre-wrap">
+                                            {statusLogs.length > 0 ? statusLogs.join("\n") : labels.statusEmpty}
+                                        </div>
+                                        <div className="rounded-xl border border-white/5 bg-black/20 p-4">
+                                            <div className="flex items-center justify-between gap-3 mb-3">
+                                                <div>
+                                                    <div className="text-sm font-bold">{labels.recordsTitle}</div>
+                                                    <div className="text-[10px] text-main/40">
+                                                        {labels.recordsCount}: {statusRecords.length}
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    onClick={() => downloadRecords(statusTask)}
+                                                    disabled={exportingRecords}
+                                                    className="action-btn !text-cyan-400 hover:bg-cyan-500/10"
+                                                    title={labels.exportRecords}
+                                                >
+                                                    {exportingRecords ? <Spinner className="animate-spin" size={16} /> : <DownloadSimple weight="bold" size={18} />}
+                                                </button>
+                                            </div>
+                                            {statusRecords.length > 0 ? (
+                                                <div className="space-y-3 max-h-[48vh] overflow-y-auto custom-scrollbar pr-1">
+                                                    {statusRecords.map((record) => (
+                                                        <div key={record.fingerprint} className="rounded-xl border border-white/5 bg-white/[0.03] p-3">
+                                                            <div className="flex items-start justify-between gap-3">
+                                                                <div className="min-w-0">
+                                                                    <div className="font-bold text-sm truncate">{record.chat_name || record.chat_id || "-"}</div>
+                                                                    <div className="text-[10px] text-main/35 font-mono truncate">
+                                                                        {labels.recordKeyword}: {record.matched_keyword || "-"}
+                                                                    </div>
+                                                                </div>
+                                                                <div className="text-right shrink-0">
+                                                                    <div className="text-xs font-bold text-cyan-400">
+                                                                        {labels.hitCount}: {record.hit_count}
+                                                                    </div>
+                                                                    <div className="text-[10px] text-main/35">
+                                                                        {record.match_mode}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                            <div className="mt-2 text-[11px] text-main/45 space-y-1">
+                                                                <div>{labels.recordSender}: {record.sender || record.sender_username || record.sender_id || "-"}</div>
+                                                                <div>{labels.firstHit}: {record.first_seen_at || "-"}</div>
+                                                                <div>{labels.latestHit}: {record.last_seen_at || "-"}</div>
+                                                            </div>
+                                                            <div className="mt-3 rounded-lg bg-black/20 border border-white/5 p-2 text-xs text-main/70 whitespace-pre-wrap break-words">
+                                                                {record.message_text || record.message_preview || "-"}
+                                                            </div>
+                                                            {record.message_url && (
+                                                                <div className="mt-2">
+                                                                    <a
+                                                                        href={record.message_url}
+                                                                        target="_blank"
+                                                                        rel="noreferrer"
+                                                                        className="text-[11px] text-cyan-400 hover:text-cyan-300 break-all"
+                                                                    >
+                                                                        {labels.openLink}
+                                                                    </a>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            ) : (
+                                                <div className="py-8 text-center text-xs text-main/35">{labels.recordsEmpty}</div>
+                                            )}
+                                        </div>
                                     </div>
                                 </>
                             ) : (
@@ -1153,6 +1252,10 @@ export default function MonitorTasksPage() {
                             <button onClick={() => openStatus(statusTask)} disabled={statusLoading} className="btn-gradient flex-1">
                                 {statusLoading ? <Spinner className="animate-spin" /> : <ArrowClockwise weight="bold" />}
                                 {t("refresh_list")}
+                            </button>
+                            <button onClick={() => downloadRecords(statusTask)} disabled={exportingRecords} className="btn-secondary flex-1">
+                                {exportingRecords ? <Spinner className="animate-spin" /> : <DownloadSimple weight="bold" />}
+                                {labels.exportRecords}
                             </button>
                             <button onClick={() => setStatusTask(null)} className="btn-secondary flex-1">{t("close")}</button>
                         </div>
