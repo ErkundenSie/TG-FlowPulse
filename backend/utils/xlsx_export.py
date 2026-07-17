@@ -3,9 +3,16 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 from io import BytesIO
+from dataclasses import dataclass
 from typing import Any, Iterable, Sequence
 from xml.sax.saxutils import escape
 from zipfile import ZIP_DEFLATED, ZipFile
+
+
+@dataclass(frozen=True)
+class ExternalHyperlink:
+    target: str
+    display: str = ""
 
 
 def _excel_column_name(index: int) -> str:
@@ -23,9 +30,11 @@ def _cell_ref(row_index: int, col_index: int) -> str:
 
 def _sanitize_text(value: Any) -> str:
     text = str(value if value is not None else "")
-    return "".join(
-        ch for ch in text if ch in ("\t", "\n", "\r") or ord(ch) >= 32
-    )
+    return "".join(ch for ch in text if ch in ("\t", "\n", "\r") or ord(ch) >= 32)
+
+
+def _escape_xml_attr(value: Any) -> str:
+    return escape(_sanitize_text(value), {'"': "&quot;"})
 
 
 def _string_cell(ref: str, value: Any) -> str:
@@ -34,11 +43,13 @@ def _string_cell(ref: str, value: Any) -> str:
 
 
 def _number_cell(ref: str, value: Any) -> str:
-    return f"<c r=\"{ref}\"><v>{value}</v></c>"
+    return f'<c r="{ref}"><v>{value}</v></c>'
 
 
 def _cell_xml(row_index: int, col_index: int, value: Any) -> str:
     ref = _cell_ref(row_index, col_index)
+    if isinstance(value, ExternalHyperlink):
+        return _string_cell(ref, value.display or value.target)
     if value is None:
         return _string_cell(ref, "")
     if isinstance(value, bool):
@@ -70,11 +81,14 @@ def build_xlsx_bytes(
     )
 
     sheet_rows_xml = []
+    hyperlinks: list[tuple[str, str]] = []
     for row_index, row in enumerate(all_rows, start=1):
         cells = []
         for col_index in range(max_columns):
             value = row[col_index] if col_index < len(row) else ""
             cells.append(_cell_xml(row_index, col_index, value))
+            if isinstance(value, ExternalHyperlink) and value.target:
+                hyperlinks.append((_cell_ref(row_index, col_index), value.target))
         sheet_rows_xml.append(f'<row r="{row_index}">{"".join(cells)}</row>')
 
     safe_sheet_name = escape(_sanitize_text(sheet_name or "Sheet1"))[:31] or "Sheet1"
@@ -116,6 +130,14 @@ def build_xlsx_bytes(
 </Relationships>
 """
 
+    hyperlink_xml = ""
+    if hyperlinks:
+        entries = "".join(
+            f'<hyperlink ref="{ref}" r:id="rId{index}"/>'
+            for index, (ref, _target) in enumerate(hyperlinks, start=1)
+        )
+        hyperlink_xml = f'<hyperlinks xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">{entries}</hyperlinks>'
+
     sheet_xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <dimension ref="A1:{last_ref}"/>
@@ -123,8 +145,18 @@ def build_xlsx_bytes(
     <sheetView workbookViewId="0"/>
   </sheetViews>
   <sheetFormatPr defaultRowHeight="15"/>
-  <sheetData>{sheet_data}</sheetData>
+  <sheetData>{sheet_data}</sheetData>{hyperlink_xml}
 </worksheet>
+"""
+
+    sheet_rels_xml = ""
+    if hyperlinks:
+        relationships = "".join(
+            f'<Relationship Id="rId{index}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/hyperlink" Target="{_escape_xml_attr(target)}" TargetMode="External"/>'
+            for index, (_ref, target) in enumerate(hyperlinks, start=1)
+        )
+        sheet_rels_xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">{relationships}</Relationships>
 """
 
     styles_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -179,4 +211,6 @@ def build_xlsx_bytes(
         archive.writestr("xl/_rels/workbook.xml.rels", workbook_rels_xml)
         archive.writestr("xl/styles.xml", styles_xml)
         archive.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+        if sheet_rels_xml:
+            archive.writestr("xl/worksheets/_rels/sheet1.xml.rels", sheet_rels_xml)
     return buffer.getvalue()

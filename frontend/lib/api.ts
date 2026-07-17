@@ -1410,6 +1410,7 @@ export interface SpeakerCollectionRecord {
   sender_username: string;
   profile_url: string;
   bio: string;
+  websites?: string[];
   matched_keywords?: string[];
   message_count: number;
   first_message_at: string;

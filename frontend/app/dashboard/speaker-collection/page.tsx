@@ -80,6 +80,10 @@ export default function SpeakerCollectionPage() {
     setSelectedId(id);
     setRecords(await getSpeakerCollectionRecords(token, id));
   };
+  const selectConfig = async (config: SpeakerCollectionConfig) => {
+    setForm({ ...config, profile_keywords: config.profile_keywords || [] });
+    await loadRecords(config.id || "");
+  };
   const save = async () => {
     if (!token || !form.account_name || !form.chat_id)
       return addToast("请选择账号和群组", "error");
@@ -109,7 +113,7 @@ export default function SpeakerCollectionPage() {
       setLoading(true);
       const result = await scanSpeakerCollection(token, id);
       addToast(
-        `已扫描 ${result.scanned_messages || 0} 条消息，新增 ${result.new_speakers || 0} 位发言者`,
+        `已扫描 ${result.scanned_messages || 0} 条消息，读取到 ${result.unique_speakers || 0} 位发言者，新增 ${result.new_speakers || 0} 位`,
         "success",
       );
       setConfigs((items) =>
@@ -279,12 +283,26 @@ export default function SpeakerCollectionPage() {
                 >
                   <button
                     className="text-left min-w-0"
-                    onClick={() => loadRecords(c.id || "")}
+                    onClick={() => selectConfig(c)}
                   >
                     <div className="font-bold truncate">{c.name}</div>
                     <div className="text-xs text-main/45 truncate">
                       {c.account_name} · {c.chat_name} · 最近扫描：
                       {c.last_scan_at || "未扫描"}
+                    </div>
+                    {c.last_scan_summary && (
+                      <div className="text-[10px] text-main/40 mt-1">
+                        消息 {c.last_scan_summary.scanned_messages || 0} ·
+                        发言者 {c.last_scan_summary.unique_speakers || 0} ·
+                        无发送人{" "}
+                        {c.last_scan_summary.messages_without_user || 0} ·
+                        无简介 {c.last_scan_summary.profiles_without_bio || 0}
+                      </div>
+                    )}
+                    <div className="text-[10px] text-main/40 mt-1 truncate">
+                      简介关键词：
+                      {(c.profile_keywords || []).join("、") ||
+                        "未设置（收集全部发言者）"}
                     </div>
                   </button>
                   <div className="flex gap-1">

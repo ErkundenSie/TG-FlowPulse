@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,6 +23,10 @@ class SpeakerCollectionService(ChatMigrationService):
     MAX_HISTORY_MESSAGES = 5000
     POLL_INTERVAL_SECONDS = 30
     PROFILE_REQUEST_DELAY = 0.08
+    WEBSITE_RE = re.compile(
+        r"(?<!@)(?:(?:https?://|www\.)[^\s<>\[\]{}()]+|(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:com|net|org|io|co|cn|app|dev|me|vip|xyz|info|site|top|pro|cc|ai)(?:/[^\s<>\[\]{}()]*)?)",
+        re.IGNORECASE,
+    )
 
     def __init__(self) -> None:
         super().__init__()
@@ -90,6 +95,25 @@ class SpeakerCollectionService(ChatMigrationService):
             raise ValueError("关键词数量不能超过 20 个")
         return result
 
+    @classmethod
+    def _extract_websites(cls, bio: Any) -> list[str]:
+        websites: list[str] = []
+        seen: set[str] = set()
+        for match in cls.WEBSITE_RE.finditer(str(bio or "")):
+            value = match.group(0).rstrip(".,，;；:：!！?？)]}）】\"'")
+            if not value:
+                continue
+            url = (
+                value
+                if value.lower().startswith(("http://", "https://"))
+                else f"https://{value}"
+            )
+            key = url.casefold()
+            if key not in seen:
+                seen.add(key)
+                websites.append(url)
+        return websites
+
     def list_configs(self, account_name: Optional[str] = None) -> list[dict[str, Any]]:
         values = list(self._data["configs"].values())
         if account_name:
@@ -109,6 +133,9 @@ class SpeakerCollectionService(ChatMigrationService):
                 continue
             record = dict(item)
             record.pop("seen_message_ids", None)
+            record["websites"] = record.get("websites") or self._extract_websites(
+                record.get("bio")
+            )
             values.append(record)
         values.sort(key=lambda item: item.get("last_message_at", ""), reverse=True)
         return values[: max(1, min(limit, 5000))]
@@ -194,7 +221,10 @@ class SpeakerCollectionService(ChatMigrationService):
         async def _scan(client: Any) -> dict[str, Any]:
             scanned = 0
             added = 0
-            skipped = 0
+            skipped_no_sender = 0
+            skipped_bots = 0
+            profile_unavailable = 0
+            matched_profiles = 0
             profile_cache: dict[str, Any] = {}
             async for message in client.get_chat_history(
                 chat_ref, limit=config["history_limit"]
@@ -210,8 +240,11 @@ class SpeakerCollectionService(ChatMigrationService):
                     break
                 scanned += 1
                 user = getattr(message, "from_user", None)
-                if user is None or getattr(user, "is_bot", False):
-                    skipped += 1
+                if user is None:
+                    skipped_no_sender += 1
+                    continue
+                if getattr(user, "is_bot", False):
+                    skipped_bots += 1
                     continue
                 key = f"{config_id}:{getattr(message.chat, 'id', config['chat_id'])}:{user.id}"
                 now = self._now()
@@ -226,6 +259,8 @@ class SpeakerCollectionService(ChatMigrationService):
                     or getattr(profile, "description", None)
                     or ""
                 )
+                if not bio:
+                    profile_unavailable += 1
                 hits = [
                     keyword
                     for keyword in keywords
@@ -233,6 +268,8 @@ class SpeakerCollectionService(ChatMigrationService):
                 ]
                 if keywords and not hits:
                     continue
+                if hits:
+                    matched_profiles += 1
                 message_id = getattr(message, "id", None)
                 seen_message_ids = [
                     int(item)
@@ -282,6 +319,7 @@ class SpeakerCollectionService(ChatMigrationService):
                         else ""
                     ),
                     "bio": bio,
+                    "websites": self._extract_websites(bio),
                     "matched_keywords": hits,
                     "first_message_at": first_at,
                     "last_message_at": last_at,
@@ -308,8 +346,11 @@ class SpeakerCollectionService(ChatMigrationService):
                 "scanned_messages": scanned,
                 "new_speakers": added,
                 "matched_speakers": len(self.get_records(config_id, 5000)),
+                "messages_without_user": skipped_no_sender,
+                "bot_messages": skipped_bots,
+                "profiles_without_bio": profile_unavailable,
+                "keyword_matched_messages": matched_profiles,
                 "unique_speakers": len(self.get_records(config_id, 5000)),
-                "skipped_messages": skipped,
             }
 
         result = await self._with_client(config["account_name"], _scan)

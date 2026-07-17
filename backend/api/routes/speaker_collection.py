@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 from backend.core.auth import get_current_user
 from backend.models.user import User
 from backend.services.speaker_collection import get_speaker_collection_service
-from backend.utils.xlsx_export import build_xlsx_bytes
+from backend.utils.xlsx_export import ExternalHyperlink, build_xlsx_bytes
 
 router = APIRouter()
 ChatId = Union[int, str]
@@ -73,6 +73,8 @@ def records(
 def export_records(config_id: str, current_user: User = Depends(get_current_user)):
     service = get_speaker_collection_service()
     records = service.get_records(config_id, 5000)
+    max_websites = max((len(item.get("websites") or []) for item in records), default=0)
+    website_headers = [f"网站链接 {index}" for index in range(1, max_websites + 1)]
     content = build_xlsx_bytes(
         [
             "发言者",
@@ -80,6 +82,8 @@ def export_records(config_id: str, current_user: User = Depends(get_current_user
             "用户 ID",
             "个人链接",
             "完整简介",
+            "网站",
+            *website_headers,
             "命中关键词",
             "消息数",
             "首次发言",
@@ -91,8 +95,15 @@ def export_records(config_id: str, current_user: User = Depends(get_current_user
                 item.get("sender", ""),
                 item.get("sender_username", ""),
                 item.get("sender_id", ""),
-                item.get("profile_url", ""),
+                (
+                    ExternalHyperlink(item["profile_url"], item["profile_url"])
+                    if item.get("profile_url")
+                    else ""
+                ),
                 item.get("bio", ""),
+                ", ".join(item.get("websites") or []),
+                *[ExternalHyperlink(url, url) for url in (item.get("websites") or [])],
+                *["" for _ in range(max_websites - len(item.get("websites") or []))],
                 ", ".join(item.get("matched_keywords", [])),
                 item.get("message_count", 0),
                 item.get("first_message_at", ""),
