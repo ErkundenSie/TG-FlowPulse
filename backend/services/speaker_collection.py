@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import re
+from urllib.parse import urlparse
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -108,6 +109,9 @@ class SpeakerCollectionService(ChatMigrationService):
                 if value.lower().startswith(("http://", "https://"))
                 else f"https://{value}"
             )
+            hostname = (urlparse(url).hostname or "").casefold().removeprefix("www.")
+            if hostname in {"t.me", "telegram.me", "telegram.dog"}:
+                continue
             key = url.casefold()
             if key not in seen:
                 seen.add(key)
