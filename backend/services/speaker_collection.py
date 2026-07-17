@@ -226,7 +226,11 @@ class SpeakerCollectionService(ChatMigrationService):
                     or getattr(profile, "description", None)
                     or ""
                 )
-                hits = [keyword for keyword in keywords if keyword.casefold() in bio.casefold()]
+                hits = [
+                    keyword
+                    for keyword in keywords
+                    if keyword.casefold() in bio.casefold()
+                ]
                 if keywords and not hits:
                     continue
                 message_id = getattr(message, "id", None)

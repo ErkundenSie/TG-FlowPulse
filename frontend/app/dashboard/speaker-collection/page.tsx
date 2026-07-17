@@ -91,7 +91,10 @@ export default function SpeakerCollectionPage() {
         end_at: form.end_at ? new Date(form.end_at).toISOString() : null,
       });
       addToast("采集配置已保存", "success");
-      setConfigs((items) => [saved, ...items.filter((item) => item.id !== saved.id)]);
+      setConfigs((items) => [
+        saved,
+        ...items.filter((item) => item.id !== saved.id),
+      ]);
       setSelectedId(saved.id || "");
       setRecords([]);
     } catch (e: any) {
@@ -109,7 +112,17 @@ export default function SpeakerCollectionPage() {
         `已扫描 ${result.scanned_messages || 0} 条消息，新增 ${result.new_speakers || 0} 位发言者`,
         "success",
       );
-      setConfigs((items) => items.map((item) => item.id === id ? { ...item, last_scan_summary: result, last_scan_at: new Date().toISOString() } : item));
+      setConfigs((items) =>
+        items.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                last_scan_summary: result,
+                last_scan_at: new Date().toISOString(),
+              }
+            : item,
+        ),
+      );
       await loadRecords(id);
     } catch (e: any) {
       addToast(e.message || "扫描失败", "error");
@@ -216,7 +229,15 @@ export default function SpeakerCollectionPage() {
             <textarea
               className="!mb-0 min-h-[84px]"
               value={(form.profile_keywords || []).join("\n")}
-              onChange={(e) => setForm({ ...form, profile_keywords: e.target.value.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean) })}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  profile_keywords: e.target.value
+                    .split(/[\n,，]/)
+                    .map((item) => item.trim())
+                    .filter(Boolean),
+                })
+              }
               placeholder="例如：招聘, 代理, 采购"
             />
           </label>
@@ -296,7 +317,9 @@ export default function SpeakerCollectionPage() {
               {selectedId && (
                 <button
                   className="action-btn"
-                  onClick={() => exportSpeakerCollectionRecords(token!, selectedId)}
+                  onClick={() =>
+                    exportSpeakerCollectionRecords(token!, selectedId)
+                  }
                   title="导出 XLSX"
                 >
                   <DownloadSimple />

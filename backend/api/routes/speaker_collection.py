@@ -74,12 +74,30 @@ def export_records(config_id: str, current_user: User = Depends(get_current_user
     service = get_speaker_collection_service()
     records = service.get_records(config_id, 5000)
     content = build_xlsx_bytes(
-        ["发言者", "用户名", "用户 ID", "个人链接", "完整简介", "命中关键词", "消息数", "首次发言", "最近发言", "示例消息"],
+        [
+            "发言者",
+            "用户名",
+            "用户 ID",
+            "个人链接",
+            "完整简介",
+            "命中关键词",
+            "消息数",
+            "首次发言",
+            "最近发言",
+            "示例消息",
+        ],
         [
             [
-                item.get("sender", ""), item.get("sender_username", ""), item.get("sender_id", ""),
-                item.get("profile_url", ""), item.get("bio", ""), ", ".join(item.get("matched_keywords", [])),
-                item.get("message_count", 0), item.get("first_message_at", ""), item.get("last_message_at", ""), item.get("sample_message", ""),
+                item.get("sender", ""),
+                item.get("sender_username", ""),
+                item.get("sender_id", ""),
+                item.get("profile_url", ""),
+                item.get("bio", ""),
+                ", ".join(item.get("matched_keywords", [])),
+                item.get("message_count", 0),
+                item.get("first_message_at", ""),
+                item.get("last_message_at", ""),
+                item.get("sample_message", ""),
             ]
             for item in records
         ],
@@ -88,5 +106,7 @@ def export_records(config_id: str, current_user: User = Depends(get_current_user
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": 'attachment; filename="speaker_collection.xlsx"'},
+        headers={
+            "Content-Disposition": 'attachment; filename="speaker_collection.xlsx"'
+        },
     )

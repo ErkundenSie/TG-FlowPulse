@@ -1450,7 +1450,14 @@ export const deleteSpeakerCollection = (token: string, id: string) =>
     { method: "DELETE" },
     token,
   );
-export const exportSpeakerCollectionRecords = async (token: string, id: string) => {
-  const blob = await requestBlob(`/speaker-collections/${pathSegment(id)}/records/export`, {}, token);
+export const exportSpeakerCollectionRecords = async (
+  token: string,
+  id: string,
+) => {
+  const blob = await requestBlob(
+    `/speaker-collections/${pathSegment(id)}/records/export`,
+    {},
+    token,
+  );
   downloadBlob(blob, "speaker_collection.xlsx");
 };
