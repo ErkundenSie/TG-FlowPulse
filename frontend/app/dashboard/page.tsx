@@ -15,6 +15,7 @@ import {
   updateAccount,
   verifyAccountLogin,
   deleteAccount,
+  exportMatchedChatMembers,
   downloadChatMigrationJson,
   getImportAccountChatsJob,
   getAccountChatsExport,
@@ -639,6 +640,36 @@ export default function Dashboard() {
     setShowChatExportDialog(true);
   };
 
+  const handleMemberScanExport = async (accountName: string) => {
+    if (!token) return;
+    const chatId = window.prompt("请输入群组 ID 或 @群组用户名：", "");
+    if (!chatId?.trim()) return;
+    const keywordText = window.prompt(
+      "请输入关键词，使用英文逗号或中文逗号分隔：",
+      "",
+    );
+    const keywords = (keywordText || "")
+      .split(/[,，]/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+    if (!keywords.length) {
+      addToast("请至少输入一个关键词", "error");
+      return;
+    }
+    try {
+      setLoading(true);
+      await exportMatchedChatMembers(token, accountName, {
+        chat_id: chatId.trim(),
+        keywords,
+      });
+      addToast("成员筛选结果已下载", "success");
+    } catch (err: any) {
+      addToast(`成员筛选失败: ${err?.message || "未知错误"}`, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const loadChatExportPreview = useCallback(
     async (scope: ChatMigrationExportScope = chatExportScope) => {
       if (!token) return;
@@ -1146,7 +1177,7 @@ export default function Dashboard() {
       const joined = summary.joined || 0;
       const requestSent = summary.request_sent || 0;
       const manual = summary.manual_required || 0;
-      const failed = (summary.failed || 0);
+      const failed = summary.failed || 0;
       addToast(
         t("chat_migration_import_summary")
           .replace("{joined}", joined.toString())
@@ -1285,7 +1316,7 @@ export default function Dashboard() {
           saveChatImportJobToHistory(job);
           setChatImportJobHistory(loadChatImportJobHistory());
           const summary = job.summary || {};
-          const failed = (summary.failed || 0);
+          const failed = summary.failed || 0;
           addToast(
             job.status === "canceled"
               ? t("chat_migration_background_canceled")
@@ -2048,6 +2079,16 @@ export default function Dashboard() {
                         }}
                       >
                         <UploadSimple weight="bold" size={16} />
+                      </div>
+                      <div
+                        className="action-icon action-cyan"
+                        title="按关键词筛选群成员并导出"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleMemberScanExport(acc.name);
+                        }}
+                      >
+                        <ListDashes weight="bold" size={16} />
                       </div>
                       <div
                         className="action-icon action-sky"
@@ -2826,378 +2867,402 @@ export default function Dashboard() {
                     ) : null}
                   </div>
 
-              {chatImportPayload ? (
-                <>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                    {getMigrationStatCards(
-                      (chatImportPayload.items || []) as ChatMigrationItem[],
-                      chatImportSelectedIds,
-                    ).map(([key, label, value]) => (
-                      <div
-                        key={key}
-                        className="rounded-xl border border-white/5 bg-white/2 p-3"
-                      >
-                        <div className="text-lg font-bold">{value}</div>
-                        <div className="text-[10px] text-main/40">{label}</div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div className="rounded-xl border border-white/5 bg-white/2 overflow-hidden">
-                    <div className="p-3 border-b border-white/5 flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-bold">
-                          {t("chat_migration_import_preview")}
-                        </div>
-                        <div className="text-xs text-main/40">
-                          {t("chat_migration_selected_count")
-                            .replace(
-                              "{selected}",
-                              countSelectedChats(
-                                chatImportSelectedIds,
-                              ).toString(),
-                            )
-                            .replace(
-                              "{total}",
-                              (chatImportPayload.items?.length || 0).toString(),
-                            )}
-                        </div>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          className="btn-secondary h-8 !py-0 !px-3 !text-[11px]"
-                          onClick={() => setAllChatImportItems(true)}
-                          disabled={
-                            chatImportLoading || !chatImportExistingPayload
-                          }
-                        >
-                          {t("select_all")}
-                        </button>
-                        <button
-                          className="btn-secondary h-8 !py-0 !px-3 !text-[11px]"
-                          onClick={() => setAllChatImportItems(false)}
-                          disabled={chatImportLoading}
-                        >
-                          {t("clear")}
-                        </button>
-                      </div>
-                    </div>
-                    <div className="p-3 border-b border-white/5">
-                      <input
-                        type="search"
-                        className="!mb-0 !py-2 !px-3 text-xs"
-                        placeholder={t("chat_migration_search_placeholder")}
-                        value={chatImportSearch}
-                        onChange={(e) => setChatImportSearch(e.target.value)}
-                      />
-                    </div>
-                    <div className="max-h-[260px] overflow-y-auto custom-scrollbar">
-                      {chatImportVisibleItems.length ? (
-                        chatImportVisibleItems.map(({ item, index }) =>
-                          renderMigrationItem(
-                            item,
-                            index,
-                            chatImportSelectedIds,
-                            handleToggleChatImportItem,
-                            chatImportLoading,
-                            isChatAlreadyJoined,
-                          ),
-                        )
-                      ) : (
-                        <div className="p-6 text-center text-xs text-main/40">
-                          {t("chat_migration_no_matches")}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </>
-              ) : null}
-
-              <label className="flex items-center gap-2 !mb-0 text-xs text-main/60">
-                <input
-                  type="checkbox"
-                  checked={chatImportDryRun}
-                  onChange={(e) => setChatImportDryRun(e.target.checked)}
-                />
-                {t("chat_migration_dry_run")}
-              </label>
-
-              {chatImportPayload ? (
-                <div className="rounded-xl border border-sky-500/15 bg-sky-500/10 p-3 text-xs text-sky-200">
-                  <div className="flex items-center justify-between gap-3">
-                    <span>
-                      {chatImportProgress || t("chat_migration_import_ready")}
-                    </span>
-                    <span>
-                      {chatImportProcessedTotal}/{chatImportSelectedTotal}
-                    </span>
-                  </div>
-                  <div className="mt-2 h-2 rounded-full bg-white/10 overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-sky-400 transition-all"
-                      style={{
-                        width: `${chatImportProgressPercent}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              ) : null}
-
-              {chatImportError ? (
-                <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-200 break-words">
-                  {chatImportError}
-                </div>
-              ) : null}
-
-              {chatImportResult ? (
-                <div className="rounded-xl border border-white/5 bg-white/2 overflow-hidden">
-                  <div className="p-3 border-b border-white/5 grid grid-cols-2 md:grid-cols-5 gap-2 text-center">
-                    {[
-                      ["joined", t("chat_migration_joined")],
-                      ["already_member", t("chat_migration_already")],
-                      ["request_sent", t("chat_migration_request_sent")],
-                      ["manual_required", t("chat_migration_manual")],
-                      ["failed", t("failure")],
-                    ].map(([key, label]) => (
-                      <div key={key} className="rounded-lg bg-white/3 p-2">
-                        <div className="text-base font-bold">
-                          {key === "failed"
-                            ? chatImportResult.summary?.failed || 0
-                            : chatImportResult.summary?.[key] || 0}
-                        </div>
-                        <div className="text-[10px] text-main/40">{label}</div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="max-h-[260px] overflow-y-auto custom-scrollbar">
-                    {chatImportResult.results.map((item, index) => {
-                      const statusColor =
-                        item.status === "joined" ||
-                        item.status === "already_member"
-                          ? "text-emerald-400"
-                          : item.status === "request_sent" ||
-                              item.status === "manual_required" ||
-                              item.status === "ready"
-                            ? "text-amber-300"
-                            : "text-rose-400";
-                      return (
-                        <div
-                          key={`${item.title}-${index}`}
-                          className="p-3 border-b border-white/5 last:border-0"
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="font-semibold truncate">
-                              {item.title}
+                  {chatImportPayload ? (
+                    <>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                        {getMigrationStatCards(
+                          (chatImportPayload.items ||
+                            []) as ChatMigrationItem[],
+                          chatImportSelectedIds,
+                        ).map(([key, label, value]) => (
+                          <div
+                            key={key}
+                            className="rounded-xl border border-white/5 bg-white/2 p-3"
+                          >
+                            <div className="text-lg font-bold">{value}</div>
+                            <div className="text-[10px] text-main/40">
+                              {label}
                             </div>
-                            <div
-                              className={`text-[10px] font-bold uppercase shrink-0 ${statusColor}`}
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="rounded-xl border border-white/5 bg-white/2 overflow-hidden">
+                        <div className="p-3 border-b border-white/5 flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-bold">
+                              {t("chat_migration_import_preview")}
+                            </div>
+                            <div className="text-xs text-main/40">
+                              {t("chat_migration_selected_count")
+                                .replace(
+                                  "{selected}",
+                                  countSelectedChats(
+                                    chatImportSelectedIds,
+                                  ).toString(),
+                                )
+                                .replace(
+                                  "{total}",
+                                  (
+                                    chatImportPayload.items?.length || 0
+                                  ).toString(),
+                                )}
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              className="btn-secondary h-8 !py-0 !px-3 !text-[11px]"
+                              onClick={() => setAllChatImportItems(true)}
+                              disabled={
+                                chatImportLoading || !chatImportExistingPayload
+                              }
                             >
-                              {item.status}
-                            </div>
-                          </div>
-                          <div className="text-xs text-main/45 mt-1 leading-relaxed break-words">
-                            {item.message}
+                              {t("select_all")}
+                            </button>
+                            <button
+                              className="btn-secondary h-8 !py-0 !px-3 !text-[11px]"
+                              onClick={() => setAllChatImportItems(false)}
+                              disabled={chatImportLoading}
+                            >
+                              {t("clear")}
+                            </button>
                           </div>
                         </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              ) : null}
-
-                </div>
-              <div className="chat-import-side">
-              {chatImportJobHistory.length ? (
-                <div className="rounded-xl border border-white/5 bg-white/2 overflow-hidden">
-                  <div className="p-3 border-b border-white/5 flex items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-bold">
-                        {t("chat_migration_recent_records")}
-                      </div>
-                      <div className="text-xs text-main/40">
-                        {chatImportJobHistory.length}/5
-                      </div>
-                    </div>
-                  </div>
-                  <div className="max-h-[320px] overflow-y-auto custom-scrollbar">
-                    {chatImportJobHistory.map((historyItem, historyIndex) => {
-                      const failed = historyItem.summary?.failed || 0;
-                      const resumeItems = getChatImportResumeItems(historyItem);
-                      const canResumeHistory =
-                        ["canceled", "failed"].includes(historyItem.status) &&
-                        resumeItems.length > 0;
-                      const isHistoryActive = ["running", "canceling"].includes(
-                        historyItem.status,
-                      );
-                      const attentionItems = (historyItem.results || []).filter(
-                        (item) =>
-                          [
-                            "manual_required",
-                            "failed",
-                            "request_sent",
-                          ].includes(item.status),
-                      );
-                      return (
-                        <div
-                          key={historyItem.job_id}
-                          className="p-3 border-b border-white/5 last:border-0"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <div className="text-xs font-bold truncate">
-                                  #{historyIndex + 1} ·{" "}
-                                  {historyItem.account_name}
-                                </div>
-                                <span className="chat-import-status-pill">
-                                  {t(
-                                    `chat_migration_job_${historyItem.status}`,
-                                  )}
-                                </span>
-                              </div>
-                              <div className="mt-1 text-[11px] text-main/45">
-                                {historyItem.finished_at ||
-                                  historyItem.updated_at}
-                              </div>
-                            </div>
-                            <div className="flex shrink-0 flex-wrap justify-end gap-2">
-                              <button
-                                className="btn-secondary h-7 !py-0 !px-2 !text-[10px]"
-                                onClick={() =>
-                                  handleInspectChatImportHistoryItem(
-                                    historyItem,
-                                  )
-                                }
-                                disabled={chatImportJobActionLoading}
-                              >
-                                {t("chat_migration_view_details")}
-                              </button>
-                              {isHistoryActive ? (
-                                <button
-                                  className="btn-secondary h-7 !py-0 !px-2 !text-[10px] !text-rose-500"
-                                  onClick={() =>
-                                    handleStopChatImportJob(historyItem)
-                                  }
-                                  disabled={
-                                    chatImportJobActionLoading ||
-                                    historyItem.status === "canceling"
-                                  }
-                                >
-                                  <Stop weight="bold" size={12} />
-                                  {t("chat_migration_stop_background")}
-                                </button>
-                              ) : null}
-                              {canResumeHistory ? (
-                                <button
-                                  className="btn-secondary h-7 !py-0 !px-2 !text-[10px] !text-sky-500"
-                                  onClick={() =>
-                                    handleResumeChatImportHistoryItem(
-                                      historyItem,
-                                    )
-                                  }
-                                  disabled={chatImportJobActionLoading}
-                                  title={t("chat_migration_resume_background")}
-                                >
-                                  <Play weight="bold" size={12} />
-                                  {t("chat_migration_resume_background")}
-                                </button>
-                              ) : null}
-                              <button
-                                className="btn-secondary h-7 !py-0 !px-2 !text-[10px] !text-rose-500"
-                                onClick={() =>
-                                  handleClearChatImportHistoryItem(
-                                    historyItem.job_id,
-                                  )
-                                }
-                              >
-                                {t("chat_migration_clear_record")}
-                              </button>
-                            </div>
-                          </div>
-                          <div className="mt-3 grid grid-cols-4 gap-2 text-center">
-                            {[
-                              ["joined", t("chat_migration_joined")],
-                              [
-                                "request_sent",
-                                t("chat_migration_request_sent"),
-                              ],
-                              ["manual_required", t("chat_migration_manual")],
-                              ["failed", t("failure")],
-                            ].map(([key, label]) => (
-                              <div
-                                key={key}
-                                className="rounded-lg bg-white/3 p-2"
-                              >
-                                <div className="text-sm font-bold">
-                                  {key === "failed"
-                                    ? failed
-                                    : historyItem.summary?.[key] || 0}
-                                </div>
-                                <div className="text-[9px] text-main/40">
-                                  {label}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                          {["canceled", "failed"].includes(
-                            historyItem.status,
-                          ) && !canResumeHistory ? (
-                            <div className="mt-3 rounded-lg border border-slate-500/15 bg-slate-500/10 px-3 py-2 text-xs text-main/55">
-                              {t("chat_migration_resume_unavailable")}
-                            </div>
-                          ) : null}
-                          {attentionItems.length ? (
-                            <div className="mt-3 overflow-hidden rounded-lg border border-amber-500/15 bg-amber-500/10">
-                              <div className="px-3 py-2 text-xs font-bold text-amber-600 dark:text-amber-200">
-                                {t("chat_migration_attention_list")} ·{" "}
-                                {attentionItems.length}
-                              </div>
-                              <div className="max-h-40 overflow-y-auto custom-scrollbar">
-                                {attentionItems.map((item, index) => (
-                                  <div
-                                    key={`${historyItem.job_id}-${item.title}-${index}`}
-                                    className="border-t border-amber-500/10 px-3 py-2"
-                                  >
-                                    <div className="flex items-center justify-between gap-2">
-                                      <div className="min-w-0 truncate text-xs font-semibold">
-                                        {item.title ||
-                                          item.username ||
-                                          item.join_ref ||
-                                          "-"}
-                                      </div>
-                                      <div className="shrink-0 text-[10px] font-bold uppercase text-amber-600 dark:text-amber-300">
-                                        {item.status}
-                                      </div>
-                                    </div>
-                                    <div className="mt-1 truncate text-[11px] text-main/45">
-                                      {item.username
-                                        ? `@${item.username}`
-                                        : item.join_ref || item.type || "-"}
-                                    </div>
-                                    <div className="mt-1 break-words text-[11px] text-main/60">
-                                      {item.message ||
-                                        t("chat_migration_attention_hint")}
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
+                        <div className="p-3 border-b border-white/5">
+                          <input
+                            type="search"
+                            className="!mb-0 !py-2 !px-3 text-xs"
+                            placeholder={t("chat_migration_search_placeholder")}
+                            value={chatImportSearch}
+                            onChange={(e) =>
+                              setChatImportSearch(e.target.value)
+                            }
+                          />
+                        </div>
+                        <div className="max-h-[260px] overflow-y-auto custom-scrollbar">
+                          {chatImportVisibleItems.length ? (
+                            chatImportVisibleItems.map(({ item, index }) =>
+                              renderMigrationItem(
+                                item,
+                                index,
+                                chatImportSelectedIds,
+                                handleToggleChatImportItem,
+                                chatImportLoading,
+                                isChatAlreadyJoined,
+                              ),
+                            )
                           ) : (
-                            <div className="mt-3 rounded-lg border border-emerald-500/15 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-500">
-                              {t("chat_migration_no_attention")}
+                            <div className="p-6 text-center text-xs text-main/40">
+                              {t("chat_migration_no_matches")}
                             </div>
                           )}
                         </div>
-                      );
-                    })}
-                  </div>
+                      </div>
+                    </>
+                  ) : null}
+
+                  <label className="flex items-center gap-2 !mb-0 text-xs text-main/60">
+                    <input
+                      type="checkbox"
+                      checked={chatImportDryRun}
+                      onChange={(e) => setChatImportDryRun(e.target.checked)}
+                    />
+                    {t("chat_migration_dry_run")}
+                  </label>
+
+                  {chatImportPayload ? (
+                    <div className="rounded-xl border border-sky-500/15 bg-sky-500/10 p-3 text-xs text-sky-200">
+                      <div className="flex items-center justify-between gap-3">
+                        <span>
+                          {chatImportProgress ||
+                            t("chat_migration_import_ready")}
+                        </span>
+                        <span>
+                          {chatImportProcessedTotal}/{chatImportSelectedTotal}
+                        </span>
+                      </div>
+                      <div className="mt-2 h-2 rounded-full bg-white/10 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-sky-400 transition-all"
+                          style={{
+                            width: `${chatImportProgressPercent}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {chatImportError ? (
+                    <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-200 break-words">
+                      {chatImportError}
+                    </div>
+                  ) : null}
+
+                  {chatImportResult ? (
+                    <div className="rounded-xl border border-white/5 bg-white/2 overflow-hidden">
+                      <div className="p-3 border-b border-white/5 grid grid-cols-2 md:grid-cols-5 gap-2 text-center">
+                        {[
+                          ["joined", t("chat_migration_joined")],
+                          ["already_member", t("chat_migration_already")],
+                          ["request_sent", t("chat_migration_request_sent")],
+                          ["manual_required", t("chat_migration_manual")],
+                          ["failed", t("failure")],
+                        ].map(([key, label]) => (
+                          <div key={key} className="rounded-lg bg-white/3 p-2">
+                            <div className="text-base font-bold">
+                              {key === "failed"
+                                ? chatImportResult.summary?.failed || 0
+                                : chatImportResult.summary?.[key] || 0}
+                            </div>
+                            <div className="text-[10px] text-main/40">
+                              {label}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="max-h-[260px] overflow-y-auto custom-scrollbar">
+                        {chatImportResult.results.map((item, index) => {
+                          const statusColor =
+                            item.status === "joined" ||
+                            item.status === "already_member"
+                              ? "text-emerald-400"
+                              : item.status === "request_sent" ||
+                                  item.status === "manual_required" ||
+                                  item.status === "ready"
+                                ? "text-amber-300"
+                                : "text-rose-400";
+                          return (
+                            <div
+                              key={`${item.title}-${index}`}
+                              className="p-3 border-b border-white/5 last:border-0"
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="font-semibold truncate">
+                                  {item.title}
+                                </div>
+                                <div
+                                  className={`text-[10px] font-bold uppercase shrink-0 ${statusColor}`}
+                                >
+                                  {item.status}
+                                </div>
+                              </div>
+                              <div className="text-xs text-main/45 mt-1 leading-relaxed break-words">
+                                {item.message}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
-              ) : (
-                <div className="rounded-xl border border-white/5 bg-white/2 p-5 text-center text-xs text-main/40">
-                  {t("chat_migration_recent_records")}
+                <div className="chat-import-side">
+                  {chatImportJobHistory.length ? (
+                    <div className="rounded-xl border border-white/5 bg-white/2 overflow-hidden">
+                      <div className="p-3 border-b border-white/5 flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-bold">
+                            {t("chat_migration_recent_records")}
+                          </div>
+                          <div className="text-xs text-main/40">
+                            {chatImportJobHistory.length}/5
+                          </div>
+                        </div>
+                      </div>
+                      <div className="max-h-[320px] overflow-y-auto custom-scrollbar">
+                        {chatImportJobHistory.map(
+                          (historyItem, historyIndex) => {
+                            const failed = historyItem.summary?.failed || 0;
+                            const resumeItems =
+                              getChatImportResumeItems(historyItem);
+                            const canResumeHistory =
+                              ["canceled", "failed"].includes(
+                                historyItem.status,
+                              ) && resumeItems.length > 0;
+                            const isHistoryActive = [
+                              "running",
+                              "canceling",
+                            ].includes(historyItem.status);
+                            const attentionItems = (
+                              historyItem.results || []
+                            ).filter((item) =>
+                              [
+                                "manual_required",
+                                "failed",
+                                "request_sent",
+                              ].includes(item.status),
+                            );
+                            return (
+                              <div
+                                key={historyItem.job_id}
+                                className="p-3 border-b border-white/5 last:border-0"
+                              >
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <div className="text-xs font-bold truncate">
+                                        #{historyIndex + 1} ·{" "}
+                                        {historyItem.account_name}
+                                      </div>
+                                      <span className="chat-import-status-pill">
+                                        {t(
+                                          `chat_migration_job_${historyItem.status}`,
+                                        )}
+                                      </span>
+                                    </div>
+                                    <div className="mt-1 text-[11px] text-main/45">
+                                      {historyItem.finished_at ||
+                                        historyItem.updated_at}
+                                    </div>
+                                  </div>
+                                  <div className="flex shrink-0 flex-wrap justify-end gap-2">
+                                    <button
+                                      className="btn-secondary h-7 !py-0 !px-2 !text-[10px]"
+                                      onClick={() =>
+                                        handleInspectChatImportHistoryItem(
+                                          historyItem,
+                                        )
+                                      }
+                                      disabled={chatImportJobActionLoading}
+                                    >
+                                      {t("chat_migration_view_details")}
+                                    </button>
+                                    {isHistoryActive ? (
+                                      <button
+                                        className="btn-secondary h-7 !py-0 !px-2 !text-[10px] !text-rose-500"
+                                        onClick={() =>
+                                          handleStopChatImportJob(historyItem)
+                                        }
+                                        disabled={
+                                          chatImportJobActionLoading ||
+                                          historyItem.status === "canceling"
+                                        }
+                                      >
+                                        <Stop weight="bold" size={12} />
+                                        {t("chat_migration_stop_background")}
+                                      </button>
+                                    ) : null}
+                                    {canResumeHistory ? (
+                                      <button
+                                        className="btn-secondary h-7 !py-0 !px-2 !text-[10px] !text-sky-500"
+                                        onClick={() =>
+                                          handleResumeChatImportHistoryItem(
+                                            historyItem,
+                                          )
+                                        }
+                                        disabled={chatImportJobActionLoading}
+                                        title={t(
+                                          "chat_migration_resume_background",
+                                        )}
+                                      >
+                                        <Play weight="bold" size={12} />
+                                        {t("chat_migration_resume_background")}
+                                      </button>
+                                    ) : null}
+                                    <button
+                                      className="btn-secondary h-7 !py-0 !px-2 !text-[10px] !text-rose-500"
+                                      onClick={() =>
+                                        handleClearChatImportHistoryItem(
+                                          historyItem.job_id,
+                                        )
+                                      }
+                                    >
+                                      {t("chat_migration_clear_record")}
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="mt-3 grid grid-cols-4 gap-2 text-center">
+                                  {[
+                                    ["joined", t("chat_migration_joined")],
+                                    [
+                                      "request_sent",
+                                      t("chat_migration_request_sent"),
+                                    ],
+                                    [
+                                      "manual_required",
+                                      t("chat_migration_manual"),
+                                    ],
+                                    ["failed", t("failure")],
+                                  ].map(([key, label]) => (
+                                    <div
+                                      key={key}
+                                      className="rounded-lg bg-white/3 p-2"
+                                    >
+                                      <div className="text-sm font-bold">
+                                        {key === "failed"
+                                          ? failed
+                                          : historyItem.summary?.[key] || 0}
+                                      </div>
+                                      <div className="text-[9px] text-main/40">
+                                        {label}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                                {["canceled", "failed"].includes(
+                                  historyItem.status,
+                                ) && !canResumeHistory ? (
+                                  <div className="mt-3 rounded-lg border border-slate-500/15 bg-slate-500/10 px-3 py-2 text-xs text-main/55">
+                                    {t("chat_migration_resume_unavailable")}
+                                  </div>
+                                ) : null}
+                                {attentionItems.length ? (
+                                  <div className="mt-3 overflow-hidden rounded-lg border border-amber-500/15 bg-amber-500/10">
+                                    <div className="px-3 py-2 text-xs font-bold text-amber-600 dark:text-amber-200">
+                                      {t("chat_migration_attention_list")} ·{" "}
+                                      {attentionItems.length}
+                                    </div>
+                                    <div className="max-h-40 overflow-y-auto custom-scrollbar">
+                                      {attentionItems.map((item, index) => (
+                                        <div
+                                          key={`${historyItem.job_id}-${item.title}-${index}`}
+                                          className="border-t border-amber-500/10 px-3 py-2"
+                                        >
+                                          <div className="flex items-center justify-between gap-2">
+                                            <div className="min-w-0 truncate text-xs font-semibold">
+                                              {item.title ||
+                                                item.username ||
+                                                item.join_ref ||
+                                                "-"}
+                                            </div>
+                                            <div className="shrink-0 text-[10px] font-bold uppercase text-amber-600 dark:text-amber-300">
+                                              {item.status}
+                                            </div>
+                                          </div>
+                                          <div className="mt-1 truncate text-[11px] text-main/45">
+                                            {item.username
+                                              ? `@${item.username}`
+                                              : item.join_ref ||
+                                                item.type ||
+                                                "-"}
+                                          </div>
+                                          <div className="mt-1 break-words text-[11px] text-main/60">
+                                            {item.message ||
+                                              t(
+                                                "chat_migration_attention_hint",
+                                              )}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="mt-3 rounded-lg border border-emerald-500/15 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-500">
+                                    {t("chat_migration_no_attention")}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          },
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="rounded-xl border border-white/5 bg-white/2 p-5 text-center text-xs text-main/40">
+                      {t("chat_migration_recent_records")}
+                    </div>
+                  )}
                 </div>
-              )}
-              </div>
               </div>
             </div>
             <div className="p-4 border-t border-white/5 bg-white/2">

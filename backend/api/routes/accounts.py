@@ -18,7 +18,9 @@ from pydantic import BaseModel
 from backend.core.auth import get_current_user
 from backend.models.user import User
 from backend.services.chat_migration import get_chat_migration_service
+from backend.services.member_scan import get_member_scan_service
 from backend.services.telegram import get_telegram_service
+from backend.utils.xlsx_export import build_xlsx_bytes
 
 router = APIRouter()
 logger = logging.getLogger("backend.qr_login")
@@ -232,6 +234,13 @@ class ChatMigrationImportJobResponse(BaseModel):
     items: list[Dict[str, Any]] = []
     error: Optional[str] = None
     notice: Optional[str] = None
+
+
+class MemberScanRequest(BaseModel):
+    chat_id: str
+    keywords: list[str]
+    limit: int = 500
+    include_bots: bool = False
 
 
 # ============ API Routes ============
@@ -531,6 +540,82 @@ async def export_account_chats(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"导出群组/频道失败: {str(e)}",
+        )
+
+
+@router.post("/{account_name}/members/scan")
+async def scan_chat_members(
+    account_name: str,
+    request: MemberScanRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """筛选群成员公开资料并导出 XLSX。"""
+    try:
+        result = await get_member_scan_service().scan_chat_members(
+            account_name,
+            request.chat_id,
+            request.keywords,
+            limit=request.limit,
+            include_bots=request.include_bots,
+        )
+        rows = [
+            (
+                item.get("user_id"),
+                item.get("name"),
+                item.get("username") or "",
+                item.get("profile_url") or "",
+                item.get("phone") or "",
+                item.get("bio") or "",
+                ", ".join(item.get("matched_keywords") or []),
+                item.get("source_chat_id"),
+            )
+            for item in result["items"]
+        ]
+        content = build_xlsx_bytes(
+            [
+                "用户 ID",
+                "名称",
+                "用户名",
+                "个人链接",
+                "可见手机号",
+                "完整简介",
+                "命中关键词",
+                "来源群组",
+            ],
+            rows,
+            sheet_name="成员筛选结果",
+        )
+        safe_account = (
+            re.sub(r'[\\/:*?"<>|]+', "_", account_name)
+            .encode("ascii", "ignore")
+            .decode()
+            or "account"
+        )
+        safe_chat = (
+            re.sub(r'[\\/:*?"<>|]+', "_", str(request.chat_id))[:48]
+            .encode("ascii", "ignore")
+            .decode()
+            or "chat"
+        )
+        return Response(
+            content=content,
+            media_type=(
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="tg_members_{safe_account}_{safe_chat}.xlsx"'
+                ),
+                "X-Member-Scan-Summary": json.dumps(result["summary"]),
+            },
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.exception("Scan chat members failed account=%s", account_name)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"成员筛选失败: {str(e)}",
         )
 
 
@@ -870,7 +955,5 @@ def export_account_logs(
     return Response(
         content=content,
         media_type="text/plain; charset=utf-8",
-        headers={
-            "Content-Disposition": 'attachment; filename="account_logs.txt"'
-        },
+        headers={"Content-Disposition": 'attachment; filename="account_logs.txt"'},
     )

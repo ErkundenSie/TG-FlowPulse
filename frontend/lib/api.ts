@@ -355,6 +355,13 @@ export interface ChatMigrationImportJobResponse {
 
 export type ChatMigrationExportScope = "all" | "groups" | "channels";
 
+export interface MemberScanRequest {
+  chat_id: string;
+  keywords: string[];
+  limit?: number;
+  include_bots?: boolean;
+}
+
 export const startAccountLogin = (token: string, data: LoginStartRequest) =>
   request<LoginStartResponse>(
     "/accounts/login/start",
@@ -404,6 +411,25 @@ export const exportAccountChats = async (
     token,
   );
   downloadBlob(blob, `tg_chats_${safeFilenamePart(accountName)}_${scope}.json`);
+};
+
+export const exportMatchedChatMembers = async (
+  token: string,
+  accountName: string,
+  data: MemberScanRequest,
+) => {
+  const blob = await requestBlob(
+    `/accounts/${pathSegment(accountName)}/members/scan`,
+    {
+      method: "POST",
+      body: JSON.stringify(data),
+    },
+    token,
+  );
+  downloadBlob(
+    blob,
+    `tg_members_${safeFilenamePart(accountName)}_${safeFilenamePart(data.chat_id)}.xlsx`,
+  );
 };
 
 export const getAccountChatsExport = (
@@ -1354,11 +1380,7 @@ export const exportMonitorRecords = async (
     {},
     token,
   );
-  const filenameBase = [
-    "monitor_records",
-    accountName || "account",
-    name,
-  ]
+  const filenameBase = ["monitor_records", accountName || "account", name]
     .filter(Boolean)
     .map(safeFilenamePart)
     .join("_");
