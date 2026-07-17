@@ -33,11 +33,7 @@ from backend.utils.static_files import StaticFileResolver  # noqa: E402
 class HealthCheckFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         msg = record.getMessage()
-        return (
-            "/health" not in msg
-            and "/healthz" not in msg
-            and "/readyz" not in msg
-        )
+        return "/health" not in msg and "/healthz" not in msg and "/readyz" not in msg
 
 
 logging.getLogger("uvicorn.access").addFilter(HealthCheckFilter())
@@ -137,8 +133,12 @@ async def on_startup() -> None:
         try:
             await sync_jobs()
             from backend.services.keyword_monitor import get_keyword_monitor_service
+            from backend.services.speaker_collection import (
+                get_speaker_collection_service,
+            )
 
             await get_keyword_monitor_service().restart_from_tasks()
+            await get_speaker_collection_service().start()
         except Exception as exc:
             logging.getLogger("backend.startup").error(
                 f"Delayed scheduler sync failed: {exc}"
@@ -154,7 +154,9 @@ async def on_shutdown() -> None:
     shutdown_scheduler()
     try:
         from backend.services.keyword_monitor import get_keyword_monitor_service
+        from backend.services.speaker_collection import get_speaker_collection_service
 
         await get_keyword_monitor_service().stop()
+        await get_speaker_collection_service().stop()
     except Exception:
         pass

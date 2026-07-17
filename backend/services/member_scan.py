@@ -6,6 +6,8 @@ import asyncio
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from pyrogram.enums import ChatMembersFilter
+
 from backend.services.chat_migration import ChatMigrationService
 
 
@@ -109,7 +111,9 @@ class MemberScanService(ChatMigrationService):
             scanned = 0
             skipped_bots = 0
             async for member in client.get_chat_members(
-                client_chat_ref, limit=safe_limit
+                client_chat_ref,
+                limit=safe_limit,
+                filter=ChatMembersFilter.RECENT,
             ):
                 user = getattr(member, "user", None)
                 if user is None:
@@ -139,6 +143,14 @@ class MemberScanService(ChatMigrationService):
                 items.append(self._build_member_item(user, profile, chat_ref, hits))
                 await asyncio.sleep(self.PROFILE_REQUEST_DELAY)
 
+            chat = await client.get_chat(client_chat_ref)
+            reported_count = int(getattr(chat, "members_count", 0) or 0)
+            if reported_count > 1 and scanned <= 1:
+                raise ValueError(
+                    f"Telegram 仅返回了 {scanned} 名成员，但该群显示约 {reported_count} 名成员。"
+                    "当前登录账号没有读取完整成员列表的权限，请使用该群管理员账号登录后重试。"
+                )
+
             return {
                 "account_name": account_name,
                 "chat_id": chat_ref,
@@ -148,6 +160,7 @@ class MemberScanService(ChatMigrationService):
                 "items": items,
                 "summary": {
                     "requested_limit": safe_limit,
+                    "reported_member_count": reported_count or None,
                     "scanned": scanned,
                     "matched": sum(1 for item in items if item.get("matched_keywords")),
                     "skipped_bots": skipped_bots,

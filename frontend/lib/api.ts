@@ -1386,3 +1386,65 @@ export const exportMonitorRecords = async (
     .join("_");
   downloadBlob(blob, `${filenameBase}.xlsx`);
 };
+
+export interface SpeakerCollectionConfig {
+  id?: string;
+  name: string;
+  account_name: string;
+  chat_id: MonitorChatId;
+  chat_name?: string;
+  start_at?: string | null;
+  end_at?: string | null;
+  continuous?: boolean;
+  enabled?: boolean;
+  history_limit?: number;
+  last_scan_at?: string | null;
+  last_scan_summary?: Record<string, number>;
+}
+
+export interface SpeakerCollectionRecord {
+  id: string;
+  sender_id: string;
+  sender: string;
+  sender_username: string;
+  profile_url: string;
+  bio: string;
+  message_count: number;
+  first_message_at: string;
+  last_message_at: string;
+  sample_message: string;
+}
+
+export const listSpeakerCollections = (token: string, accountName?: string) =>
+  request<SpeakerCollectionConfig[]>(
+    `/speaker-collections${accountName ? `?account_name=${pathSegment(accountName)}` : ""}`,
+    {},
+    token,
+  );
+export const saveSpeakerCollection = (
+  token: string,
+  data: SpeakerCollectionConfig,
+) =>
+  request<SpeakerCollectionConfig>(
+    "/speaker-collections",
+    { method: "POST", body: JSON.stringify(data) },
+    token,
+  );
+export const scanSpeakerCollection = (token: string, id: string) =>
+  request<Record<string, number>>(
+    `/speaker-collections/${pathSegment(id)}/scan`,
+    { method: "POST" },
+    token,
+  );
+export const getSpeakerCollectionRecords = (token: string, id: string) =>
+  request<SpeakerCollectionRecord[]>(
+    `/speaker-collections/${pathSegment(id)}/records`,
+    {},
+    token,
+  );
+export const deleteSpeakerCollection = (token: string, id: string) =>
+  request<{ ok: boolean }>(
+    `/speaker-collections/${pathSegment(id)}`,
+    { method: "DELETE" },
+    token,
+  );
