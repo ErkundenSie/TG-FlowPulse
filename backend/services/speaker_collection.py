@@ -21,6 +21,7 @@ class SpeakerCollectionService(ChatMigrationService):
 
     MAX_HISTORY_MESSAGES = 5000
     POLL_INTERVAL_SECONDS = 30
+    PROFILE_REQUEST_DELAY = 0.08
 
     def __init__(self) -> None:
         super().__init__()
@@ -74,6 +75,21 @@ class SpeakerCollectionService(ChatMigrationService):
             raise ValueError("请提供群组 ID 或 @用户名")
         return int(text) if text.lstrip("-").isdigit() else text
 
+    @staticmethod
+    def _keywords(value: Any) -> list[str]:
+        if not isinstance(value, list):
+            value = str(value or "").replace("，", ",").split(",")
+        result: list[str] = []
+        seen: set[str] = set()
+        for item in value:
+            keyword = str(item or "").strip()
+            if keyword and keyword.casefold() not in seen:
+                seen.add(keyword.casefold())
+                result.append(keyword)
+        if len(result) > 20:
+            raise ValueError("关键词数量不能超过 20 个")
+        return result
+
     def list_configs(self, account_name: Optional[str] = None) -> list[dict[str, Any]]:
         values = list(self._data["configs"].values())
         if account_name:
@@ -106,6 +122,7 @@ class SpeakerCollectionService(ChatMigrationService):
         config_id = str(payload.get("id") or uuid.uuid4().hex)
         start_at = self._parse_datetime(payload.get("start_at"))
         end_at = self._parse_datetime(payload.get("end_at"))
+        keywords = self._keywords(payload.get("profile_keywords"))
         if start_at and end_at and start_at > end_at:
             raise ValueError("开始时间不能晚于结束时间")
         config = {
@@ -117,6 +134,7 @@ class SpeakerCollectionService(ChatMigrationService):
             "chat_name": str(payload.get("chat_name") or chat_id).strip(),
             "start_at": start_at.isoformat() if start_at else None,
             "end_at": end_at.isoformat() if end_at else None,
+            "profile_keywords": keywords,
             "continuous": bool(payload.get("continuous", False)),
             "enabled": bool(payload.get("enabled", True)),
             "history_limit": max(
@@ -170,12 +188,14 @@ class SpeakerCollectionService(ChatMigrationService):
             raise KeyError(config_id)
         start_at = self._parse_datetime(config.get("start_at"))
         end_at = self._parse_datetime(config.get("end_at"))
+        keywords = self._keywords(config.get("profile_keywords"))
         chat_ref = self._chat_ref(config["chat_id"])
 
         async def _scan(client: Any) -> dict[str, Any]:
             scanned = 0
             added = 0
             skipped = 0
+            profile_cache: dict[str, Any] = {}
             async for message in client.get_chat_history(
                 chat_ref, limit=config["history_limit"]
             ):
@@ -194,9 +214,21 @@ class SpeakerCollectionService(ChatMigrationService):
                     skipped += 1
                     continue
                 key = f"{config_id}:{getattr(message.chat, 'id', config['chat_id'])}:{user.id}"
-                profile = await self._visible_profile(client, user)
                 now = self._now()
                 existing = self._data["records"].get(key, {})
+                profile = profile_cache.get(str(user.id))
+                if profile is None:
+                    profile = await self._visible_profile(client, user)
+                    profile_cache[str(user.id)] = profile
+                    await asyncio.sleep(self.PROFILE_REQUEST_DELAY)
+                bio = (
+                    getattr(profile, "bio", None)
+                    or getattr(profile, "description", None)
+                    or ""
+                )
+                hits = [keyword for keyword in keywords if keyword.casefold() in bio.casefold()]
+                if keywords and not hits:
+                    continue
                 message_id = getattr(message, "id", None)
                 seen_message_ids = [
                     int(item)
@@ -245,9 +277,8 @@ class SpeakerCollectionService(ChatMigrationService):
                         if getattr(user, "username", None)
                         else ""
                     ),
-                    "bio": getattr(profile, "bio", None)
-                    or getattr(profile, "description", None)
-                    or "",
+                    "bio": bio,
+                    "matched_keywords": hits,
                     "first_message_at": first_at,
                     "last_message_at": last_at,
                     "first_message_id": first_message_id,
@@ -272,6 +303,7 @@ class SpeakerCollectionService(ChatMigrationService):
             return {
                 "scanned_messages": scanned,
                 "new_speakers": added,
+                "matched_speakers": len(self.get_records(config_id, 5000)),
                 "unique_speakers": len(self.get_records(config_id, 5000)),
                 "skipped_messages": skipped,
             }

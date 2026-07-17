@@ -1395,6 +1395,7 @@ export interface SpeakerCollectionConfig {
   chat_name?: string;
   start_at?: string | null;
   end_at?: string | null;
+  profile_keywords?: string[];
   continuous?: boolean;
   enabled?: boolean;
   history_limit?: number;
@@ -1409,6 +1410,7 @@ export interface SpeakerCollectionRecord {
   sender_username: string;
   profile_url: string;
   bio: string;
+  matched_keywords?: string[];
   message_count: number;
   first_message_at: string;
   last_message_at: string;
@@ -1448,3 +1450,7 @@ export const deleteSpeakerCollection = (token: string, id: string) =>
     { method: "DELETE" },
     token,
   );
+export const exportSpeakerCollectionRecords = async (token: string, id: string) => {
+  const blob = await requestBlob(`/speaker-collections/${pathSegment(id)}/records/export`, {}, token);
+  downloadBlob(blob, "speaker_collection.xlsx");
+};

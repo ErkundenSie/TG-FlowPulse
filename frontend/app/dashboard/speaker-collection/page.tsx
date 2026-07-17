@@ -18,6 +18,7 @@ import {
   SpeakerCollectionConfig,
   SpeakerCollectionRecord,
   deleteSpeakerCollection,
+  exportSpeakerCollectionRecords,
   getAccountChats,
   getSpeakerCollectionRecords,
   listAccounts,
@@ -46,6 +47,7 @@ export default function SpeakerCollectionPage() {
     history_limit: 1000,
     continuous: false,
     enabled: true,
+    profile_keywords: [],
   });
 
   const refresh = async (auth: string) => {
@@ -89,8 +91,9 @@ export default function SpeakerCollectionPage() {
         end_at: form.end_at ? new Date(form.end_at).toISOString() : null,
       });
       addToast("采集配置已保存", "success");
-      await refresh(token);
-      await loadRecords(saved.id || "");
+      setConfigs((items) => [saved, ...items.filter((item) => item.id !== saved.id)]);
+      setSelectedId(saved.id || "");
+      setRecords([]);
     } catch (e: any) {
       addToast(e.message || "保存失败", "error");
     } finally {
@@ -106,7 +109,7 @@ export default function SpeakerCollectionPage() {
         `已扫描 ${result.scanned_messages || 0} 条消息，新增 ${result.new_speakers || 0} 位发言者`,
         "success",
       );
-      await refresh(token);
+      setConfigs((items) => items.map((item) => item.id === id ? { ...item, last_scan_summary: result, last_scan_at: new Date().toISOString() } : item));
       await loadRecords(id);
     } catch (e: any) {
       addToast(e.message || "扫描失败", "error");
@@ -208,6 +211,15 @@ export default function SpeakerCollectionPage() {
               }
             />
           </label>
+          <label className="text-xs">
+            简介关键词（逗号或换行分隔，留空则收集全部发言者）
+            <textarea
+              className="!mb-0 min-h-[84px]"
+              value={(form.profile_keywords || []).join("\n")}
+              onChange={(e) => setForm({ ...form, profile_keywords: e.target.value.split(/[\n,，]/).map((item) => item.trim()).filter(Boolean) })}
+              placeholder="例如：招聘, 代理, 采购"
+            />
+          </label>
           <label className="flex gap-2 text-sm">
             <input
               type="checkbox"
@@ -284,7 +296,8 @@ export default function SpeakerCollectionPage() {
               {selectedId && (
                 <button
                   className="action-btn"
-                  onClick={() => loadRecords(selectedId)}
+                  onClick={() => exportSpeakerCollectionRecords(token!, selectedId)}
+                  title="导出 XLSX"
                 >
                   <DownloadSimple />
                 </button>
@@ -297,6 +310,7 @@ export default function SpeakerCollectionPage() {
                     <th>发言者</th>
                     <th>用户名</th>
                     <th>简介</th>
+                    <th>命中关键词</th>
                     <th>消息数</th>
                     <th>最近发言</th>
                     <th>示例消息</th>
@@ -321,6 +335,7 @@ export default function SpeakerCollectionPage() {
                       </td>
                       <td>{r.sender_username}</td>
                       <td className="max-w-[250px] truncate">{r.bio}</td>
+                      <td>{(r.matched_keywords || []).join(", ")}</td>
                       <td>{r.message_count}</td>
                       <td>{r.last_message_at}</td>
                       <td className="max-w-[300px] truncate">

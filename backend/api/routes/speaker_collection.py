@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from typing import Optional, Union
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 
 from backend.core.auth import get_current_user
 from backend.models.user import User
 from backend.services.speaker_collection import get_speaker_collection_service
+from backend.utils.xlsx_export import build_xlsx_bytes
 
 router = APIRouter()
 ChatId = Union[int, str]
@@ -21,6 +22,7 @@ class SpeakerCollectionConfig(BaseModel):
     chat_name: str = ""
     start_at: Optional[str] = None
     end_at: Optional[str] = None
+    profile_keywords: list[str] = []
     continuous: bool = False
     enabled: bool = True
     history_limit: int = Field(1000, ge=1, le=5000)
@@ -65,3 +67,26 @@ def records(
     config_id: str, limit: int = 500, current_user: User = Depends(get_current_user)
 ):
     return get_speaker_collection_service().get_records(config_id, limit)
+
+
+@router.get("/{config_id}/records/export")
+def export_records(config_id: str, current_user: User = Depends(get_current_user)):
+    service = get_speaker_collection_service()
+    records = service.get_records(config_id, 5000)
+    content = build_xlsx_bytes(
+        ["发言者", "用户名", "用户 ID", "个人链接", "完整简介", "命中关键词", "消息数", "首次发言", "最近发言", "示例消息"],
+        [
+            [
+                item.get("sender", ""), item.get("sender_username", ""), item.get("sender_id", ""),
+                item.get("profile_url", ""), item.get("bio", ""), ", ".join(item.get("matched_keywords", [])),
+                item.get("message_count", 0), item.get("first_message_at", ""), item.get("last_message_at", ""), item.get("sample_message", ""),
+            ]
+            for item in records
+        ],
+        sheet_name="发言者筛选结果",
+    )
+    return Response(
+        content=content,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="speaker_collection.xlsx"'},
+    )
