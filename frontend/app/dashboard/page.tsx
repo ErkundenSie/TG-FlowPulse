@@ -645,24 +645,21 @@ export default function Dashboard() {
     const chatId = window.prompt("请输入群组 ID 或 @群组用户名：", "");
     if (!chatId?.trim()) return;
     const keywordText = window.prompt(
-      "请输入关键词，使用英文逗号或中文逗号分隔：",
+      "可选：输入关键词以标记命中成员（英文逗号或中文逗号分隔；留空则导出全部）：",
       "",
     );
     const keywords = (keywordText || "")
       .split(/[,，]/)
       .map((item) => item.trim())
       .filter(Boolean);
-    if (!keywords.length) {
-      addToast("请至少输入一个关键词", "error");
-      return;
-    }
     try {
       setLoading(true);
       await exportMatchedChatMembers(token, accountName, {
         chat_id: chatId.trim(),
         keywords,
+        limit: 3000,
       });
-      addToast("成员筛选结果已下载", "success");
+      addToast("群成员导出已下载", "success");
     } catch (err: any) {
       addToast(`成员筛选失败: ${err?.message || "未知错误"}`, "error");
     } finally {

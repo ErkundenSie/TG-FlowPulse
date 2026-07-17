@@ -238,8 +238,8 @@ class ChatMigrationImportJobResponse(BaseModel):
 
 class MemberScanRequest(BaseModel):
     chat_id: str
-    keywords: list[str]
-    limit: int = 500
+    keywords: list[str] = []
+    limit: int = 3000
     include_bots: bool = False
 
 
@@ -549,7 +549,7 @@ async def scan_chat_members(
     request: MemberScanRequest,
     current_user: User = Depends(get_current_user),
 ):
-    """筛选群成员公开资料并导出 XLSX。"""
+    """导出所有可读取的群成员公开资料并标记关键词命中。"""
     try:
         result = await get_member_scan_service().scan_chat_members(
             account_name,
@@ -566,6 +566,7 @@ async def scan_chat_members(
                 item.get("profile_url") or "",
                 item.get("phone") or "",
                 item.get("bio") or "",
+                "是" if item.get("matched_keywords") else "否",
                 ", ".join(item.get("matched_keywords") or []),
                 item.get("source_chat_id"),
             )
@@ -579,11 +580,12 @@ async def scan_chat_members(
                 "个人链接",
                 "可见手机号",
                 "完整简介",
+                "是否命中",
                 "命中关键词",
                 "来源群组",
             ],
             rows,
-            sheet_name="成员筛选结果",
+            sheet_name="群成员导出",
         )
         safe_account = (
             re.sub(r'[\\/:*?"<>|]+', "_", account_name)

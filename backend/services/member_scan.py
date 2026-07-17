@@ -12,7 +12,7 @@ from backend.services.chat_migration import ChatMigrationService
 class MemberScanService(ChatMigrationService):
     """筛选当前 Telegram 账号有权访问的群成员公开资料。"""
 
-    MAX_MEMBERS = 1000
+    MAX_MEMBERS = 10000
     MAX_KEYWORDS = 20
     PROFILE_REQUEST_DELAY = 0.12
 
@@ -30,8 +30,6 @@ class MemberScanService(ChatMigrationService):
             if key not in seen:
                 seen.add(key)
                 normalized.append(keyword)
-        if not normalized:
-            raise ValueError("请至少提供一个关键词")
         if len(normalized) > MemberScanService.MAX_KEYWORDS:
             raise ValueError(f"关键词数量不能超过 {MemberScanService.MAX_KEYWORDS} 个")
         return normalized
@@ -92,10 +90,10 @@ class MemberScanService(ChatMigrationService):
         chat_id: str,
         keywords: List[str],
         *,
-        limit: int = 500,
+        limit: int = 3000,
         include_bots: bool = False,
     ) -> Dict[str, Any]:
-        """遍历成员资料并返回命中关键词的成员列表。"""
+        """遍历成员资料，保留所有可读取成员并标记关键词命中。"""
         account_name = self._validate_account_name(account_name)
         chat_ref = str(chat_id or "").strip()
         if not chat_ref:
@@ -107,7 +105,7 @@ class MemberScanService(ChatMigrationService):
         safe_limit = max(1, min(int(limit), self.MAX_MEMBERS))
 
         async def _scan(client: Any) -> Dict[str, Any]:
-            matched: List[Dict[str, Any]] = []
+            items: List[Dict[str, Any]] = []
             scanned = 0
             skipped_bots = 0
             async for member in client.get_chat_members(
@@ -138,10 +136,7 @@ class MemberScanService(ChatMigrationService):
                     for keyword in normalized_keywords
                     if keyword.casefold() in searchable
                 ]
-                if hits:
-                    matched.append(
-                        self._build_member_item(user, profile, chat_ref, hits)
-                    )
+                items.append(self._build_member_item(user, profile, chat_ref, hits))
                 await asyncio.sleep(self.PROFILE_REQUEST_DELAY)
 
             return {
@@ -150,11 +145,11 @@ class MemberScanService(ChatMigrationService):
                 "keywords": normalized_keywords,
                 "scanned_at": datetime.utcnow().replace(microsecond=0).isoformat()
                 + "Z",
-                "items": matched,
+                "items": items,
                 "summary": {
                     "requested_limit": safe_limit,
                     "scanned": scanned,
-                    "matched": len(matched),
+                    "matched": sum(1 for item in items if item.get("matched_keywords")),
                     "skipped_bots": skipped_bots,
                 },
                 "notice": (

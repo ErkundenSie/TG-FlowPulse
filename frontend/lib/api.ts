@@ -357,7 +357,7 @@ export type ChatMigrationExportScope = "all" | "groups" | "channels";
 
 export interface MemberScanRequest {
   chat_id: string;
-  keywords: string[];
+  keywords?: string[];
   limit?: number;
   include_bots?: boolean;
 }
