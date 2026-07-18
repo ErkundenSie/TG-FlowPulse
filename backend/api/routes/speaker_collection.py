@@ -28,6 +28,10 @@ class SpeakerCollectionConfig(BaseModel):
     history_limit: int = Field(1000, ge=1, le=5000)
 
 
+class SpeakerCollectionEnabled(BaseModel):
+    enabled: bool
+
+
 @router.get("")
 def list_configs(
     account_name: Optional[str] = None, current_user: User = Depends(get_current_user)
@@ -50,6 +54,22 @@ async def delete_config(config_id: str, current_user: User = Depends(get_current
     if not await get_speaker_collection_service().delete_config(config_id):
         raise HTTPException(status_code=404, detail="采集配置不存在")
     return {"ok": True}
+
+
+@router.patch("/{config_id}/enabled")
+async def set_enabled(
+    config_id: str,
+    payload: SpeakerCollectionEnabled,
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return await get_speaker_collection_service().set_enabled(
+            config_id, payload.enabled
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail="采集配置不存在")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/{config_id}/scan")
@@ -82,7 +102,6 @@ def export_records(config_id: str, current_user: User = Depends(get_current_user
             "用户 ID",
             "个人链接",
             "完整简介",
-            "网站",
             *website_headers,
             "命中关键词",
             "消息数",
@@ -101,8 +120,7 @@ def export_records(config_id: str, current_user: User = Depends(get_current_user
                     else ""
                 ),
                 item.get("bio", ""),
-                ", ".join(item.get("websites") or []),
-                *[ExternalHyperlink(url, url) for url in (item.get("websites") or [])],
+                *[ExternalHyperlink(url, url) for url in item.get("websites") or []],
                 *["" for _ in range(max_websites - len(item.get("websites") or []))],
                 ", ".join(item.get("matched_keywords", [])),
                 item.get("message_count", 0),

@@ -6,11 +6,11 @@ import asyncio
 import json
 import logging
 import re
-from urllib.parse import urlparse
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 from backend.core.config import get_settings
 from backend.services.chat_migration import ChatMigrationService
@@ -34,6 +34,7 @@ class SpeakerCollectionService(ChatMigrationService):
         self._file = self._resolve_file()
         self._lock = asyncio.Lock()
         self._workers: dict[str, asyncio.Task] = {}
+        self._scan_locks: dict[str, asyncio.Lock] = {}
         self._data = self._load()
 
     @staticmethod
@@ -125,10 +126,32 @@ class SpeakerCollectionService(ChatMigrationService):
                 item for item in values if item.get("account_name") == account_name
             ]
         return sorted(
-            (dict(item) for item in values),
+            (self._config_with_status(item) for item in values),
             key=lambda item: item.get("updated_at", ""),
             reverse=True,
         )
+
+    def _config_with_status(self, config: dict[str, Any]) -> dict[str, Any]:
+        result = dict(config)
+        if not config.get("continuous"):
+            result["monitor_status"] = "one_time"
+            return result
+        if not config.get("enabled"):
+            result["monitor_status"] = (
+                "completed" if config.get("completed_at") else "paused"
+            )
+            return result
+
+        now = datetime.now(timezone.utc)
+        start_at = self._parse_datetime(config.get("start_at"))
+        end_at = self._parse_datetime(config.get("end_at"))
+        if end_at and now > end_at:
+            result["monitor_status"] = "completed"
+        elif start_at and now < start_at:
+            result["monitor_status"] = "waiting"
+        else:
+            result["monitor_status"] = "running"
+        return result
 
     def get_records(self, config_id: str, limit: int = 500) -> list[dict[str, Any]]:
         values = []
@@ -184,12 +207,34 @@ class SpeakerCollectionService(ChatMigrationService):
             "last_scan_summary": self._data["configs"]
             .get(config_id, {})
             .get("last_scan_summary", {}),
+            "latest_message_id_seen": self._data["configs"]
+            .get(config_id, {})
+            .get("latest_message_id_seen"),
+            "completed_at": None,
         }
         async with self._lock:
             self._data["configs"][config_id] = config
             self._save()
         await self._sync_worker(config)
-        return dict(config)
+        return self._config_with_status(config)
+
+    async def set_enabled(self, config_id: str, enabled: bool) -> dict[str, Any]:
+        async with self._lock:
+            config = self._data["configs"].get(config_id)
+            if not config:
+                raise KeyError(config_id)
+            if not config.get("continuous"):
+                raise ValueError("一次性采集任务无需暂停")
+            end_at = self._parse_datetime(config.get("end_at"))
+            if enabled and end_at and datetime.now(timezone.utc) > end_at:
+                raise ValueError("任务结束时间已到，请先修改结束时间")
+            config["enabled"] = enabled
+            config["completed_at"] = None
+            config["updated_at"] = self._now()
+            self._save()
+            result = self._config_with_status(config)
+        await self._sync_worker(config)
+        return result
 
     async def delete_config(self, config_id: str) -> bool:
         async with self._lock:
@@ -205,6 +250,7 @@ class SpeakerCollectionService(ChatMigrationService):
         worker = self._workers.pop(config_id, None)
         if worker:
             worker.cancel()
+        self._scan_locks.pop(config_id, None)
         return True
 
     async def _visible_profile(self, client: Any, user: Any) -> Any:
@@ -214,6 +260,11 @@ class SpeakerCollectionService(ChatMigrationService):
             return user
 
     async def scan(self, config_id: str) -> dict[str, Any]:
+        lock = self._scan_locks.setdefault(config_id, asyncio.Lock())
+        async with lock:
+            return await self._scan_config(config_id)
+
+    async def _scan_config(self, config_id: str) -> dict[str, Any]:
         config = self._data["configs"].get(config_id)
         if not config:
             raise KeyError(config_id)
@@ -230,9 +281,27 @@ class SpeakerCollectionService(ChatMigrationService):
             profile_unavailable = 0
             matched_profiles = 0
             profile_cache: dict[str, Any] = {}
+            previous_latest_message_id = (
+                int(config.get("latest_message_id_seen"))
+                if config.get("continuous")
+                and str(config.get("latest_message_id_seen") or "").isdigit()
+                else None
+            )
+            latest_message_id_seen = previous_latest_message_id
             async for message in client.get_chat_history(
                 chat_ref, limit=config["history_limit"]
             ):
+                message_id = getattr(message, "id", None)
+                if (
+                    previous_latest_message_id is not None
+                    and isinstance(message_id, int)
+                    and message_id <= previous_latest_message_id
+                ):
+                    break
+                if isinstance(message_id, int):
+                    latest_message_id_seen = max(
+                        latest_message_id_seen or message_id, message_id
+                    )
                 message_date = getattr(message, "date", None)
                 if not isinstance(message_date, datetime):
                     continue
@@ -274,7 +343,6 @@ class SpeakerCollectionService(ChatMigrationService):
                     continue
                 if hits:
                     matched_profiles += 1
-                message_id = getattr(message, "id", None)
                 seen_message_ids = [
                     int(item)
                     for item in existing.get("seen_message_ids", [])
@@ -355,14 +423,27 @@ class SpeakerCollectionService(ChatMigrationService):
                 "profiles_without_bio": profile_unavailable,
                 "keyword_matched_messages": matched_profiles,
                 "unique_speakers": len(self.get_records(config_id, 5000)),
+                "latest_message_id_seen": latest_message_id_seen or 0,
             }
 
         result = await self._with_client(config["account_name"], _scan)
         async with self._lock:
             config["last_scan_at"] = self._now()
             config["last_scan_summary"] = result
+            if result.get("latest_message_id_seen"):
+                config["latest_message_id_seen"] = result["latest_message_id_seen"]
             self._save()
         return result
+
+    async def _complete_monitor(self, config: dict[str, Any]) -> None:
+        async with self._lock:
+            current = self._data["configs"].get(config["id"])
+            if not current or not current.get("enabled"):
+                return
+            current["enabled"] = False
+            current["completed_at"] = self._now()
+            current["updated_at"] = self._now()
+            self._save()
 
     async def _worker(self, config_id: str) -> None:
         try:
@@ -374,6 +455,20 @@ class SpeakerCollectionService(ChatMigrationService):
                     or not config.get("continuous")
                 ):
                     return
+                now = datetime.now(timezone.utc)
+                start_at = self._parse_datetime(config.get("start_at"))
+                end_at = self._parse_datetime(config.get("end_at"))
+                if end_at and now > end_at:
+                    await self._complete_monitor(config)
+                    return
+                if start_at and now < start_at:
+                    await asyncio.sleep(
+                        min(
+                            self.POLL_INTERVAL_SECONDS,
+                            max(0.1, (start_at - now).total_seconds()),
+                        )
+                    )
+                    continue
                 try:
                     await self.scan(config_id)
                 except Exception as exc:

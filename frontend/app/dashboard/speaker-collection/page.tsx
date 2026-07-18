@@ -1,9 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ArrowClockwise,
+  CaretDown,
+  CaretLeft,
+  CaretRight,
+  CaretUp,
   DownloadSimple,
   MagnifyingGlass,
+  Pause,
+  PencilSimple,
   Play,
   Plus,
   Spinner,
@@ -24,6 +31,7 @@ import {
   listSpeakerCollections,
   saveSpeakerCollection,
   scanSpeakerCollection,
+  setSpeakerCollectionEnabled,
 } from "../../../lib/api";
 import { ToastContainer, useToast } from "../../../components/ui/toast";
 
@@ -38,6 +46,32 @@ const chatLabel = (chat: ChatInfo) => {
 const truncateLabel = (value: string, max = 42) =>
   value.length > max ? `${value.slice(0, max - 1)}…` : value;
 
+const formatDateTime = (value?: string | null) => {
+  if (!value) return "--";
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime())
+    ? value
+    : parsed.toLocaleString("zh-CN", { hour12: false });
+};
+
+const monitorStatus = (config: SpeakerCollectionConfig) => {
+  switch (config.monitor_status) {
+    case "running":
+      return {
+        label: "后台监控中",
+        className: "bg-emerald-500/10 text-emerald-400",
+      };
+    case "waiting":
+      return { label: "等待开始", className: "bg-amber-500/10 text-amber-400" };
+    case "completed":
+      return { label: "监控已结束", className: "bg-main/5 text-main/40" };
+    case "paused":
+      return { label: "已暂停", className: "bg-amber-500/10 text-amber-400" };
+    default:
+      return { label: "单次执行", className: "bg-cyan-500/10 text-cyan-400" };
+  }
+};
+
 export default function SpeakerCollectionPage() {
   const { toasts, addToast, removeToast } = useToast();
   const [token, setToken] = useState<string | null>(null);
@@ -46,8 +80,15 @@ export default function SpeakerCollectionPage() {
   const [chatSearch, setChatSearch] = useState("");
   const [configs, setConfigs] = useState<SpeakerCollectionConfig[]>([]);
   const [records, setRecords] = useState<SpeakerCollectionRecord[]>([]);
+  const [recordsPage, setRecordsPage] = useState(1);
+  const [recordsPageSize, setRecordsPageSize] = useState(10);
   const [selectedId, setSelectedId] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [scanningId, setScanningId] = useState("");
+  const [togglingId, setTogglingId] = useState("");
+  const [recordsLoadingId, setRecordsLoadingId] = useState("");
+  const [deletingId, setDeletingId] = useState("");
+  const [tasksCollapsed, setTasksCollapsed] = useState(false);
   const [form, setForm] = useState<SpeakerCollectionConfig>({
     name: "发言者采集",
     account_name: "",
@@ -58,16 +99,46 @@ export default function SpeakerCollectionPage() {
     profile_keywords: [],
   });
 
-  const refresh = async (auth: string) => {
+  const resetForm = () => {
+    setForm({
+      name: "发言者采集",
+      account_name: form.account_name || accounts[0]?.name || "",
+      chat_id: "",
+      history_limit: 1000,
+      continuous: false,
+      enabled: true,
+      profile_keywords: [],
+    });
+    setChatSearch("");
+    setSelectedId("");
+    setRecords([]);
+    setRecordsPage(1);
+  };
+
+  const refresh = useCallback(async (auth: string) => {
     const [accountData, configData] = await Promise.all([
       listAccounts(auth),
       listSpeakerCollections(auth),
     ]);
     setAccounts(accountData.accounts);
     setConfigs(configData);
-    if (!form.account_name && accountData.accounts[0])
-      setForm((v) => ({ ...v, account_name: accountData.accounts[0].name }));
-  };
+    const firstConfig = configData[0];
+    if (firstConfig?.id) {
+      setForm({
+        ...firstConfig,
+        profile_keywords: firstConfig.profile_keywords || [],
+      });
+      setSelectedId(firstConfig.id);
+      setRecords(await getSpeakerCollectionRecords(auth, firstConfig.id));
+      setRecordsPage(1);
+    } else if (accountData.accounts[0]) {
+      setForm((current) =>
+        current.account_name
+          ? current
+          : { ...current, account_name: accountData.accounts[0].name },
+      );
+    }
+  }, []);
   useEffect(() => {
     const auth = getToken();
     if (!auth) {
@@ -76,29 +147,43 @@ export default function SpeakerCollectionPage() {
     }
     setToken(auth);
     refresh(auth).catch((e) => addToast(e.message || "加载失败", "error"));
-  }, []);
+  }, [addToast, refresh]);
   useEffect(() => {
     if (token && form.account_name)
       getAccountChats(token, form.account_name)
         .then(setChats)
         .catch(() => setChats([]));
   }, [token, form.account_name]);
-  const loadRecords = async (id: string) => {
+  const loadRecords = async (id: string, notify = false) => {
     if (!token) return;
-    setSelectedId(id);
-    setRecords(await getSpeakerCollectionRecords(token, id));
+    try {
+      setRecordsLoadingId(id);
+      setSelectedId(id);
+      const latestRecords = await getSpeakerCollectionRecords(token, id);
+      setRecords(latestRecords);
+      setRecordsPage(1);
+      if (notify) addToast("下方发言者列表已刷新", "success");
+    } catch (e: any) {
+      addToast(e.message || "刷新发言者列表失败", "error");
+    } finally {
+      setRecordsLoadingId("");
+    }
   };
-  const selectConfig = async (config: SpeakerCollectionConfig) => {
+  const selectConfig = async (
+    config: SpeakerCollectionConfig,
+    notify = false,
+  ) => {
     setForm({ ...config, profile_keywords: config.profile_keywords || [] });
-    await loadRecords(config.id || "");
+    await loadRecords(config.id || "", notify);
   };
   const save = async () => {
     if (!token || !form.account_name || !form.chat_id)
       return addToast("请选择账号和群组", "error");
     try {
-      setLoading(true);
+      setSaving(true);
       const saved = await saveSpeakerCollection(token, {
         ...form,
+        enabled: form.enabled !== false,
         start_at: form.start_at ? new Date(form.start_at).toISOString() : null,
         end_at: form.end_at ? new Date(form.end_at).toISOString() : null,
       });
@@ -108,17 +193,19 @@ export default function SpeakerCollectionPage() {
         ...items.filter((item) => item.id !== saved.id),
       ]);
       setSelectedId(saved.id || "");
+      setForm(saved);
       setRecords([]);
+      setRecordsPage(1);
     } catch (e: any) {
       addToast(e.message || "保存失败", "error");
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
   const scan = async (id: string) => {
     if (!token) return;
     try {
-      setLoading(true);
+      setScanningId(id);
       const result = await scanSpeakerCollection(token, id);
       addToast(
         `已扫描 ${result.scanned_messages || 0} 条消息，读取到 ${result.unique_speakers || 0} 位发言者，新增 ${result.new_speakers || 0} 位`,
@@ -139,15 +226,44 @@ export default function SpeakerCollectionPage() {
     } catch (e: any) {
       addToast(e.message || "扫描失败", "error");
     } finally {
-      setLoading(false);
+      setScanningId("");
+    }
+  };
+  const toggleMonitoring = async (config: SpeakerCollectionConfig) => {
+    if (!token || !config.id || !config.continuous) return;
+    const enabled = config.enabled === false;
+    try {
+      setTogglingId(config.id);
+      const updated = await setSpeakerCollectionEnabled(
+        token,
+        config.id,
+        enabled,
+      );
+      setConfigs((items) =>
+        items.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      if (form.id === updated.id) setForm(updated);
+      addToast(enabled ? "持续监控已恢复" : "持续监控已暂停", "success");
+    } catch (e: any) {
+      addToast(e.message || (enabled ? "恢复失败" : "暂停失败"), "error");
+    } finally {
+      setTogglingId("");
     }
   };
   const remove = async (id: string) => {
     if (!token || !confirm("删除配置及已收集的发言者记录？")) return;
-    await deleteSpeakerCollection(token, id);
-    setSelectedId("");
-    setRecords([]);
-    await refresh(token);
+    try {
+      setDeletingId(id);
+      await deleteSpeakerCollection(token, id);
+      setSelectedId("");
+      setRecords([]);
+      setRecordsPage(1);
+      await refresh(token);
+    } catch (e: any) {
+      addToast(e.message || "删除失败", "error");
+    } finally {
+      setDeletingId("");
+    }
   };
   const normalizedChatSearch = chatSearch.trim().toLowerCase();
   const filteredChats = normalizedChatSearch
@@ -157,6 +273,21 @@ export default function SpeakerCollectionPage() {
         ),
       )
     : chats;
+  const recordsPageCount = Math.max(
+    1,
+    Math.ceil(records.length / recordsPageSize),
+  );
+  const pagedRecords = useMemo(() => {
+    const start = (recordsPage - 1) * recordsPageSize;
+    return records.slice(start, start + recordsPageSize);
+  }, [records, recordsPage, recordsPageSize]);
+  const recordsRangeStart = records.length
+    ? (recordsPage - 1) * recordsPageSize + 1
+    : 0;
+  const recordsRangeEnd = Math.min(
+    recordsPage * recordsPageSize,
+    records.length,
+  );
 
   return (
     <div className="w-full min-h-full flex flex-col">
@@ -168,12 +299,12 @@ export default function SpeakerCollectionPage() {
           </div>
         </div>
       </nav>
-      <main className="main-content !pt-7">
-        <div className="grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-5">
+      <main className="main-content !max-w-none !overflow-visible !pt-7">
+        <div className="grid min-w-0 grid-cols-1 gap-5 xl:grid-cols-[minmax(340px,420px)_minmax(0,1fr)]">
           <section className="glass-panel p-5 space-y-4">
             <div className="flex items-center gap-2 font-bold">
               <Users weight="fill" className="text-cyan-400" />
-              新增/更新采集
+              {form.id ? "编辑采集任务" : "新建采集任务"}
             </div>
             <input
               value={form.name}
@@ -239,7 +370,7 @@ export default function SpeakerCollectionPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <label className="text-xs">
-                开始时间
+                开始时间（可选）
                 <input
                   type="datetime-local"
                   value={localDateTime(form.start_at)}
@@ -249,7 +380,7 @@ export default function SpeakerCollectionPage() {
                 />
               </label>
               <label className="text-xs">
-                结束时间
+                结束时间（可选）
                 <input
                   type="datetime-local"
                   value={localDateTime(form.end_at)}
@@ -293,117 +424,331 @@ export default function SpeakerCollectionPage() {
                 type="checkbox"
                 checked={!!form.continuous}
                 onChange={(e) =>
-                  setForm({ ...form, continuous: e.target.checked })
+                  setForm({
+                    ...form,
+                    continuous: e.target.checked,
+                    enabled: e.target.checked ? true : form.enabled,
+                  })
                 }
               />
               持续监控新发言（每 30 秒）
             </label>
+            <div className="rounded-xl border border-white/8 bg-main/[0.025] px-3 py-2.5 text-xs leading-5 text-main/50">
+              {form.continuous
+                ? "保存后自动在后台监控。未设置开始时间则立即开始，未设置结束时间则持续运行；到达结束时间后自动停止。"
+                : "当前为单次模式。保存任务后，点击任务卡片中的“运行一次”完成一次采集。"}
+            </div>
             <button
               className="btn-gradient w-full"
               onClick={save}
-              disabled={loading}
+              disabled={saving}
             >
-              {loading ? (
+              {saving ? (
                 <Spinner className="animate-spin" />
+              ) : form.id ? (
+                <PencilSimple weight="bold" />
               ) : (
                 <Plus weight="bold" />
               )}
-              保存配置
+              {form.id ? "更新配置" : "保存配置"}
             </button>
             <p className="text-xs text-main/45">
               仅收集当前账号已可见消息的发言者，并按群组和用户 ID
               自动去重；不会获取 Telegram 隐藏成员。
             </p>
           </section>
-          <section className="space-y-5">
-            <div className="glass-panel p-5">
-              <div className="font-bold mb-3">采集任务</div>
-              <div className="space-y-2">
-                {configs.map((c) => (
-                  <div
-                    key={c.id}
-                    className="rounded-lg border border-white/10 p-3 flex justify-between gap-3"
+          <section className="min-w-0 space-y-5">
+            <div className="glass-panel p-4">
+              <div
+                className={`flex items-center justify-between gap-3 ${tasksCollapsed ? "" : "mb-3"}`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="font-bold">采集任务</div>
+                  <span className="rounded-full bg-cyan-500/10 px-2 py-0.5 text-[10px] font-bold text-cyan-400">
+                    {configs.length}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="btn-secondary !px-3 !py-1.5 !text-xs"
+                    onClick={() => setTasksCollapsed((collapsed) => !collapsed)}
                   >
-                    <button
-                      className="text-left min-w-0"
-                      onClick={() => selectConfig(c)}
-                    >
-                      <div className="font-bold truncate">{c.name}</div>
-                      <div className="text-xs text-main/45 truncate">
-                        {c.account_name} · {c.chat_name} · 最近扫描：
-                        {c.last_scan_at || "未扫描"}
-                      </div>
-                      {c.last_scan_summary && (
-                        <div className="text-[10px] text-main/40 mt-1">
-                          消息 {c.last_scan_summary.scanned_messages || 0} ·
-                          发言者 {c.last_scan_summary.unique_speakers || 0} ·
-                          无发送人{" "}
-                          {c.last_scan_summary.messages_without_user || 0} ·
-                          无简介 {c.last_scan_summary.profiles_without_bio || 0}
-                        </div>
-                      )}
-                      <div className="text-[10px] text-main/40 mt-1 truncate">
-                        简介关键词：
-                        {(c.profile_keywords || []).join("、") ||
-                          "未设置（收集全部发言者）"}
-                      </div>
-                    </button>
-                    <div className="flex gap-1">
-                      <button
-                        className="action-btn !text-cyan-400"
-                        onClick={() => scan(c.id || "")}
-                        title="立即扫描"
-                      >
-                        <Play weight="bold" />
-                      </button>
-                      <button
-                        className="action-btn !text-rose-400"
-                        onClick={() => remove(c.id || "")}
-                      >
-                        <Trash weight="bold" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-                {!configs.length && (
-                  <div className="text-sm text-main/40">暂无采集配置</div>
-                )}
+                    {tasksCollapsed ? (
+                      <CaretDown weight="bold" />
+                    ) : (
+                      <CaretUp weight="bold" />
+                    )}
+                    {tasksCollapsed ? "展开任务" : "收起任务"}
+                  </button>
+                  <button
+                    className="btn-secondary !px-3 !py-1.5 !text-xs"
+                    onClick={resetForm}
+                  >
+                    <Plus weight="bold" />
+                    新建任务
+                  </button>
+                </div>
               </div>
+              {!tasksCollapsed && (
+                <div className="custom-scrollbar grid max-h-[270px] min-w-0 grid-cols-1 gap-2 overflow-y-auto pr-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                  {configs.map((c) => {
+                    const status = monitorStatus(c);
+                    const summary = c.last_scan_summary || {};
+                    return (
+                      <article
+                        key={c.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => selectConfig(c)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            selectConfig(c);
+                          }
+                        }}
+                        className={`rounded-xl border p-3 min-w-0 flex flex-col gap-2 transition-colors cursor-pointer ${
+                          selectedId === c.id
+                            ? "border-cyan-500/35 bg-cyan-500/[0.035]"
+                            : "border-white/8 bg-main/[0.02] hover:border-white/15"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <button
+                            className="text-left min-w-0 flex-1"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              selectConfig(c);
+                            }}
+                          >
+                            <div className="truncate text-sm font-bold">
+                              {c.name}
+                            </div>
+                            <div className="mt-0.5 truncate text-[10px] text-main/40">
+                              {c.account_name} · {c.chat_name || c.chat_id}
+                            </div>
+                          </button>
+                          <span
+                            className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${status.className}`}
+                          >
+                            {status.label}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-3 rounded-lg bg-main/[0.03] px-2.5 py-1.5 text-[10px]">
+                          <span className="text-main/40">
+                            消息{" "}
+                            <b className="text-main/75">
+                              {summary.scanned_messages || 0}
+                            </b>
+                          </span>
+                          <span className="text-main/40">
+                            发言者{" "}
+                            <b className="text-main/75">
+                              {summary.unique_speakers || 0}
+                            </b>
+                          </span>
+                        </div>
+
+                        <div className="truncate text-[10px] text-main/35">
+                          最近扫描：{formatDateTime(c.last_scan_at)} · 关键词：
+                          {(c.profile_keywords || []).join("、") || "全部"}
+                        </div>
+
+                        <div className="mt-auto flex gap-1.5 border-t border-white/5 pt-1.5">
+                          <button
+                            className="btn-secondary flex-1 !h-8 !py-0 !text-[11px]"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              scan(c.id || "");
+                            }}
+                            disabled={
+                              !!scanningId || !!togglingId || !!deletingId
+                            }
+                            title="立即执行一次采集"
+                          >
+                            {scanningId === c.id ? (
+                              <Spinner className="animate-spin" />
+                            ) : c.continuous ? (
+                              <ArrowClockwise weight="bold" />
+                            ) : (
+                              <Play weight="bold" />
+                            )}
+                            运行一次
+                          </button>
+                          {c.continuous && c.monitor_status !== "completed" && (
+                            <button
+                              className={`action-btn !h-8 !w-8 ${
+                                c.enabled === false
+                                  ? "!text-emerald-400"
+                                  : "!text-amber-400"
+                              }`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                toggleMonitoring(c);
+                              }}
+                              disabled={
+                                !!scanningId || !!togglingId || !!deletingId
+                              }
+                              title={
+                                c.enabled === false
+                                  ? "恢复持续监控"
+                                  : "暂停持续监控"
+                              }
+                            >
+                              {togglingId === c.id ? (
+                                <Spinner className="animate-spin" />
+                              ) : c.enabled === false ? (
+                                <Play weight="bold" />
+                              ) : (
+                                <Pause weight="bold" />
+                              )}
+                            </button>
+                          )}
+                          <button
+                            className="action-btn !h-8 !w-8 !text-cyan-400"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              selectConfig(c, true);
+                            }}
+                            disabled={!!recordsLoadingId || !!deletingId}
+                            title="刷新下方发言者列表"
+                          >
+                            <ArrowClockwise
+                              weight="bold"
+                              className={
+                                recordsLoadingId === c.id ? "animate-spin" : ""
+                              }
+                            />
+                          </button>
+                          <button
+                            className="action-btn !h-8 !w-8 !text-rose-400"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              remove(c.id || "");
+                            }}
+                            disabled={
+                              !!scanningId || !!togglingId || !!deletingId
+                            }
+                            title="删除任务"
+                          >
+                            {deletingId === c.id ? (
+                              <Spinner className="animate-spin" />
+                            ) : (
+                              <Trash weight="bold" />
+                            )}
+                          </button>
+                        </div>
+                      </article>
+                    );
+                  })}
+                  {!configs.length && (
+                    <button
+                      className="md:col-span-2 2xl:col-span-3 rounded-xl border border-dashed border-white/10 py-12 text-sm text-main/40 hover:border-cyan-500/30 hover:text-cyan-400 transition-colors"
+                      onClick={resetForm}
+                    >
+                      暂无采集任务，点击新建
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
-            <div className="glass-panel p-5">
-              <div className="flex justify-between mb-3">
-                <div className="font-bold">
-                  已去重发言者 {selectedId ? `(${records.length})` : ""}
+            <div className="glass-panel p-0 overflow-hidden">
+              <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-white/5">
+                <div className="min-w-0">
+                  <div className="font-bold">
+                    已去重发言者 {selectedId ? `(${records.length})` : ""}
+                  </div>
+                  {selectedId && records.length > 0 && (
+                    <div className="text-[10px] text-main/40 mt-1">
+                      当前显示第 {recordsRangeStart}–{recordsRangeEnd} 条
+                    </div>
+                  )}
                 </div>
                 {selectedId && (
-                  <button
-                    className="action-btn"
-                    onClick={() =>
-                      exportSpeakerCollectionRecords(token!, selectedId)
-                    }
-                    title="导出 XLSX"
-                  >
-                    <DownloadSimple />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <label className="flex items-center gap-1.5 text-[11px] text-main/45">
+                      每页
+                      <select
+                        className="!m-0 !h-8 !w-[72px] !px-2 !py-0 text-xs"
+                        value={recordsPageSize}
+                        onChange={(event) => {
+                          setRecordsPageSize(Number(event.target.value));
+                          setRecordsPage(1);
+                        }}
+                      >
+                        <option value={10}>10</option>
+                        <option value={20}>20</option>
+                        <option value={50}>50</option>
+                      </select>
+                    </label>
+                    <button
+                      className="action-btn"
+                      onClick={() => loadRecords(selectedId, true)}
+                      disabled={!!recordsLoadingId}
+                      title="刷新列表"
+                    >
+                      <ArrowClockwise
+                        className={recordsLoadingId ? "animate-spin" : ""}
+                      />
+                    </button>
+                    <button
+                      className="action-btn"
+                      onClick={() =>
+                        exportSpeakerCollectionRecords(token!, selectedId)
+                      }
+                      title="导出 XLSX"
+                    >
+                      <DownloadSimple />
+                    </button>
+                  </div>
                 )}
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead>
+              <div className="max-w-full overflow-x-auto">
+                <table className="w-full min-w-[760px] table-fixed text-xs">
+                  <colgroup>
+                    <col className="w-[13%]" />
+                    <col className="w-[13%]" />
+                    <col className="w-[25%]" />
+                    <col className="w-[11%]" />
+                    <col className="w-[7%]" />
+                    <col className="w-[16%]" />
+                    <col className="w-[15%]" />
+                  </colgroup>
+                  <thead className="bg-main/[0.025]">
                     <tr className="text-left text-main/45">
-                      <th>发言者</th>
-                      <th>用户名</th>
-                      <th>简介</th>
-                      <th>命中关键词</th>
-                      <th>消息数</th>
-                      <th>最近发言</th>
-                      <th>示例消息</th>
+                      <th className="whitespace-nowrap px-5 py-3 font-semibold">
+                        发言者
+                      </th>
+                      <th className="whitespace-nowrap px-3 py-3 font-semibold">
+                        用户名
+                      </th>
+                      <th className="whitespace-nowrap px-3 py-3 font-semibold">
+                        简介
+                      </th>
+                      <th className="whitespace-nowrap px-3 py-3 font-semibold">
+                        命中关键词
+                      </th>
+                      <th className="whitespace-nowrap px-3 py-3 font-semibold text-center">
+                        消息数
+                      </th>
+                      <th className="whitespace-nowrap px-3 py-3 font-semibold">
+                        最近发言
+                      </th>
+                      <th className="whitespace-nowrap px-3 py-3 pr-5 font-semibold">
+                        示例消息
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {records.map((r) => (
-                      <tr key={r.id} className="border-t border-white/5">
-                        <td className="py-2">
+                    {pagedRecords.map((r) => (
+                      <tr
+                        key={r.id}
+                        className="border-t border-white/5 hover:bg-main/[0.025] transition-colors"
+                      >
+                        <td
+                          className="truncate px-5 py-2.5 font-medium"
+                          title={r.sender}
+                        >
                           {r.profile_url ? (
                             <a
                               className="text-cyan-400"
@@ -417,12 +762,34 @@ export default function SpeakerCollectionPage() {
                             r.sender
                           )}
                         </td>
-                        <td>{r.sender_username}</td>
-                        <td className="max-w-[250px] truncate">{r.bio}</td>
-                        <td>{(r.matched_keywords || []).join(", ")}</td>
-                        <td>{r.message_count}</td>
-                        <td>{r.last_message_at}</td>
-                        <td className="max-w-[300px] truncate">
+                        <td
+                          className="truncate px-3 py-2.5"
+                          title={r.sender_username || ""}
+                        >
+                          {r.sender_username ? `@${r.sender_username}` : "--"}
+                        </td>
+                        <td
+                          className="truncate px-3 py-2.5 text-main/65"
+                          title={r.bio || ""}
+                        >
+                          {r.bio || "--"}
+                        </td>
+                        <td
+                          className="truncate px-3 py-2.5"
+                          title={(r.matched_keywords || []).join(", ")}
+                        >
+                          {(r.matched_keywords || []).join(", ") || "--"}
+                        </td>
+                        <td className="px-3 py-2.5 text-center font-mono">
+                          {r.message_count}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-main/55">
+                          {formatDateTime(r.last_message_at)}
+                        </td>
+                        <td
+                          className="truncate px-3 py-2.5 pr-5 text-main/55"
+                          title={r.sample_message || ""}
+                        >
                           {r.sample_message}
                         </td>
                       </tr>
@@ -435,6 +802,41 @@ export default function SpeakerCollectionPage() {
                   </div>
                 )}
               </div>
+              {selectedId && records.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 border-t border-white/5 bg-main/[0.015]">
+                  <div className="text-[11px] text-main/40">
+                    共 {records.length} 条 · 第 {recordsPage}/{recordsPageCount}{" "}
+                    页
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      className="action-btn !w-8 !h-8"
+                      onClick={() =>
+                        setRecordsPage((page) => Math.max(1, page - 1))
+                      }
+                      disabled={recordsPage <= 1}
+                      title="上一页"
+                    >
+                      <CaretLeft weight="bold" />
+                    </button>
+                    <span className="min-w-16 text-center text-xs font-semibold text-main/60">
+                      {recordsPage} / {recordsPageCount}
+                    </span>
+                    <button
+                      className="action-btn !w-8 !h-8"
+                      onClick={() =>
+                        setRecordsPage((page) =>
+                          Math.min(recordsPageCount, page + 1),
+                        )
+                      }
+                      disabled={recordsPage >= recordsPageCount}
+                      title="下一页"
+                    >
+                      <CaretRight weight="bold" />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </section>
         </div>

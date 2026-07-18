@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from dataclasses import dataclass
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from io import BytesIO
-from dataclasses import dataclass
 from typing import Any, Iterable, Sequence
 from xml.sax.saxutils import escape
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -37,9 +37,13 @@ def _escape_xml_attr(value: Any) -> str:
     return escape(_sanitize_text(value), {'"': "&quot;"})
 
 
-def _string_cell(ref: str, value: Any) -> str:
+def _string_cell(ref: str, value: Any, *, style_id: int | None = None) -> str:
     text = escape(_sanitize_text(value))
-    return f'<c r="{ref}" t="inlineStr"><is><t xml:space="preserve">{text}</t></is></c>'
+    style = f' s="{style_id}"' if style_id is not None else ""
+    return (
+        f'<c r="{ref}"{style} t="inlineStr">'
+        f'<is><t xml:space="preserve">{text}</t></is></c>'
+    )
 
 
 def _number_cell(ref: str, value: Any) -> str:
@@ -49,7 +53,7 @@ def _number_cell(ref: str, value: Any) -> str:
 def _cell_xml(row_index: int, col_index: int, value: Any) -> str:
     ref = _cell_ref(row_index, col_index)
     if isinstance(value, ExternalHyperlink):
-        return _string_cell(ref, value.display or value.target)
+        return _string_cell(ref, value.display or value.target, style_id=1)
     if value is None:
         return _string_cell(ref, "")
     if isinstance(value, bool):
@@ -92,7 +96,12 @@ def build_xlsx_bytes(
         sheet_rows_xml.append(f'<row r="{row_index}">{"".join(cells)}</row>')
 
     safe_sheet_name = escape(_sanitize_text(sheet_name or "Sheet1"))[:31] or "Sheet1"
-    timestamp = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    timestamp = (
+        datetime.now(timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
     sheet_data = "".join(sheet_rows_xml)
 
     content_types_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -136,10 +145,10 @@ def build_xlsx_bytes(
             f'<hyperlink ref="{ref}" r:id="rId{index}"/>'
             for index, (ref, _target) in enumerate(hyperlinks, start=1)
         )
-        hyperlink_xml = f'<hyperlinks xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">{entries}</hyperlinks>'
+        hyperlink_xml = f"<hyperlinks>{entries}</hyperlinks>"
 
     sheet_xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+      <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <dimension ref="A1:{last_ref}"/>
   <sheetViews>
     <sheetView workbookViewId="0"/>
@@ -161,10 +170,16 @@ def build_xlsx_bytes(
 
     styles_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <fonts count="1">
+  <fonts count="2">
     <font>
       <sz val="11"/>
       <name val="Calibri"/>
+    </font>
+    <font>
+      <sz val="11"/>
+      <color rgb="FF0563C1"/>
+      <name val="Calibri"/>
+      <u/>
     </font>
   </fonts>
   <fills count="2">
@@ -177,8 +192,9 @@ def build_xlsx_bytes(
   <cellStyleXfs count="1">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0"/>
   </cellStyleXfs>
-  <cellXfs count="1">
+  <cellXfs count="2">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+    <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/>
   </cellXfs>
   <cellStyles count="1">
     <cellStyle name="Normal" xfId="0" builtinId="0"/>

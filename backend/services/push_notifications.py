@@ -6,7 +6,18 @@ from urllib.parse import quote
 
 import httpx
 
+from backend.utils.outbound_url import validate_outbound_http_url
+
 logger = logging.getLogger("backend.push_notifications")
+
+
+def _raise_sanitized_http_error(service: str, response: httpx.Response) -> None:
+    try:
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        raise RuntimeError(
+            f"{service} request failed with HTTP {exc.response.status_code}"
+        ) from None
 
 
 def _as_int_or_none(value: Any) -> Optional[int]:
@@ -33,12 +44,17 @@ async def send_telegram_bot_message(
     if message_thread_id is not None:
         payload["message_thread_id"] = message_thread_id
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        response = await client.post(
-            f"https://api.telegram.org/bot{bot_token}/sendMessage",
-            json=payload,
-        )
-        response.raise_for_status()
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.post(
+                f"https://api.telegram.org/bot{bot_token}/sendMessage",
+                json=payload,
+            )
+            _raise_sanitized_http_error("Telegram Bot API", response)
+    except httpx.RequestError:
+        raise RuntimeError(
+            "Telegram Bot API request failed due to a network error"
+        ) from None
 
 
 async def send_keyword_push(settings: Dict[str, Any], payload: Dict[str, Any]) -> None:
@@ -71,6 +87,7 @@ async def send_keyword_push(settings: Dict[str, Any], payload: Dict[str, Any]) -
         if not bark_url:
             logger.warning("Keyword monitor Bark URL is not configured")
             return
+        bark_url = validate_outbound_http_url(bark_url)
         data = {"title": title, "body": body}
         if url:
             data["url"] = url
@@ -95,11 +112,13 @@ async def send_keyword_push(settings: Dict[str, Any], payload: Dict[str, Any]) -
             .replace("{body}", quote(body))
             .replace("{url}", quote(url))
         )
+        final_url = validate_outbound_http_url(final_url)
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.get(final_url)
             response.raise_for_status()
         return
 
+    custom_url = validate_outbound_http_url(custom_url)
     async with httpx.AsyncClient(timeout=10) as client:
         response = await client.post(custom_url, json=request_payload)
         response.raise_for_status()
@@ -123,13 +142,13 @@ async def send_login_notification(
         return
 
     text = (
-        "TG-FlowPulse 登录通知\n"
-        f"用户: {username}\n"
-        f"IP: {ip_address or 'unknown'}"
+        "TG-FlowPulse 登录通知\n" f"用户: {username}\n" f"IP: {ip_address or 'unknown'}"
     )
     await send_telegram_bot_message(
         bot_token=bot_token,
         chat_id=chat_id,
         text=text,
-        message_thread_id=_as_int_or_none(settings.get("telegram_bot_message_thread_id")),
+        message_thread_id=_as_int_or_none(
+            settings.get("telegram_bot_message_thread_id")
+        ),
     )

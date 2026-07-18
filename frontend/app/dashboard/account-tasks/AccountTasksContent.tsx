@@ -83,6 +83,12 @@ const KEYWORD_VARIABLES = [
   "{url}",
 ] as const;
 const CHAT_LIST_PREVIEW_LIMIT = 80;
+const DEFAULT_GROUP_ALIASES = new Set([
+  "未分组",
+  "未分类",
+  "Ungrouped",
+  "Uncategorized",
+]);
 
 const splitKeywordInput = (value: string, matchMode?: string) => {
   const splitter = matchMode === "regex" ? /\n/ : /\n|,/;
@@ -274,6 +280,7 @@ const TaskItem = memo(
   }) => {
     const cloneTaskTitle =
       language === "zh" ? "\u514B\u9686\u4EFB\u52A1" : "Clone Task";
+    const taskGroup = (task.group || "").trim();
 
     return (
       <div
@@ -300,18 +307,24 @@ const TaskItem = memo(
             </div>
             <div className="flex flex-wrap items-center gap-1.5">
               <span
-                className={`text-[10px] font-bold px-2 py-1 rounded-md border ${task.enabled === false ? "text-rose-400 bg-rose-500/10 border-rose-500/10" : "text-emerald-400 bg-emerald-500/10 border-emerald-500/10"}`}
+                className="max-w-[150px] truncate rounded-md border border-[#8a3ffc]/20 bg-[#8a3ffc]/10 px-2 py-1 text-[10px] font-bold text-[#a855f7]"
+                title={task.account_name}
+              >
+                {task.account_name}
+              </span>
+              <span
+                className={`rounded-md border px-2 py-1 text-[10px] font-bold ${task.enabled === false ? "border-rose-500/10 bg-rose-500/[0.07] text-rose-400" : "border-emerald-500/10 bg-emerald-500/[0.07] text-emerald-400"}`}
               >
                 {task.enabled === false
                   ? t("task_disabled")
                   : t("task_enabled")}
               </span>
-              {task.group ? (
+              {taskGroup && !DEFAULT_GROUP_ALIASES.has(taskGroup) ? (
                 <span
                   className="text-[10px] font-bold text-sky-400 bg-sky-500/10 px-2 py-1 rounded-md border border-sky-500/10 truncate max-w-[120px]"
-                  title={task.group}
+                  title={taskGroup}
                 >
-                  {task.group}
+                  {taskGroup}
                 </span>
               ) : null}
               <span
@@ -731,7 +744,7 @@ export default function AccountTasksContent({
   const groupPlaceholder = isZh
     ? "\u4F8B\u5982\uFF1A\u5E7F\u544A / \u7B7E\u5230 / \u76D1\u542C"
     : "e.g. Ads / Check-in / Monitor";
-  const ungroupedLabel = isZh ? "\u672A\u5206\u7EC4" : "Ungrouped";
+  const defaultGroupLabel = isZh ? "\u9ED8\u8BA4\u5206\u7EC4" : "Default Group";
   const scheduleFixedTimeLabel = isZh
     ? "\u56FA\u5B9A\u65F6\u95F4"
     : "Fixed Time";
@@ -1085,7 +1098,11 @@ export default function AccountTasksContent({
 
   const groupedTasks = tasks.reduce<Array<{ name: string; tasks: SignTask[] }>>(
     (groups, task) => {
-      const groupName = (task.group || "").trim() || ungroupedLabel;
+      const rawGroupName = (task.group || "").trim();
+      const groupName =
+        !rawGroupName || DEFAULT_GROUP_ALIASES.has(rawGroupName)
+          ? defaultGroupLabel
+          : rawGroupName;
       const existing = groups.find((group) => group.name === groupName);
       if (existing) {
         existing.tasks.push(task);
@@ -1180,7 +1197,12 @@ export default function AccountTasksContent({
     let cancelled = false;
     const fetchLiveLogs = async () => {
       try {
-        const logs = await getSignTaskLogs(token, liveLogTaskName, accountName);
+        const logs = await getSignTaskLogs(
+          token,
+          liveLogTaskName,
+          accountName,
+          resolvedTaskKind,
+        );
         if (!cancelled) {
           if (logs && logs.length > 0) {
             setLiveLogs(logs);
@@ -1196,7 +1218,7 @@ export default function AccountTasksContent({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [token, accountName, liveLogTaskName]);
+  }, [token, accountName, liveLogTaskName, resolvedTaskKind]);
 
   const loadChats = useCallback(
     async (forceRefresh = false) => {
@@ -1340,10 +1362,20 @@ export default function AccountTasksContent({
       setRunningTaskNames((prev) => new Set(prev).add(taskName));
       setLiveLogTaskName(taskName);
       setLiveLogs(initialLogs);
-      const result = await runSignTask(token, taskName, accountName);
+      const result = await runSignTask(
+        token,
+        taskName,
+        accountName,
+        resolvedTaskKind,
+      );
       const outputLogs = (result.output || "").split(/\r?\n/).filter(Boolean);
       try {
-        const logs = await getSignTaskLogs(token, taskName, accountName);
+        const logs = await getSignTaskLogs(
+          token,
+          taskName,
+          accountName,
+          resolvedTaskKind,
+        );
         const finalLogs =
           logs && logs.length >= outputLogs.length ? logs : outputLogs;
         setLiveLogs(finalLogs.length > 0 ? finalLogs : initialLogs);
@@ -1403,7 +1435,13 @@ export default function AccountTasksContent({
     setExpandedHistoryLogs(new Set());
     setHistoryLoading(true);
     try {
-      const logs = await getSignTaskHistory(token, task.name, accountName, 30);
+      const logs = await getSignTaskHistory(
+        token,
+        task.name,
+        accountName,
+        30,
+        resolvedTaskKind,
+      );
       setHistoryLogs(logs);
     } catch (err: any) {
       addToast(formatErrorMessage("logs_fetch_failed", err), "error");
@@ -1489,6 +1527,7 @@ export default function AccountTasksContent({
         importName,
         accountName,
         true, // 允许同名覆盖
+        resolvedTaskKind,
       );
       addToast(pasteTaskSuccess(result.task_name), "success");
       await loadData(token);
@@ -2128,7 +2167,13 @@ export default function AccountTasksContent({
                 <h1 className="nav-title">{pageTitle || accountName}</h1>
                 {pageTitle ? (
                   <div className="text-[11px] text-main/40 truncate">
-                    {accountName}
+                    {resolvedTaskKind === "broadcast"
+                      ? language === "zh"
+                        ? "定时或立即发送消息，群发任务按账号独立管理"
+                        : "Send messages now or on schedule, isolated per account"
+                      : language === "zh"
+                        ? "自动执行群组与机器人签到，任务按账号独立管理"
+                        : "Automate group and bot check-ins, isolated per account"}
                   </div>
                 ) : null}
               </div>

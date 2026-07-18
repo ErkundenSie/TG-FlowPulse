@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+import os
+import threading
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from pydantic import BaseModel
@@ -19,6 +21,8 @@ logger = logging.getLogger("backend.auth")
 _LOGIN_FAILURES: dict[str, tuple[int, datetime]] = {}
 _MAX_LOGIN_FAILURES = 5
 _LOGIN_LOCKOUT_SECONDS = 300
+_MAX_LOGIN_FAILURE_KEYS = 10000
+_LOGIN_FAILURES_LOCK = threading.Lock()
 
 
 class ResetTOTPRequest(BaseModel):
@@ -36,6 +40,9 @@ class ResetTOTPResponse(BaseModel):
 
 
 def _client_ip(request: Request) -> str:
+    trust_proxy_headers = os.getenv("APP_TRUST_PROXY_HEADERS", "").strip().lower()
+    if trust_proxy_headers not in {"1", "true", "yes", "on"}:
+        return request.client.host if request.client else ""
     forwarded_for = request.headers.get("x-forwarded-for", "")
     return (
         forwarded_for.split(",", 1)[0].strip()
@@ -49,28 +56,44 @@ def _login_rate_key(request: Request, username: str) -> str:
 
 
 def _check_login_rate_limit(key: str) -> None:
-    failure = _LOGIN_FAILURES.get(key)
-    if not failure:
-        return
-    count, last_failed_at = failure
-    elapsed = (datetime.utcnow() - last_failed_at).total_seconds()
-    if elapsed > _LOGIN_LOCKOUT_SECONDS:
+    now = datetime.now(timezone.utc)
+    with _LOGIN_FAILURES_LOCK:
+        _prune_login_failures(now)
+        failure = _LOGIN_FAILURES.get(key)
+        if not failure:
+            return
+        count, last_failed_at = failure
+        if count >= _MAX_LOGIN_FAILURES:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many failed login attempts. Please try again later.",
+            )
+
+
+def _prune_login_failures(now: datetime) -> None:
+    expired = [
+        key
+        for key, (_, failed_at) in _LOGIN_FAILURES.items()
+        if (now - failed_at).total_seconds() > _LOGIN_LOCKOUT_SECONDS
+    ]
+    for key in expired:
         _LOGIN_FAILURES.pop(key, None)
-        return
-    if count >= _MAX_LOGIN_FAILURES:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Too many failed login attempts. Please try again later.",
-        )
+    while len(_LOGIN_FAILURES) >= _MAX_LOGIN_FAILURE_KEYS:
+        oldest_key = min(_LOGIN_FAILURES, key=lambda item: _LOGIN_FAILURES[item][1])
+        _LOGIN_FAILURES.pop(oldest_key, None)
 
 
 def _record_login_failure(key: str) -> None:
-    count, _ = _LOGIN_FAILURES.get(key, (0, datetime.utcnow()))
-    _LOGIN_FAILURES[key] = (count + 1, datetime.utcnow())
+    now = datetime.now(timezone.utc)
+    with _LOGIN_FAILURES_LOCK:
+        _prune_login_failures(now)
+        count, _ = _LOGIN_FAILURES.get(key, (0, now))
+        _LOGIN_FAILURES[key] = (count + 1, now)
 
 
 def _clear_login_failures(key: str) -> None:
-    _LOGIN_FAILURES.pop(key, None)
+    with _LOGIN_FAILURES_LOCK:
+        _LOGIN_FAILURES.pop(key, None)
 
 
 @router.post("/login", response_model=TokenResponse)

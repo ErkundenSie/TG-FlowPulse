@@ -16,8 +16,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from backend.core.config import get_settings
-from backend.utils.names import ensure_child_path, validate_name_segment
 from backend.utils.account_locks import get_account_lock
+from backend.utils.names import ensure_child_path, validate_name_segment
 from backend.utils.proxy import build_proxy_dict
 from backend.utils.tg_session import (
     get_account_proxy,
@@ -39,13 +39,16 @@ class TaskLogHandler(logging.Handler):
     自定义日志处理器，将日志实时写入到内存列表中
     """
 
-    def __init__(self, log_list: List[str]):
+    def __init__(self, log_list: List[str], account_name: str, task_name: str):
         super().__init__()
         self.log_list = log_list
+        self._prefix = f"账户「{account_name}」- 任务「{task_name}」:"
 
     def emit(self, record):
         try:
             msg = self.format(record)
+            if self._prefix not in record.getMessage():
+                return
             self.log_list.append(msg)
             # 保持日志长度，避免内存占用过大
             if len(self.log_list) > 1000:
@@ -136,6 +139,9 @@ class SignTaskService:
             "SIGN_TASK_HISTORY_MAX_LINE_CHARS", 2000, 80
         )
         self._cleanup_old_logs()
+        tg_logger = logging.getLogger("tg-flowpulse")
+        if tg_logger.getEffectiveLevel() > logging.INFO:
+            tg_logger.setLevel(logging.INFO)
 
     def _validate_account_name(self, account_name: str) -> str:
         return validate_name_segment(account_name, "account_name")
@@ -1111,7 +1117,10 @@ class SignTaskService:
         task_dir = self._task_dir_path(account_name, task_name)
         if self._resolve_task_dir(task_name, account_name) is not None:
             raise ValueError(f"任务 {task_name} 已存在")
-        task_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            task_dir.mkdir(exist_ok=False)
+        except FileExistsError:
+            raise ValueError(f"任务 {task_name} 已存在") from None
 
         # 获取 sign_interval
         if sign_interval is None:
@@ -1790,10 +1799,11 @@ class SignTaskService:
 
         # 获取 logger 实例
         tg_logger = logging.getLogger("tg-flowpulse")
-        previous_logger_level = tg_logger.level
-        if tg_logger.getEffectiveLevel() > logging.INFO:
-            tg_logger.setLevel(logging.INFO)
-        log_handler = TaskLogHandler(self._active_logs[task_key])
+        log_handler = TaskLogHandler(
+            self._active_logs[task_key],
+            account_name,
+            task_name,
+        )
         log_handler.setLevel(logging.INFO)
         log_handler.setFormatter(logging.Formatter("%(asctime)s - %(message)s"))
         tg_logger.addHandler(log_handler)
@@ -1980,7 +1990,6 @@ class SignTaskService:
             self._account_last_run_end[account_name] = time.time()
             self._active_tasks[task_key] = False
             tg_logger.removeHandler(log_handler)
-            tg_logger.setLevel(previous_logger_level)
 
             # 保存执行记录
             final_logs = list(self._active_logs.get(task_key, []))

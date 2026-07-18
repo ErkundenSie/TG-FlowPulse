@@ -3,7 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-from datetime import datetime
+import tempfile
+import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
@@ -15,6 +17,7 @@ _SESSION_MODE_FILE = "file"
 _SESSION_MODE_STRING = "string"
 
 _GLOBAL_SEMAPHORE: Optional[asyncio.Semaphore] = None
+_ACCOUNT_STORE_LOCK = threading.RLock()
 
 
 def get_session_mode() -> str:
@@ -54,28 +57,43 @@ def _account_store_path() -> Path:
 
 
 def _load_account_store() -> dict:
-    path = _account_store_path()
-    if not path.exists():
-        return {"accounts": {}}
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {"accounts": {}}
-    if not isinstance(data, dict):
-        return {"accounts": {}}
-    accounts = data.get("accounts")
-    if not isinstance(accounts, dict):
-        data["accounts"] = {}
-    return data
+    with _ACCOUNT_STORE_LOCK:
+        path = _account_store_path()
+        if not path.exists():
+            return {"accounts": {}}
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            return {"accounts": {}}
+        if not isinstance(data, dict):
+            return {"accounts": {}}
+        accounts = data.get("accounts")
+        if not isinstance(accounts, dict):
+            data["accounts"] = {}
+        return data
 
 
 def _save_account_store(data: dict) -> None:
-    path = _account_store_path()
-    tmp_path = path.with_suffix(".json.tmp")
-    tmp_path.write_text(
-        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    tmp_path.replace(path)
+    with _ACCOUNT_STORE_LOCK:
+        path = _account_store_path()
+        tmp_path: Optional[Path] = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as fp:
+                json.dump(data, fp, ensure_ascii=False, indent=2)
+                fp.flush()
+                os.fsync(fp.fileno())
+                tmp_path = Path(fp.name)
+            tmp_path.replace(path)
+        finally:
+            if tmp_path is not None and tmp_path.exists():
+                tmp_path.unlink(missing_ok=True)
 
 
 def list_account_names() -> list[str]:
@@ -98,26 +116,28 @@ def get_account_session_string(account_name: str) -> Optional[str]:
 
 
 def set_account_session_string(account_name: str, session_string: str) -> None:
-    data = _load_account_store()
-    accounts = data.get("accounts")
-    if not isinstance(accounts, dict):
-        accounts = {}
-        data["accounts"] = accounts
-    entry = accounts.get(account_name)
-    if not isinstance(entry, dict):
-        entry = {}
-    entry["session_string"] = session_string.strip()
-    entry["updated_at"] = datetime.utcnow().isoformat()
-    accounts[account_name] = entry
-    _save_account_store(data)
+    with _ACCOUNT_STORE_LOCK:
+        data = _load_account_store()
+        accounts = data.get("accounts")
+        if not isinstance(accounts, dict):
+            accounts = {}
+            data["accounts"] = accounts
+        entry = accounts.get(account_name)
+        if not isinstance(entry, dict):
+            entry = {}
+        entry["session_string"] = session_string.strip()
+        entry["updated_at"] = datetime.now(timezone.utc).isoformat()
+        accounts[account_name] = entry
+        _save_account_store(data)
 
 
 def delete_account_session_string(account_name: str) -> None:
-    data = _load_account_store()
-    accounts = data.get("accounts")
-    if isinstance(accounts, dict) and account_name in accounts:
-        accounts.pop(account_name, None)
-        _save_account_store(data)
+    with _ACCOUNT_STORE_LOCK:
+        data = _load_account_store()
+        accounts = data.get("accounts")
+        if isinstance(accounts, dict) and account_name in accounts:
+            accounts.pop(account_name, None)
+            _save_account_store(data)
 
 
 def get_account_profile(account_name: str) -> dict[str, Any]:
@@ -156,21 +176,22 @@ def get_account_remark(account_name: str) -> Optional[str]:
 def set_account_profile(
     account_name: str, *, remark: Optional[str] = None, proxy: Optional[str] = None
 ) -> None:
-    data = _load_account_store()
-    accounts = data.get("accounts")
-    if not isinstance(accounts, dict):
-        accounts = {}
-        data["accounts"] = accounts
-    entry = accounts.get(account_name)
-    if not isinstance(entry, dict):
-        entry = {}
-    if remark is not None:
-        entry["remark"] = remark.strip() if isinstance(remark, str) else remark
-    if proxy is not None:
-        entry["proxy"] = proxy.strip() if isinstance(proxy, str) else proxy
-    entry["updated_at"] = datetime.utcnow().isoformat()
-    accounts[account_name] = entry
-    _save_account_store(data)
+    with _ACCOUNT_STORE_LOCK:
+        data = _load_account_store()
+        accounts = data.get("accounts")
+        if not isinstance(accounts, dict):
+            accounts = {}
+            data["accounts"] = accounts
+        entry = accounts.get(account_name)
+        if not isinstance(entry, dict):
+            entry = {}
+        if remark is not None:
+            entry["remark"] = remark.strip() if isinstance(remark, str) else remark
+        if proxy is not None:
+            entry["proxy"] = proxy.strip() if isinstance(proxy, str) else proxy
+        entry["updated_at"] = datetime.now(timezone.utc).isoformat()
+        accounts[account_name] = entry
+        _save_account_store(data)
 
 
 def get_account_status(account_name: str) -> dict[str, Any]:
@@ -195,26 +216,27 @@ def set_account_status(
     needs_relogin: bool = False,
     invalid_notified_at: Optional[str] = None,
 ) -> None:
-    data = _load_account_store()
-    accounts = data.get("accounts")
-    if not isinstance(accounts, dict):
-        accounts = {}
-        data["accounts"] = accounts
-    entry = accounts.get(account_name)
-    if not isinstance(entry, dict):
-        entry = {}
-    entry["status"] = status
-    entry["status_message"] = message or ""
-    entry["status_code"] = code
-    entry["status_checked_at"] = datetime.utcnow().isoformat()
-    entry["needs_relogin"] = bool(needs_relogin)
-    if invalid_notified_at is not None:
-        entry["invalid_notified_at"] = invalid_notified_at
-    if status != "invalid":
-        entry.pop("invalid_notified_at", None)
-    entry["updated_at"] = datetime.utcnow().isoformat()
-    accounts[account_name] = entry
-    _save_account_store(data)
+    with _ACCOUNT_STORE_LOCK:
+        data = _load_account_store()
+        accounts = data.get("accounts")
+        if not isinstance(accounts, dict):
+            accounts = {}
+            data["accounts"] = accounts
+        entry = accounts.get(account_name)
+        if not isinstance(entry, dict):
+            entry = {}
+        entry["status"] = status
+        entry["status_message"] = message or ""
+        entry["status_code"] = code
+        entry["status_checked_at"] = datetime.now(timezone.utc).isoformat()
+        entry["needs_relogin"] = bool(needs_relogin)
+        if invalid_notified_at is not None:
+            entry["invalid_notified_at"] = invalid_notified_at
+        if status != "invalid":
+            entry.pop("invalid_notified_at", None)
+        entry["updated_at"] = datetime.now(timezone.utc).isoformat()
+        accounts[account_name] = entry
+        _save_account_store(data)
 
 
 def session_string_file_path(session_dir: Path, account_name: str) -> Path:

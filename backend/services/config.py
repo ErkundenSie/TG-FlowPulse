@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from backend.core.config import get_settings
 from backend.utils.names import ensure_child_path, validate_name_segment
+from backend.utils.outbound_url import validate_outbound_http_url
 from backend.utils.storage import (
     clear_data_dir_override,
     is_writable_dir,
@@ -34,6 +35,7 @@ def normalize_openai_base_url(base_url: Optional[str]) -> Optional[str]:
     parsed = urlsplit(value)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise ValueError("Base URL 必须是 http(s) 绝对地址")
+    validate_outbound_http_url(value)
 
     path = parsed.path.rstrip("/")
     if not path.endswith("/v1"):
@@ -290,6 +292,7 @@ class ConfigService:
         json_str: str,
         task_name: Optional[str] = None,
         account_name: Optional[str] = None,
+        task_kind: Optional[str] = None,
         overwrite: bool = True,
     ) -> bool:
         """
@@ -317,12 +320,19 @@ class ConfigService:
             )
 
             config = data["config"]
+            if not isinstance(config, dict):
+                return False
             if account_name:
                 config["account_name"] = self._validate_account_name(account_name)
             elif config.get("account_name"):
                 config["account_name"] = self._validate_account_name(
                     str(config["account_name"])
                 )
+            if task_kind is not None:
+                normalized_kind = str(task_kind).strip().lower()
+                if normalized_kind not in {"sign", "broadcast"}:
+                    return False
+                config["task_kind"] = normalized_kind
 
             acc = config.get("account_name") or None
             if not overwrite:
@@ -352,7 +362,7 @@ class ConfigService:
             # 保存配置（同名覆盖）
             return self.save_sign_config(final_task_name, config)
 
-        except (json.JSONDecodeError, KeyError):
+        except (json.JSONDecodeError, KeyError, TypeError):
             return False
 
     def _drop_redacted_values(self, data: Dict[str, Any]) -> Dict[str, Any]:

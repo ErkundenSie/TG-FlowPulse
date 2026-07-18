@@ -21,10 +21,10 @@ from sqlalchemy.orm import Session
 
 from backend.core.auth import get_current_user
 from backend.core.database import get_db
+from backend.services.sign_tasks import get_sign_task_service
 from backend.utils.names import validate_name_segment
 from backend.utils.ws_auth import accept_authenticated_websocket
 from backend.utils.ws_stream import stream_log_updates
-from backend.services.sign_tasks import get_sign_task_service
 
 router = APIRouter()
 
@@ -124,7 +124,9 @@ class SignTaskCreate(BaseModel):
     range_end: Optional[str] = Field(None, description="随机范围结束时间")
 
     enabled: bool = Field(True, description="Whether the task is enabled")
-    notify_on_failure: bool = Field(True, description="Send notification when task fails")
+    notify_on_failure: bool = Field(
+        True, description="Send notification when task fails"
+    )
     task_kind: str = Field("sign", description="任务类型: sign/broadcast")
 
     @validator("name")
@@ -149,9 +151,10 @@ class SignTaskUpdate(BaseModel):
     range_start: Optional[str] = Field(None, description="随机范围开始时间")
     range_end: Optional[str] = Field(None, description="随机范围结束时间")
 
-
     enabled: Optional[bool] = Field(None, description="Whether the task is enabled")
-    notify_on_failure: Optional[bool] = Field(None, description="Send notification when task fails")
+    notify_on_failure: Optional[bool] = Field(
+        None, description="Send notification when task fails"
+    )
     task_kind: Optional[str] = Field(None, description="任务类型: sign/broadcast")
 
     @validator("name")
@@ -296,6 +299,8 @@ async def create_sign_task(
         await _restart_keyword_monitors()
 
         return task
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except Exception as e:
         print(f"创建任务失败: {str(e)}")
         traceback.print_exc()
@@ -329,7 +334,9 @@ async def update_sign_task(
     """更新签到任务"""
     try:
         # 检查任务是否存在
-        existing = get_sign_task_service().get_task(task_name, account_name=account_name)
+        existing = get_sign_task_service().get_task(
+            task_name, account_name=account_name
+        )
         if not existing or existing.get("monitor_only"):
             raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
         if task_kind is not None and not _matches_task_kind(existing, task_kind):
@@ -408,12 +415,15 @@ async def delete_sign_task(
 async def run_sign_task(
     task_name: str,
     account_name: str,
+    task_kind: Optional[str] = Query("sign", description="任务类型: sign/broadcast"),
     current_user=Depends(get_current_user),
 ):
     """手动运行签到任务"""
     # 检查任务是否存在
     task = get_sign_task_service().get_task(task_name, account_name=account_name)
     if not task or task.get("monitor_only"):
+        raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+    if not _matches_task_kind(task, task_kind):
         raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
 
     result = await get_sign_task_service().run_task_with_logs(account_name, task_name)
@@ -424,9 +434,13 @@ async def run_sign_task(
 def get_sign_task_logs(
     task_name: str,
     account_name: str | None = None,
+    task_kind: Optional[str] = Query("sign", description="任务类型: sign/broadcast"),
     current_user=Depends(get_current_user),
 ):
     """获取正在运行任务的实时日志"""
+    task = get_sign_task_service().get_task(task_name, account_name=account_name)
+    if not task or not _matches_task_kind(task, task_kind):
+        raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
     logs = get_sign_task_service().get_active_logs(task_name, account_name=account_name)
     return logs
 
@@ -436,10 +450,13 @@ def get_sign_task_history(
     task_name: str,
     account_name: str,
     limit: int = Query(20, ge=1, le=200),
+    task_kind: Optional[str] = Query("sign", description="任务类型: sign/broadcast"),
     current_user=Depends(get_current_user),
 ):
     task = get_sign_task_service().get_task(task_name, account_name=account_name)
     if not task or task.get("monitor_only"):
+        raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+    if not _matches_task_kind(task, task_kind):
         raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
 
     return get_sign_task_service().get_task_history_logs(
@@ -501,6 +518,7 @@ async def sign_task_logs_ws(
     websocket: WebSocket,
     task_name: str,
     account_name: str | None = Query(None),
+    task_kind: Optional[str] = Query("sign"),
     token: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
@@ -511,6 +529,10 @@ async def sign_task_logs_ws(
         return
 
     service = get_sign_task_service()
+    task = service.get_task(task_name, account_name=account_name)
+    if not task or not _matches_task_kind(task, task_kind):
+        await websocket.close(code=1008)
+        return
     await stream_log_updates(
         websocket,
         get_logs=lambda: service.get_active_logs(

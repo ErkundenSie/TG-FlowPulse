@@ -9,8 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 
 from backend.core.auth import get_current_user
-from backend.scheduler import get_scheduler_timezone
 from backend.models.user import User
+from backend.scheduler import get_scheduler_timezone
 from backend.services.config import get_config_service
 from backend.utils.storage import is_writable_dir
 
@@ -46,6 +46,7 @@ class ImportTaskRequest(BaseModel):
     config_json: str
     task_name: Optional[str] = None
     account_name: Optional[str] = None
+    task_kind: Optional[str] = None
     overwrite: bool = True
 
 
@@ -140,6 +141,7 @@ async def import_sign_task(
             request.config_json,
             request.task_name,
             request.account_name,
+            task_kind=request.task_kind,
             overwrite=request.overwrite,
         )
         if not success:

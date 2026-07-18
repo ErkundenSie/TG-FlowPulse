@@ -233,8 +233,8 @@ export default function MonitorTasksPage() {
     () => ({
       title: isZh ? "消息监控" : "Message Monitors",
       subtitle: isZh
-        ? "个人、群组、频道消息监控、转发与自动回复"
-        : "Monitor private, group, and channel messages with forwarding and auto replies",
+        ? "实时监听私聊、群组和频道消息，支持关键词匹配、转发与自动回复"
+        : "Monitor private, group, and channel messages with keyword matching, forwarding, and auto replies",
       add: isZh ? "新增监控" : "New Monitor",
       edit: isZh ? "编辑监控" : "Edit Monitor",
       noTasks: isZh ? "还没有监控任务" : "No monitor tasks yet",

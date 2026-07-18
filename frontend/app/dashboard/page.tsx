@@ -37,7 +37,6 @@ import {
 import {
   Lightning,
   Plus,
-  Gear,
   ListDashes,
   Clock,
   Spinner,
@@ -1940,14 +1939,6 @@ export default function Dashboard() {
             <Plus weight="bold" size={15} />
             <span>{t("add_account")}</span>
           </button>
-
-          <Link
-            href="/dashboard/settings"
-            title={t("sidebar_settings")}
-            className="w-10 h-10 flex items-center justify-center rounded-xl bg-secondary text-secondary-foreground border border-border/50 hover:bg-secondary/80 transition-all active:scale-95"
-          >
-            <Gear weight="bold" size={18} />
-          </Link>
         </div>
       </header>
 

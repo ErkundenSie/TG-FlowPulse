@@ -8,6 +8,7 @@ export interface SignTaskLogSocketOptions {
   taskName: string;
   accountName: string;
   token: string;
+  taskKind?: "sign" | "broadcast";
   onLogs: (logs: string[]) => void;
   onDone: () => void;
   onError?: (event: Event) => void;
@@ -23,11 +24,15 @@ export function openSignTaskLogSocket({
   taskName,
   accountName,
   token,
+  taskKind = "sign",
   onLogs,
   onDone,
   onError,
 }: SignTaskLogSocketOptions) {
-  const params = new URLSearchParams({ account_name: accountName });
+  const params = new URLSearchParams({
+    account_name: accountName,
+    task_kind: taskKind,
+  });
   const url = `${wsProtocol()}//${window.location.host}/api/sign-tasks/ws/${encodePath(
     taskName,
   )}?${params.toString()}`;

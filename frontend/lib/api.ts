@@ -654,6 +654,7 @@ export const importSignTask = (
   taskName?: string,
   accountName?: string,
   overwrite = true,
+  taskKind: SignTaskKind | string = "sign",
 ) =>
   request<{ success: boolean; task_name: string; message: string }>(
     "/config/import/sign",
@@ -663,6 +664,7 @@ export const importSignTask = (
         config_json: configJson,
         task_name: taskName,
         account_name: accountName,
+        task_kind: taskKind,
         overwrite,
       }),
     },
@@ -1139,9 +1141,14 @@ export const deleteSignTask = (
   );
 };
 
-export const runSignTask = (token: string, name: string, accountName: string) =>
+export const runSignTask = (
+  token: string,
+  name: string,
+  accountName: string,
+  taskKind: SignTaskKind | string = "sign",
+) =>
   request<{ success: boolean; output: string; error: string }>(
-    `/sign-tasks/${pathSegment(name)}/run?account_name=${encodeURIComponent(accountName)}`,
+    `/sign-tasks/${pathSegment(name)}/run?account_name=${encodeURIComponent(accountName)}&task_kind=${encodeURIComponent(taskKind)}`,
     {
       method: "POST",
     },
@@ -1181,9 +1188,11 @@ export const getSignTaskLogs = (
   token: string,
   name: string,
   accountName?: string,
+  taskKind: SignTaskKind | string = "sign",
 ) => {
   const params = new URLSearchParams();
   if (accountName) params.append("account_name", accountName);
+  params.append("task_kind", String(taskKind));
   const url = `/sign-tasks/${pathSegment(name)}/logs${params.toString() ? `?${params.toString()}` : ""}`;
   return request<string[]>(url, {}, token);
 };
@@ -1202,10 +1211,12 @@ export const getSignTaskHistory = (
   name: string,
   accountName: string,
   limit: number = 20,
+  taskKind: SignTaskKind | string = "sign",
 ) => {
   const params = new URLSearchParams();
   params.append("account_name", accountName);
   params.append("limit", String(limit));
+  params.append("task_kind", String(taskKind));
   return request<SignTaskHistoryItem[]>(
     `/sign-tasks/${pathSegment(name)}/history?${params.toString()}`,
     {},
@@ -1424,6 +1435,8 @@ export interface SpeakerCollectionConfig {
   history_limit?: number;
   last_scan_at?: string | null;
   last_scan_summary?: Record<string, number>;
+  monitor_status?: "one_time" | "running" | "waiting" | "paused" | "completed";
+  completed_at?: string | null;
 }
 
 export interface SpeakerCollectionRecord {
@@ -1460,6 +1473,16 @@ export const scanSpeakerCollection = (token: string, id: string) =>
   request<Record<string, number>>(
     `/speaker-collections/${pathSegment(id)}/scan`,
     { method: "POST" },
+    token,
+  );
+export const setSpeakerCollectionEnabled = (
+  token: string,
+  id: string,
+  enabled: boolean,
+) =>
+  request<SpeakerCollectionConfig>(
+    `/speaker-collections/${pathSegment(id)}/enabled`,
+    { method: "PATCH", body: JSON.stringify({ enabled }) },
     token,
   );
 export const getSpeakerCollectionRecords = (token: string, id: string) =>

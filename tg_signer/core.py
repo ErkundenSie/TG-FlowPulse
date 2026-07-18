@@ -11,7 +11,9 @@ from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from datetime import time as dt_time
 from typing import (
+    Awaitable,
     BinaryIO,
+    Callable,
     Generic,
     List,
     Optional,
@@ -30,7 +32,7 @@ from pyrogram.enums import ChatMembersFilter, ChatType
 from pyrogram.handlers import EditedMessageHandler, MessageHandler
 from pyrogram.methods.utilities.idle import idle
 from pyrogram.session import Session
-from pyrogram.storage import MemoryStorage
+from pyrogram.storage import SQLiteStorage
 from pyrogram.types import (
     Chat,
     InlineKeyboardMarkup,
@@ -62,6 +64,7 @@ from tg_signer.config import (
     UDPForward,
 )
 
+from ._kurigram import SafeGetForumTopics
 from .ai_tools import AITools, OpenAIConfigManager
 from .notification.server_chan import sc_send
 from .utils import UserInput, print_to_user
@@ -112,7 +115,13 @@ def _read_positive_float_env(name: str, default: float, minimum: float = 1.0) ->
 
 
 async def _patched_invoke(self, query, *args, **kwargs):
-    if isinstance(query, (raw.functions.updates.GetChannelDifference, raw.functions.updates.GetDifference)):
+    if isinstance(
+        query,
+        (
+            raw.functions.updates.GetChannelDifference,
+            raw.functions.updates.GetDifference,
+        ),
+    ):
         # Disable Pyrogram's internal sleep and retry mechanisms to prevent blocking the semaphore indefinitely
         kwargs.setdefault("sleep_threshold", 0)
         kwargs["retries"] = 0
@@ -136,26 +145,21 @@ async def _patched_invoke(self, query, *args, **kwargs):
                         or "client time" in err_str
                     )
                     if is_recoverable_updates_error:
+                        if isinstance(e, errors.FloodWait):
+                            raise
                         if attempt < max_retries:
-                            delay = base_delay * (2 ** attempt) + random.uniform(0, 1)
-                            if "flood" in err_str and hasattr(e, "value"):
-                                delay = min(e.value, 3.0)  # Wait for a shorter time, max 3 seconds
+                            delay = base_delay * (2**attempt) + random.uniform(0, 1)
                             await asyncio.sleep(delay)
                             continue
 
-                        if not ("msg_id" in err_str or "client time" in err_str):
-                            logger.warning(f"Drop updates for {type(query).__name__} due to error: {e}")
-
-                        if isinstance(query, raw.functions.updates.GetChannelDifference):
-                            from pyrogram.raw.types.updates import (
-                                ChannelDifferenceEmpty,
-                            )
-                            return ChannelDifferenceEmpty(pts=query.pts, timeout=0, final=True)
-                        elif isinstance(query, raw.functions.updates.GetDifference):
-                            from pyrogram.raw.types.updates import DifferenceEmpty
-                            return DifferenceEmpty(date=query.date, seq=query.pts)
+                        logger.warning(
+                            "Unable to fetch %s after retries: %s",
+                            type(query).__name__,
+                            e,
+                        )
                     raise
     return await _original_invoke(self, query, *args, **kwargs)
+
 
 BaseClient.invoke = _patched_invoke
 
@@ -166,6 +170,15 @@ DICE_EMOJIS = ("🎲", "🎯", "🏀", "⚽", "🎳", "🎰")
 Session.START_TIMEOUT = 5  # 原始超时时间为2秒，但一些代理访问会超时，所以这里调大一点
 
 OPENAI_USE_PROMPT = "当前任务需要配置大模型，请确保运行前正确设置`OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL`等环境变量，或通过`tg-flowpulse llm-config`持久化配置。"
+
+CHAT_TYPE_LABELS = {
+    ChatType.BOT: "BOT",
+    ChatType.GROUP: "群组",
+    ChatType.SUPERGROUP: "超级群组",
+    ChatType.CHANNEL: "频道",
+    getattr(ChatType, "FORUM", object()): "论坛群组",
+    getattr(ChatType, "DIRECT", object()): "频道私信",
+}
 
 
 def _is_callback_data_invalid(exc: BaseException) -> bool:
@@ -217,7 +230,9 @@ def _parse_telegram_message_ref(value: str) -> Optional[tuple[Union[int, str], i
         return None
 
     normalized = text
-    if normalized.lower().startswith(("t.me/", "telegram.me/", "www.t.me/", "www.telegram.me/")):
+    if normalized.lower().startswith(
+        ("t.me/", "telegram.me/", "www.t.me/", "www.telegram.me/")
+    ):
         normalized = f"https://{normalized}"
 
     parsed = parse.urlparse(normalized)
@@ -232,7 +247,9 @@ def _parse_telegram_message_ref(value: str) -> Optional[tuple[Union[int, str], i
         if pathlib.Path(path).expanduser().exists():
             return None
 
-    segments = [segment for segment in parse.unquote(path).strip("/").split("/") if segment]
+    segments = [
+        segment for segment in parse.unquote(path).strip("/").split("/") if segment
+    ]
     if segments and segments[0] == "s":
         segments = segments[1:]
     if len(segments) < 2:
@@ -249,11 +266,17 @@ def _parse_telegram_message_ref(value: str) -> Optional[tuple[Union[int, str], i
         if len(segments) < 3 or not segments[1].lstrip("-").isdigit():
             return None
         chat_part = segments[1]
-        source_chat_id = int(chat_part) if chat_part.startswith("-") else int(f"-100{chat_part}")
+        source_chat_id = (
+            int(chat_part) if chat_part.startswith("-") else int(f"-100{chat_part}")
+        )
         return source_chat_id, message_id
 
     if segments[0].lstrip("-").isdigit():
-        source_chat_id = int(segments[0]) if segments[0].startswith("-") else int(f"-100{segments[0]}")
+        source_chat_id = (
+            int(segments[0])
+            if segments[0].startswith("-")
+            else int(f"-100{segments[0]}")
+        )
         return source_chat_id, message_id
 
     if not is_telegram_url:
@@ -287,20 +310,27 @@ def readable_message(message: Message):
 
 
 def readable_chat(chat: Chat):
-    if chat.type == ChatType.BOT:
-        type_ = "BOT"
-    elif chat.type == ChatType.GROUP:
-        type_ = "群组"
-    elif chat.type == ChatType.SUPERGROUP:
-        type_ = "超级群组"
-    elif chat.type == ChatType.CHANNEL:
-        type_ = "频道"
-    else:
-        type_ = "个人"
+    type_ = CHAT_TYPE_LABELS.get(chat.type, "个人")
 
     none_or_dash = lambda x: x or "-"  # noqa: E731
 
     return f"id: {chat.id}, username: {none_or_dash(chat.username)}, title: {none_or_dash(chat.title)}, type: {type_}, name: {none_or_dash(chat.first_name)}"
+
+
+def chat_has_forum_topics(chat: Chat) -> bool:
+    forum_type = getattr(ChatType, "FORUM", None)
+    return chat.type == forum_type or (
+        chat.type == ChatType.SUPERGROUP and bool(getattr(chat, "is_forum", False))
+    )
+
+
+def readable_topic(topic) -> str:
+    none_or_dash = lambda x: x or "-"  # noqa: E731
+    return (
+        f"message_thread_id: {topic.id}, title: {none_or_dash(topic.title)}, "
+        f"closed: {bool(getattr(topic, 'is_closed', False))}, "
+        f"pinned: {bool(getattr(topic, 'is_pinned', False))}"
+    )
 
 
 _CLIENT_INSTANCES: dict[str, "Client"] = {}
@@ -311,8 +341,17 @@ _CLIENT_INSTANCES: dict[str, "Client"] = {}
 _CLIENT_REFS: defaultdict[str, int] = defaultdict(int)
 _CLIENT_ASYNC_LOCKS: dict[str, asyncio.Lock] = {}
 
+_LOGIN_ASYNC_LOCKS: dict[str, asyncio.Lock] = {}
+_LOGIN_USERS: dict[str, User] = {}
 
-class Client(BaseClient):
+_API_ASYNC_LOCKS: dict[str, asyncio.Lock] = {}
+_API_LAST_CALL_AT: dict[str, float] = {}
+_API_MIN_INTERVAL_SECONDS = 0.35
+_API_FLOODWAIT_PADDING_SECONDS = 0.5
+_API_MAX_FLOODWAIT_RETRIES = 2
+
+
+class Client(SafeGetForumTopics, BaseClient):
     def __init__(self, name: str, *args, **kwargs):
         key = kwargs.pop("key", None)
         self._tg_signpulse_no_updates = kwargs.get("no_updates")
@@ -320,7 +359,12 @@ class Client(BaseClient):
         self.key = key or str(pathlib.Path(self.workdir).joinpath(self.name).resolve())
         if self.in_memory and not self.session_string:
             self.load_session_string()
-            self.storage = MemoryStorage(self.name, self.session_string)
+            self.storage = SQLiteStorage(
+                name=self.name,
+                workdir=self.workdir,
+                session_string=self.session_string,
+                in_memory=True,
+            )
 
     async def __aenter__(self):
         lock = _CLIENT_ASYNC_LOCKS.get(self.key)
@@ -370,7 +414,9 @@ class Client(BaseClient):
                                 pass
 
                             wait_time = (attempt + 1) * 2
-                            logger.warning(f"Database locked when starting client {self.name}, retrying in {wait_time}s... ({attempt + 1}/{max_retries})")
+                            logger.warning(
+                                f"Database locked when starting client {self.name}, retrying in {wait_time}s... ({attempt + 1}/{max_retries})"
+                            )
                             await asyncio.sleep(wait_time)
                             continue
 
@@ -516,6 +562,7 @@ def get_client(
             and not getattr(existing, "is_connected", False)
         ):
             _CLIENT_INSTANCES.pop(key, None)
+            _LOGIN_USERS.pop(key, None)
         else:
             return existing
     client = Client(
@@ -575,6 +622,10 @@ async def close_client_by_name(name: str, workdir: Union[str, pathlib.Path] = ".
         _CLIENT_ASYNC_LOCKS.pop(key, None)
     if key in _CLIENT_REFS:
         _CLIENT_REFS.pop(key, None)
+    _LOGIN_ASYNC_LOCKS.pop(key, None)
+    _LOGIN_USERS.pop(key, None)
+    _API_ASYNC_LOCKS.pop(key, None)
+    _API_LAST_CALL_AT.pop(key, None)
 
 
 def get_now():
@@ -589,6 +640,7 @@ def make_dirs(path: pathlib.Path, exist_ok=True):
 
 
 ConfigT = TypeVar("ConfigT", bound=BaseJSONConfig)
+ApiCallResultT = TypeVar("ApiCallResultT")
 
 
 class BaseUserWorker(Generic[ConfigT]):
@@ -696,6 +748,49 @@ class BaseUserWorker(Generic[ConfigT]):
         else:
             logger.debug(msg, **kwargs)
 
+    async def _call_telegram_api(
+        self,
+        operation: str,
+        call: Callable[[], Awaitable[ApiCallResultT]],
+        *,
+        retry_on_floodwait: bool = True,
+    ) -> ApiCallResultT:
+        key = self.app.key
+        lock = _API_ASYNC_LOCKS.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _API_ASYNC_LOCKS[key] = lock
+
+        retries_left = _API_MAX_FLOODWAIT_RETRIES
+        while True:
+            async with lock:
+                loop = asyncio.get_running_loop()
+                last_called_at = _API_LAST_CALL_AT.get(key)
+                if last_called_at is not None:
+                    wait_for = _API_MIN_INTERVAL_SECONDS - (
+                        loop.time() - last_called_at
+                    )
+                    if wait_for > 0:
+                        await asyncio.sleep(wait_for)
+                try:
+                    result = await call()
+                    _API_LAST_CALL_AT[key] = loop.time()
+                    return result
+                except errors.FloodWait as exc:
+                    _API_LAST_CALL_AT[key] = loop.time()
+                    if not retry_on_floodwait or retries_left <= 0:
+                        raise
+                    retries_left -= 1
+                    wait_seconds = (
+                        max(float(getattr(exc, "value", 0) or 0), 0)
+                        + _API_FLOODWAIT_PADDING_SECONDS
+                    )
+                    self.log(
+                        f"{operation} 触发 FloodWait，等待 {wait_seconds:.1f}s 后重试（剩余重试 {retries_left} 次）",
+                        level="WARNING",
+                    )
+                    await asyncio.sleep(wait_seconds)
+
     def ask_for_config(self):
         raise NotImplementedError
 
@@ -742,66 +837,123 @@ class BaseUserWorker(Generic[ConfigT]):
     async def login(self, num_of_dialogs=20, print_chat=True):
         self.log("开始登录...")
         app = self.app
-        async with app:
-            me = await app.get_me()
-            self.set_me(me)
-            latest_chats = []
-            try:
-                async for dialog in app.get_dialogs(num_of_dialogs):
+        key = app.key
+        lock = _LOGIN_ASYNC_LOCKS.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _LOGIN_ASYNC_LOCKS[key] = lock
+
+        async with lock:
+            me = _LOGIN_USERS.get(key)
+            if me is not None:
+                self.log("检测到同账号已完成登录初始化，复用已有会话信息")
+                self.set_me(me)
+                return
+
+            async with app:
+                me = await self._call_telegram_api("users.GetFullUser", app.get_me)
+                chats = []
+                latest_chats = []
+
+                async def load_latest_chats():
                     try:
-                        chat = getattr(dialog, "chat", None)
-                        if chat is None:
-                            self.log("get_dialogs 返回空 chat，已跳过", level="WARNING")
-                            continue
-                        chat_id = getattr(chat, "id", None)
-                        if chat_id is None:
-                            self.log("get_dialogs 返回 chat.id 为空，已跳过", level="WARNING")
-                            continue
-                        latest_chats.append(
-                            {
-                                "id": chat_id,
-                                "title": chat.title,
-                                "type": chat.type,
-                                "username": chat.username,
-                                "first_name": chat.first_name,
-                                "last_name": chat.last_name,
-                            }
-                        )
-                        if print_chat:
-                            print_to_user(readable_chat(chat))
-                    except Exception as e:
+                        async for dialog in app.get_dialogs(limit=num_of_dialogs):
+                            try:
+                                chat = getattr(dialog, "chat", None)
+                                if chat is None:
+                                    self.log(
+                                        "get_dialogs 返回空 chat，已跳过",
+                                        level="WARNING",
+                                    )
+                                    continue
+                                chat_id = getattr(chat, "id", None)
+                                if chat_id is None:
+                                    self.log(
+                                        "get_dialogs 返回 chat.id 为空，已跳过",
+                                        level="WARNING",
+                                    )
+                                    continue
+                                chats.append(chat)
+                                latest_chats.append(
+                                    {
+                                        "id": chat_id,
+                                        "title": chat.title,
+                                        "type": chat.type,
+                                        "username": chat.username,
+                                        "first_name": chat.first_name,
+                                        "last_name": chat.last_name,
+                                    }
+                                )
+                            except Exception as exc:
+                                self.log(
+                                    f"处理 dialog 失败，已跳过: {type(exc).__name__}: {exc}",
+                                    level="WARNING",
+                                )
+                                continue
+                    except Exception as exc:
                         self.log(
-                            f"处理 dialog 失败，已跳过: {type(e).__name__}: {e}",
+                            f"get_dialogs 中断，返回已获取结果: {type(exc).__name__}: {exc}",
                             level="WARNING",
                         )
-                        continue
-            except Exception as e:
-                self.log(
-                    f"get_dialogs 中断，返回已获取结果: {type(e).__name__}: {e}",
-                    level="WARNING",
+                    return latest_chats
+
+                await self._call_telegram_api("messages.GetDialogs", load_latest_chats)
+
+                if print_chat:
+                    for chat in chats:
+                        print_to_user(readable_chat(chat))
+                        if not chat_has_forum_topics(chat):
+                            continue
+                        try:
+
+                            async def load_topics(chat_id=chat.id):
+                                return [
+                                    topic
+                                    async for topic in app.get_forum_topics(
+                                        chat_id, limit=20
+                                    )
+                                ]
+
+                            topics = await asyncio.wait_for(
+                                load_topics(),
+                                timeout=5,
+                            )
+                            for topic in topics:
+                                print_to_user(f"  {readable_topic(topic)}")
+                        except (asyncio.TimeoutError, errors.RPCError):
+                            pass
+
+                with open(
+                    self.get_user_dir(me).joinpath("latest_chats.json"),
+                    "w",
+                    encoding="utf-8",
+                ) as fp:
+                    json.dump(
+                        latest_chats,
+                        fp,
+                        indent=4,
+                        default=Object.default,
+                        ensure_ascii=False,
+                    )
+                await self._call_telegram_api(
+                    "auth.ExportAuthorization", self.app.save_session_string
                 )
 
-            with open(
-                self.get_user_dir(me).joinpath("latest_chats.json"),
-                "w",
-                encoding="utf-8",
-            ) as fp:
-                json.dump(
-                    latest_chats,
-                    fp,
-                    indent=4,
-                    default=Object.default,
-                    ensure_ascii=False,
-                )
-            await self.app.save_session_string()
+            _LOGIN_USERS[key] = me
+            self.set_me(me)
 
     async def logout(self):
         self.log("开始登出...")
         is_authorized = await self.app.connect()
         if not is_authorized:
             await self.app.storage.delete()
+            _LOGIN_USERS.pop(self.app.key, None)
+            self.user = None
             return None
-        return await self.app.log_out()
+        result = await self.app.log_out()
+        _LOGIN_USERS.pop(self.app.key, None)
+        self.user = None
+        return result
 
     async def send_message(
         self, chat_id: Union[int, str], text: str, delete_after: int = None, **kwargs
@@ -814,7 +966,10 @@ class BaseUserWorker(Generic[ConfigT]):
         :param kwargs:
         :return:
         """
-        message = await self.app.send_message(chat_id, text, **kwargs)
+        message = await self._call_telegram_api(
+            "messages.SendMessage",
+            lambda: self.app.send_message(chat_id, text, **kwargs),
+        )
         self.log(
             f"已发送文本消息到 {chat_id}: {text}"
             + (
@@ -829,7 +984,7 @@ class BaseUserWorker(Generic[ConfigT]):
             )
             self.log("Waiting...")
             await asyncio.sleep(delete_after)
-            await message.delete()
+            await self._call_telegram_api("messages.DeleteMessages", message.delete)
             self.log(f"Message「{text}」 to {chat_id} deleted!")
         return message
 
@@ -847,16 +1002,24 @@ class BaseUserWorker(Generic[ConfigT]):
         source_ref = _parse_telegram_message_ref(photo)
         if source_ref is not None:
             source_chat_id, source_message_id = source_ref
-            source_message = await self.app.get_messages(source_chat_id, source_message_id)
+            source_message = await self._call_telegram_api(
+                "messages.GetMessages",
+                lambda: self.app.get_messages(source_chat_id, source_message_id),
+            )
             if not source_message or not source_message.photo:
                 raise ValueError(f"Telegram 消息链接未指向图片消息: {photo}")
             photo = source_message.photo.file_id
-            self.log(f"已从 Telegram 消息链接解析图片: {source_chat_id}/{source_message_id}")
-        message = await self.app.send_photo(
-            chat_id,
-            photo,
-            caption=(caption or None),
-            **kwargs,
+            self.log(
+                f"已从 Telegram 消息链接解析图片: {source_chat_id}/{source_message_id}"
+            )
+        message = await self._call_telegram_api(
+            "messages.SendMedia",
+            lambda: self.app.send_photo(
+                chat_id,
+                photo,
+                caption=(caption or None),
+                **kwargs,
+            ),
         )
         self.log(
             f"已发送图片到 {chat_id}: {photo}"
@@ -867,9 +1030,11 @@ class BaseUserWorker(Generic[ConfigT]):
             )
         )
         if delete_after is not None:
-            self.log(f"Photo「{photo}」 to {chat_id} will be deleted after {delete_after} seconds.")
+            self.log(
+                f"Photo「{photo}」 to {chat_id} will be deleted after {delete_after} seconds."
+            )
             await asyncio.sleep(delete_after)
-            await message.delete()
+            await self._call_telegram_api("messages.DeleteMessages", message.delete)
             self.log(f"Photo「{photo}」 to {chat_id} deleted!")
         return message
 
@@ -883,11 +1048,14 @@ class BaseUserWorker(Generic[ConfigT]):
         if not message_ids:
             raise ValueError("message_ids is required")
         from_chat_id = _normalize_source_chat_id(from_chat_id)
-        result = await self.app.forward_messages(
-            chat_id,
-            from_chat_id,
-            message_ids,
-            **kwargs,
+        result = await self._call_telegram_api(
+            "messages.ForwardMessages",
+            lambda: self.app.forward_messages(
+                chat_id,
+                from_chat_id,
+                message_ids,
+                **kwargs,
+            ),
         )
         self.log(
             f"已转发 {len(message_ids)} 条消息到 {chat_id}: from {from_chat_id}, ids={message_ids}"
@@ -920,7 +1088,10 @@ class BaseUserWorker(Generic[ConfigT]):
                 f"Warning, emoji should be one of {', '.join(DICE_EMOJIS)}",
                 level="WARNING",
             )
-        message = await self.app.send_dice(chat_id, emoji, **kwargs)
+        message = await self._call_telegram_api(
+            "messages.SendMedia",
+            lambda: self.app.send_dice(chat_id, emoji, **kwargs),
+        )
         self.log(
             f"已发送骰子到 {chat_id}: {emoji}"
             + (
@@ -936,7 +1107,7 @@ class BaseUserWorker(Generic[ConfigT]):
             self.log("Waiting...")
             await asyncio.sleep(delete_after)
             try:
-                await message.delete()
+                await self._call_telegram_api("messages.DeleteMessages", message.delete)
                 self.log(f"Dice「{emoji}」 to {chat_id} deleted!")
             except Exception as e:
                 self.log(f"删除骰子消息失败: {e}", level="ERROR")
@@ -1152,12 +1323,20 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     dice = local_input_("输入要发送的骰子（如 🎲, 🎯）: ")
                     actions.append(SendDiceAction(dice=dice))
                 elif action == SupportAction.SEND_PHOTO:
-                    photo = local_input_("输入图片路径、URL、Telegram 消息链接或 file_id: ").strip()
+                    photo = local_input_(
+                        "输入图片路径、URL、Telegram 消息链接或 file_id: "
+                    ).strip()
                     caption = local_input_("输入图片说明文字（可选）: ").strip()
-                    actions.append(SendPhotoAction(photo=photo, caption=caption or None))
+                    actions.append(
+                        SendPhotoAction(photo=photo, caption=caption or None)
+                    )
                 elif action == SupportAction.FORWARD_MESSAGES:
-                    from_chat_id = _parse_chat_ref(local_input_("输入来源 Chat ID 或 @username: "))
-                    message_ids = _parse_message_ids(local_input_("输入消息 ID，多个用逗号或换行分隔: "))
+                    from_chat_id = _parse_chat_ref(
+                        local_input_("输入来源 Chat ID 或 @username: ")
+                    )
+                    message_ids = _parse_message_ids(
+                        local_input_("输入消息 ID，多个用逗号或换行分隔: ")
+                    )
                     actions.append(
                         ForwardMessagesAction(
                             from_chat_id=from_chat_id,
@@ -1176,10 +1355,14 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     print_to_user("计算题将使用大模型回答。")
                     actions.append(ReplyByCalculationProblemAction())
                 elif action == SupportAction.REPLY_BY_IMAGE_RECOGNITION:
-                    print_to_user("AI will recognize text from image and send it automatically.")
+                    print_to_user(
+                        "AI will recognize text from image and send it automatically."
+                    )
                     actions.append(ReplyByImageRecognitionAction())
                 elif action == SupportAction.CLICK_BUTTON_BY_CALCULATION_PROBLEM:
-                    print_to_user("AI will calculate the answer and click the matching button.")
+                    print_to_user(
+                        "AI will calculate the answer and click the matching button."
+                    )
                     actions.append(ClickButtonByCalculationProblemAction())
                 else:
                     raise ValueError(f"不支持的动作: {action}")
@@ -1266,7 +1449,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         return crontab_expr
 
     @staticmethod
-    def _time_to_crontab(sign_at: time) -> str:
+    def _time_to_crontab(sign_at: dt_time) -> str:
         return f"{sign_at.minute} {sign_at.hour} * * *"
 
     def load_sign_record(self):
@@ -1290,9 +1473,12 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             # 兼容历史配置：部分会话可能保存了缺失负号的 chat_id
             try:
                 from pyrogram.errors import ChannelInvalid, PeerIdInvalid
+
                 is_peer_invalid = isinstance(e, (PeerIdInvalid, ChannelInvalid))
             except Exception:
-                is_peer_invalid = any(x in str(e) for x in ("PEER_ID_INVALID", "CHANNEL_INVALID"))
+                is_peer_invalid = any(
+                    x in str(e) for x in ("PEER_ID_INVALID", "CHANNEL_INVALID")
+                )
 
             if is_peer_invalid and isinstance(chat.chat_id, int):
                 last_error = e
@@ -1391,7 +1577,9 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         total_actions = len(chat.actions)
         if total_actions == 0:
             raise RuntimeError("任务没有配置任何执行动作")
-        max_flow_attempts = _read_positive_int_env("SIGN_TASK_FLOW_RETRY_ATTEMPTS", 3, 1)
+        max_flow_attempts = _read_positive_int_env(
+            "SIGN_TASK_FLOW_RETRY_ATTEMPTS", 3, 1
+        )
         last_error: Optional[Exception] = None
 
         for flow_attempt in range(1, max_flow_attempts + 1):
@@ -1401,9 +1589,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 self.context.chat_messages[chat.chat_id].clear()
                 for index, action in enumerate(chat.actions, start=1):
                     self.log(f"开始第 {index}/{total_actions} 步动作: {action}")
-                    next_action = (
-                        chat.actions[index] if index < total_actions else None
-                    )
+                    next_action = chat.actions[index] if index < total_actions else None
                     result = await self.wait_for(
                         chat,
                         action,
@@ -1513,7 +1699,9 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 if success_count == 0 and len(config.chats) > 0:
                     raise RuntimeError("所有会话均执行失败（详细请看运行日志）")
 
-                self.log(f"目标会话执行汇总: 成功 {success_count} 个，失败 {failure_count} 个")
+                self.log(
+                    f"目标会话执行汇总: 成功 {success_count} 个，失败 {failure_count} 个"
+                )
                 sign_record[str(now.date())] = now.isoformat()
                 with open(self.sign_record_file, "w", encoding="utf-8") as fp:
                     json.dump(sign_record, fp)
@@ -1525,7 +1713,9 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     return True
                 _last_sign_at = datetime.fromisoformat(sign_record[last_date_str])
                 self.log(f"上次执行时间: {_last_sign_at}")
-                _cron_it = croniter(self._validate_sign_at(config.sign_at), _last_sign_at)
+                _cron_it = croniter(
+                    self._validate_sign_at(config.sign_at), _last_sign_at
+                )
                 _next_run: datetime = _cron_it.next(datetime)
                 if _next_run > now:
                     self.log("当前未到下次执行时间，无需执行")
@@ -1540,7 +1730,9 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                             MessageHandler(self.on_message, filters.chat(chat_ids))
                         )
                         edited_handler_ref = self.app.add_handler(
-                            EditedMessageHandler(self.on_edited_message, filters.chat(chat_ids))
+                            EditedMessageHandler(
+                                self.on_edited_message, filters.chat(chat_ids)
+                            )
                         )
                     try:
                         now = get_now()
@@ -1613,7 +1805,10 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         )
         topic_matched = False
         for chat in chats:
-            if chat.message_thread_id is None or chat.message_thread_id == message_thread_id:
+            if (
+                chat.message_thread_id is None
+                or chat.message_thread_id == message_thread_id
+            ):
                 topic_matched = True
                 break
         if not topic_matched:
@@ -1677,7 +1872,11 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 "reply",
                 tuple(
                     tuple(
-                        button if isinstance(button, str) else getattr(button, "text", "")
+                        (
+                            button
+                            if isinstance(button, str)
+                            else getattr(button, "text", "")
+                        )
                         for button in row
                     )
                     for row in reply_markup.keyboard
@@ -1777,7 +1976,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         if isinstance(action, ClickKeyboardByTextAction):
             return self._message_has_button_text(message, action.text)
         if isinstance(action, ChooseOptionByImageAction):
-            return bool(message.photo and isinstance(reply_markup, InlineKeyboardMarkup))
+            return bool(message.photo or isinstance(reply_markup, InlineKeyboardMarkup))
         if isinstance(action, ReplyByCalculationProblemAction):
             return bool(message.text or message.caption)
         if isinstance(action, ReplyByImageRecognitionAction):
@@ -1970,7 +2169,9 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                             level="WARNING",
                         )
                     else:
-                        self.log(f"Message.click 无法确认按钮回调: {e}", level="WARNING")
+                        self.log(
+                            f"Message.click 无法确认按钮回调: {e}", level="WARNING"
+                        )
                     break
 
         if callback_data is None:
@@ -1996,7 +2197,10 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
     ) -> tuple[bool, bool]:
         target_text = self._clean_text_for_match(action.text)
         if not target_text:
-            self.log("Click button action has empty target text after cleaning", level="WARNING")
+            self.log(
+                "Click button action has empty target text after cleaning",
+                level="WARNING",
+            )
             return False, False
 
         if reply_markup := message.reply_markup:
@@ -2007,7 +2211,9 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                         continue
                     btn_text_clean = self._clean_text_for_match(btn.text)
                     if self._button_text_matches(target_text, btn_text_clean):
-                        self.log(f"成功匹配到并点击按钮: [{btn.text}] (匹配词: {action.text})")
+                        self.log(
+                            f"成功匹配到并点击按钮: [{btn.text}] (匹配词: {action.text})"
+                        )
                         if before_click:
                             await before_click()
                         return await self._click_inline_button(message, btn), True
@@ -2019,12 +2225,16 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             elif isinstance(reply_markup, ReplyKeyboardMarkup):
                 for row in reply_markup.keyboard:
                     for btn in row:
-                        btn_text = btn if isinstance(btn, str) else getattr(btn, "text", "")
+                        btn_text = (
+                            btn if isinstance(btn, str) else getattr(btn, "text", "")
+                        )
                         if not btn_text:
                             continue
                         btn_text_clean = self._clean_text_for_match(btn_text)
                         if self._button_text_matches(target_text, btn_text_clean):
-                            self.log(f"成功匹配并发送回复键盘文本: [{btn_text}] (匹配词: {action.text})")
+                            self.log(
+                                f"成功匹配并发送回复键盘文本: [{btn_text}] (匹配词: {action.text})"
+                            )
                             kwargs = {}
                             if message_thread_id is not None:
                                 kwargs["message_thread_id"] = message_thread_id
@@ -2104,14 +2314,43 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         proxy_action = ClickKeyboardByTextAction(text=answer)
         return await self._click_keyboard_by_text(proxy_action, message)
 
-    async def _choose_option_by_image(self, action: ChooseOptionByImageAction, message):
+    def _find_previous_photo_message(
+        self,
+        messages: List[Optional[Message]],
+        message: Message,
+    ) -> Optional[Message]:
+        try:
+            message_index = next(
+                index for index, item in enumerate(messages) if item is message
+            )
+        except StopIteration:
+            return None
+        for previous_message in reversed(messages[:message_index]):
+            if previous_message and previous_message.photo:
+                return previous_message
+        return None
+
+    async def _choose_option_by_image(
+        self,
+        action: ChooseOptionByImageAction,
+        message: Message,
+        previous_messages: Optional[List[Optional[Message]]] = None,
+    ):
         if reply_markup := message.reply_markup:
-            if isinstance(reply_markup, InlineKeyboardMarkup) and message.photo:
+            if isinstance(reply_markup, InlineKeyboardMarkup):
                 flat_buttons = [b for row in reply_markup.inline_keyboard for b in row]
                 clickable_buttons = [btn for btn in flat_buttons if btn.text]
+                photo_message = message
+                if not message.photo and previous_messages:
+                    photo_message = self._find_previous_photo_message(
+                        previous_messages,
+                        message,
+                    )
+                if not photo_message or not photo_message.photo:
+                    return False
                 self.log("检测到图片按钮验证，调用 AI 识别并按顺序点击选项")
                 image_buffer: BinaryIO = await self.app.download_media(
-                    message.photo.file_id, in_memory=True
+                    photo_message.photo.file_id, in_memory=True
                 )
                 image_buffer.seek(0)
                 image_bytes = image_buffer.read()
@@ -2119,7 +2358,13 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 if not options:
                     self.log("未找到可供点击的按钮", level="WARNING")
                     return False
-                question_text = (message.caption or message.text or "").strip()
+                question_text = (
+                    message.caption
+                    or message.text
+                    or photo_message.caption
+                    or photo_message.text
+                    or ""
+                ).strip()
                 if not question_text:
                     question_text = "选择正确的选项"
                 result_indexes = await self.get_ai_tools().choose_options_by_image(
@@ -2139,7 +2384,9 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     elif 0 <= result_index < len(options):
                         selected_idx = result_index
                     else:
-                        self.log(f"AI 返回了非法选项序号: {result_index}", level="WARNING")
+                        self.log(
+                            f"AI 返回了非法选项序号: {result_index}", level="WARNING"
+                        )
                         return False
                     result = options[selected_idx]
                     self.log(f"AI 选择并点击选项: {result}")
@@ -2167,9 +2414,13 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         if chat.message_thread_id is not None:
             kwargs["message_thread_id"] = chat.message_thread_id
         if isinstance(action, SendTextAction):
-            return await self.send_message(chat.chat_id, action.text, chat.delete_after, **kwargs)
+            return await self.send_message(
+                chat.chat_id, action.text, chat.delete_after, **kwargs
+            )
         elif isinstance(action, SendDiceAction):
-            return await self.send_dice(chat.chat_id, action.dice, chat.delete_after, **kwargs)
+            return await self.send_dice(
+                chat.chat_id, action.dice, chat.delete_after, **kwargs
+            )
         elif isinstance(action, SendPhotoAction):
             return await self.send_photo(
                 chat.chat_id,
@@ -2277,9 +2528,11 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
 
                                 async def remember_before_click():
                                     nonlocal before_click_state
-                                    before_click_state = await self._chat_state_snapshot(
-                                        chat,
-                                        history_limit=history_limit,
+                                    before_click_state = (
+                                        await self._chat_state_snapshot(
+                                            chat,
+                                            history_limit=history_limit,
+                                        )
                                     )
 
                                 ok, matched = await self._click_keyboard_by_text_result(
@@ -2361,11 +2614,17 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     elif isinstance(action, ReplyByCalculationProblemAction):
                         ok = await self._reply_by_calculation_problem(action, message)
                     elif isinstance(action, ChooseOptionByImageAction):
-                        ok = await self._choose_option_by_image(action, message)
+                        ok = await self._choose_option_by_image(
+                            action,
+                            message,
+                            messages,
+                        )
                     elif isinstance(action, ReplyByImageRecognitionAction):
                         ok = await self._reply_by_image_recognition(action, message)
                     elif isinstance(action, ClickButtonByCalculationProblemAction):
-                        ok = await self._click_button_by_calculation_problem(action, message)
+                        ok = await self._click_button_by_calculation_problem(
+                            action, message
+                        )
                     if ok:
                         # 将消息ID对应value置为None，保证收到消息的编辑时消息所处的顺序
                         self.context.chat_messages[chat.chat_id][message.id] = None
@@ -2384,7 +2643,14 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             ):
                 try:
                     self.log("等待超时，尝试从历史消息中查找按钮", level="WARNING")
-                    async for message in self.app.get_chat_history(chat.chat_id, limit=history_limit):
+                    history_messages = []
+                    async for message in self.app.get_chat_history(
+                        chat.chat_id,
+                        limit=history_limit,
+                    ):
+                        history_messages.append(message)
+                    chronological_history = list(reversed(history_messages))
+                    for message in history_messages:
                         if isinstance(action, ClickKeyboardByTextAction):
                             ok = await self._click_keyboard_by_text(
                                 action,
@@ -2392,9 +2658,15 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                                 message_thread_id=chat.message_thread_id,
                             )
                         elif isinstance(action, ReplyByCalculationProblemAction):
-                            ok = await self._reply_by_calculation_problem(action, message)
+                            ok = await self._reply_by_calculation_problem(
+                                action, message
+                            )
                         elif isinstance(action, ChooseOptionByImageAction):
-                            ok = await self._choose_option_by_image(action, message)
+                            ok = await self._choose_option_by_image(
+                                action,
+                                message,
+                                chronological_history,
+                            )
                         elif isinstance(action, ReplyByImageRecognitionAction):
                             ok = await self._reply_by_image_recognition(action, message)
                         else:
@@ -2425,8 +2697,15 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         max_retries = 5
         for attempt in range(1, max_retries + 1):
             try:
-                await client.request_callback_answer(
-                    chat_id, message_id, callback_data=callback_data, **kwargs
+                await self._call_telegram_api(
+                    "messages.GetBotCallbackAnswer",
+                    lambda: client.request_callback_answer(
+                        chat_id,
+                        message_id,
+                        callback_data=callback_data,
+                        **kwargs,
+                    ),
+                    retry_on_floodwait=False,
                 )
                 self.log("点击完成")
                 return True
@@ -2480,10 +2759,13 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     seconds=random.randint(0, random_seconds)
                 )
                 results.append({"at": next_dt.isoformat(), "text": text})
-                await self.app.send_message(
-                    chat_id,
-                    text,
-                    schedule_date=next_dt,
+                await self._call_telegram_api(
+                    "messages.SendScheduledMessage",
+                    lambda schedule_date=next_dt: self.app.send_message(
+                        chat_id,
+                        text,
+                        schedule_date=schedule_date,
+                    ),
                 )
                 await asyncio.sleep(0.1)
                 print_to_user(f"已配置次数：{n + 1}")
@@ -2494,7 +2776,10 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         if self.user is None:
             await self.login(print_chat=False)
         async with self.app:
-            messages = await self.app.get_scheduled_messages(chat_id)
+            messages = await self._call_telegram_api(
+                "messages.GetScheduledHistory",
+                lambda: self.app.get_scheduled_messages(chat_id),
+            )
             for message in messages:
                 print_to_user(f"{message.date}: {message.text}")
 
