@@ -164,13 +164,22 @@ function DashboardSidebar({
   return (
     <aside className={`sidebar-shell${mobileOpen ? " is-open" : ""}`}>
       <div className="sidebar-brand">
-        <div className="sidebar-brand-mark" aria-hidden>
-          <Lightning weight="fill" size={18} />
-        </div>
-        <div className="sidebar-brand-text">
-          <div className="sidebar-brand-title">TG-FlowPulse</div>
-          <div className="sidebar-brand-subtitle">Control Center</div>
-        </div>
+        <Link
+          href="/dashboard"
+          className="sidebar-brand-home"
+          aria-label={
+            language === "zh" ? "返回账户概览" : "Go to account overview"
+          }
+          onClick={() => setMobileOpen(false)}
+        >
+          <div className="sidebar-brand-mark" aria-hidden>
+            <Lightning weight="fill" size={18} />
+          </div>
+          <div className="sidebar-brand-text">
+            <div className="sidebar-brand-title">TG-FlowPulse</div>
+            <div className="sidebar-brand-subtitle">Control Center</div>
+          </div>
+        </Link>
         <button
           type="button"
           className="sidebar-icon-btn lg:hidden"

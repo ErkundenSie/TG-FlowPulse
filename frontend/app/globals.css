@@ -204,6 +204,20 @@
   flex-shrink: 0;
 }
 
+.sidebar-brand-home {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-radius: 10px;
+  transition: opacity 0.2s ease;
+}
+
+.sidebar-brand-home:hover {
+  opacity: 0.78;
+}
+
 .sidebar-brand-mark {
   width: 34px;
   height: 34px;
