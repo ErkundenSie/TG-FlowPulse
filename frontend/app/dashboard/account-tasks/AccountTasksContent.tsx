@@ -2,7 +2,6 @@
 
 import { useEffect, useState, memo, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { getToken } from "../../../lib/auth";
 import {
   listSignTasks,
@@ -285,7 +284,7 @@ const TaskItem = memo(
 
     return (
       <div
-        className={`glass-panel p-4 group flex min-h-[204px] flex-col hover:-translate-y-0.5 hover:border-[#8a3ffc]/30 hover:shadow-xl transition-all duration-200 ${running ? "border-emerald-500/40 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]" : ""} ${task.enabled === false ? "opacity-70" : ""}`}
+        className={`dashboard-module-card glass-panel p-4 group flex flex-col hover:-translate-y-0.5 hover:border-[#8a3ffc]/30 hover:shadow-xl transition-all duration-200 ${running ? "border-emerald-500/40 shadow-[0_0_0_1px_rgba(16,185,129,0.25)]" : ""} ${task.enabled === false ? "opacity-70" : ""}`}
       >
         <div className="flex items-start gap-3 min-w-0">
           <div className="w-9 h-9 rounded-xl bg-[#8a3ffc]/10 flex items-center justify-center text-[#b57dff] shrink-0">
@@ -2165,18 +2164,11 @@ export default function AccountTasksContent({
       {!isTaskEditorOpen && (
         <nav className="navbar">
           <div className="nav-brand">
-            <div className="flex items-center gap-4 min-w-0">
-              <Link
-                href="/dashboard"
-                className="action-btn shrink-0"
-                title={t("sidebar_home")}
-              >
-                <CaretLeft weight="bold" />
-              </Link>
-              <div className="min-w-0">
+            <div className="flex items-center min-w-0">
+              <div className="navbar-title-block">
                 <h1 className="nav-title">{pageTitle || accountName}</h1>
                 {pageTitle ? (
-                  <div className="text-[11px] text-main/40 truncate">
+                  <div className="nav-subtitle">
                     {resolvedTaskKind === "broadcast"
                       ? language === "zh"
                         ? "定时或立即发送消息，群发任务按账号独立管理"
@@ -2218,7 +2210,7 @@ export default function AccountTasksContent({
       )}
 
       {!isTaskEditorOpen && (
-        <main className="main-content !pt-6">
+        <main className="main-content dashboard-module-content !pt-6">
           {loading && tasks.length === 0 ? (
             <div className="w-full py-20 flex flex-col items-center justify-center text-main/20">
               <Spinner size={40} weight="bold" className="animate-spin mb-4" />
@@ -2284,7 +2276,7 @@ export default function AccountTasksContent({
                       </span>
                     </button>
                     {!collapsed ? (
-                      <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-4 gap-3">
+                      <div className="dashboard-module-grid">
                         {group.tasks.map((task) => (
                           <TaskItem
                             key={task.name}

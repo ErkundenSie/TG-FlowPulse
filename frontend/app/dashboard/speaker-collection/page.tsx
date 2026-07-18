@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowClockwise,
   CaretDown,
@@ -34,6 +34,10 @@ import {
   setSpeakerCollectionEnabled,
 } from "../../../lib/api";
 import { ToastContainer, useToast } from "../../../components/ui/toast";
+import {
+  ChatPickerList,
+  formatChatSubtitle,
+} from "../../../components/ui/chat-picker";
 
 const localDateTime = (value?: string | null) =>
   value ? value.slice(0, 16) : "";
@@ -42,9 +46,6 @@ const chatLabel = (chat: ChatInfo) => {
   const title = chat.title || chat.username || String(chat.id);
   return chat.username ? `${title} (@${chat.username})` : title;
 };
-
-const truncateLabel = (value: string, max = 42) =>
-  value.length > max ? `${value.slice(0, max - 1)}…` : value;
 
 const formatDateTime = (value?: string | null) => {
   if (!value) return "--";
@@ -78,6 +79,8 @@ export default function SpeakerCollectionPage() {
   const [accounts, setAccounts] = useState<AccountInfo[]>([]);
   const [chats, setChats] = useState<ChatInfo[]>([]);
   const [chatSearch, setChatSearch] = useState("");
+  const [chatPickerOpen, setChatPickerOpen] = useState(false);
+  const chatPickerRef = useRef<HTMLDivElement>(null);
   const [configs, setConfigs] = useState<SpeakerCollectionConfig[]>([]);
   const [records, setRecords] = useState<SpeakerCollectionRecord[]>([]);
   const [recordsPage, setRecordsPage] = useState(1);
@@ -154,6 +157,15 @@ export default function SpeakerCollectionPage() {
         .then(setChats)
         .catch(() => setChats([]));
   }, [token, form.account_name]);
+  useEffect(() => {
+    const closePicker = (event: MouseEvent) => {
+      if (!chatPickerRef.current?.contains(event.target as Node)) {
+        setChatPickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", closePicker);
+    return () => document.removeEventListener("mousedown", closePicker);
+  }, []);
   const loadRecords = async (id: string, notify = false) => {
     if (!token) return;
     try {
@@ -273,6 +285,9 @@ export default function SpeakerCollectionPage() {
         ),
       )
     : chats;
+  const selectedChat = chats.find(
+    (chat) => String(chat.id) === String(form.chat_id),
+  );
   const recordsPageCount = Math.max(
     1,
     Math.ceil(records.length / recordsPageSize),
@@ -292,10 +307,12 @@ export default function SpeakerCollectionPage() {
   return (
     <div className="w-full min-h-full flex flex-col">
       <nav className="navbar">
-        <div className="min-w-0">
-          <h1 className="nav-title truncate">群发言者筛选</h1>
-          <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
-            扫描历史消息并持续收集新发言者的公开简介
+        <div className="nav-brand">
+          <div className="navbar-title-block">
+            <h1 className="nav-title">群发言者筛选</h1>
+            <div className="nav-subtitle">
+              扫描历史消息并持续收集新发言者的公开简介
+            </div>
           </div>
         </div>
       </nav>
@@ -325,7 +342,7 @@ export default function SpeakerCollectionPage() {
                 </option>
               ))}
             </select>
-            <div className="chat-picker">
+            <div className="chat-picker" ref={chatPickerRef}>
               <div className="chat-picker-label">搜索群/频道</div>
               <div className="relative">
                 <MagnifyingGlass
@@ -333,40 +350,62 @@ export default function SpeakerCollectionPage() {
                   size={16}
                 />
                 <input
-                  className="chat-picker-search-input !pl-10"
+                  className="chat-picker-search-input speaker-chat-search"
                   value={chatSearch}
-                  onChange={(e) => setChatSearch(e.target.value)}
+                  onChange={(e) => {
+                    setChatSearch(e.target.value);
+                    setChatPickerOpen(true);
+                  }}
+                  onFocus={() => setChatPickerOpen(true)}
                   placeholder="输入群名称、用户名或 ID 查询"
                   autoComplete="off"
                 />
               </div>
-              <select
-                className="!mb-0"
-                value={String(form.chat_id)}
-                onChange={(e) => {
-                  const chat = chats.find(
-                    (c) => String(c.id) === e.target.value,
-                  );
-                  setForm({
-                    ...form,
-                    chat_id: e.target.value,
-                    chat_name: chat?.title || chat?.username || e.target.value,
-                  });
-                }}
-              >
-                <option value="">选择群/频道</option>
-                {filteredChats.map((c) => {
-                  const full = chatLabel(c);
-                  return (
-                    <option key={c.id} value={String(c.id)} title={full}>
-                      {truncateLabel(full)}
-                    </option>
-                  );
-                })}
-              </select>
-              {normalizedChatSearch && !filteredChats.length && (
-                <p className="chat-picker-footer">未找到匹配的群组或频道</p>
-              )}
+              <div className="speaker-chat-select-wrap">
+                <button
+                  type="button"
+                  className={`speaker-chat-select${chatPickerOpen ? " is-open" : ""}`}
+                  onClick={() => setChatPickerOpen((open) => !open)}
+                  aria-expanded={chatPickerOpen}
+                >
+                  <span className="truncate">
+                    {selectedChat ? chatLabel(selectedChat) : "选择群/频道"}
+                  </span>
+                  <CaretDown
+                    weight="bold"
+                    size={14}
+                    className={chatPickerOpen ? "rotate-180" : ""}
+                  />
+                </button>
+                {chatPickerOpen && (
+                  <div className="speaker-chat-dropdown">
+                    <ChatPickerList
+                      items={filteredChats.map((chat) => ({
+                        id: chat.id,
+                        title: chat.title || chat.username || String(chat.id),
+                        subtitle: formatChatSubtitle(chat),
+                        selected: String(chat.id) === String(form.chat_id),
+                      }))}
+                      emptyText="未找到匹配的群组或频道"
+                      maxHeight="min(360px, 48vh)"
+                      multi={false}
+                      onSelect={(id) => {
+                        const chat = chats.find(
+                          (item) => String(item.id) === String(id),
+                        );
+                        setForm({
+                          ...form,
+                          chat_id: String(id),
+                          chat_name:
+                            chat?.title || chat?.username || String(id),
+                        });
+                        setChatSearch("");
+                        setChatPickerOpen(false);
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <label className="text-xs">

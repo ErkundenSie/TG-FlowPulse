@@ -849,15 +849,10 @@ export default function MonitorTasksPage() {
     <div id="monitor-view" className="w-full h-full flex flex-col">
       <nav className="navbar">
         <div className="nav-brand min-w-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="w-9 h-9 rounded-xl bg-cyan-500/10 text-cyan-500 flex items-center justify-center shrink-0">
-              <Eye weight="bold" size={18} />
-            </div>
-            <div className="min-w-0">
+          <div className="flex items-center min-w-0">
+            <div className="navbar-title-block">
               <h1 className="nav-title">{labels.title}</h1>
-              <p className="text-[11px] text-muted-foreground truncate mt-0.5 max-w-[min(48vw,360px)]">
-                {labels.subtitle}
-              </p>
+              <p className="nav-subtitle">{labels.subtitle}</p>
             </div>
           </div>
         </div>
@@ -885,7 +880,7 @@ export default function MonitorTasksPage() {
         </div>
       </nav>
 
-      <main className="main-content !pt-6">
+      <main className="main-content dashboard-module-content !pt-6">
         {loading && tasks.length === 0 ? (
           <div className="py-20 flex justify-center text-main/30">
             <Spinner className="animate-spin" size={32} />
@@ -913,7 +908,7 @@ export default function MonitorTasksPage() {
                     {groupTasks.length}
                   </span>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+                <div className="dashboard-module-grid">
                   {groupTasks.map((task) => {
                     const rule = task.rules[0];
                     const channel = rule?.push_channel || "telegram";
@@ -927,7 +922,7 @@ export default function MonitorTasksPage() {
                     return (
                       <div
                         key={`${task.account_name}-${task.name}`}
-                        className="glass-panel p-4 flex flex-col gap-3"
+                        className="dashboard-module-card glass-panel p-4 flex flex-col gap-3"
                       >
                         <div className="flex justify-between gap-3">
                           <div className="min-w-0">

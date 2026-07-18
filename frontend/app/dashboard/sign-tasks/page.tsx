@@ -63,12 +63,14 @@ function SignTasksInner() {
   return (
     <div className="w-full min-h-full flex flex-col">
       <header className="navbar">
-        <div>
-          <div className="nav-title">{isZh ? "签到任务" : "Sign Tasks"}</div>
-          <div className="text-[11px] text-muted-foreground mt-0.5">
-            {isZh
-              ? "按账号管理自动签到任务，与消息群发隔离"
-              : "Manage sign-in tasks per account, isolated from broadcast"}
+        <div className="nav-brand">
+          <div className="navbar-title-block">
+            <div className="nav-title">{isZh ? "签到任务" : "Sign Tasks"}</div>
+            <div className="nav-subtitle">
+              {isZh
+                ? "按账号管理自动签到任务，与消息群发隔离"
+                : "Manage sign-in tasks per account, isolated from broadcast"}
+            </div>
           </div>
         </div>
       </header>

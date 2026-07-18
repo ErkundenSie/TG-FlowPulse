@@ -98,10 +98,10 @@ export default function MemberExportPage() {
   return (
     <div className="w-full min-h-full flex flex-col">
       <header className="navbar">
-        <div className="min-w-0">
-          <div className="nav-title truncate">成员导出</div>
-          <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
-            直接读取 Telegram 群成员列表
+        <div className="nav-brand">
+          <div className="navbar-title-block">
+            <div className="nav-title">成员导出</div>
+            <div className="nav-subtitle">直接读取 Telegram 群成员列表</div>
           </div>
         </div>
       </header>

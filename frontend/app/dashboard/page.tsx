@@ -1921,20 +1921,18 @@ export default function Dashboard() {
       id="dashboard-view"
       className="w-full h-full flex flex-col relative z-10"
     >
-      <header className="flex-shrink-0 h-16 md:h-[72px] px-5 md:px-8 flex items-center justify-between border-b border-border/60 bg-background/70 backdrop-blur-xl sticky top-0 z-20">
-        <div className="min-w-0">
-          <h1 className="text-xl md:text-2xl font-black tracking-tight text-foreground truncate">
-            {t("sidebar_accounts")}
-          </h1>
-          <p className="text-[11px] md:text-xs font-medium text-muted-foreground mt-0.5 truncate">
-            {t("settings_desc")}
-          </p>
+      <header className="navbar">
+        <div className="nav-brand">
+          <div className="navbar-title-block">
+            <h1 className="nav-title">{t("sidebar_accounts")}</h1>
+            <p className="nav-subtitle">{t("settings_desc")}</p>
+          </div>
         </div>
-        <div className="flex items-center gap-2.5 shrink-0">
+        <div className="top-right-actions shrink-0">
           <button
             type="button"
             onClick={openAddDialog}
-            className="hidden sm:inline-flex h-9 items-center gap-1.5 rounded-lg border border-border/80 bg-background/45 px-3.5 text-xs font-semibold text-muted-foreground shadow-sm transition-all hover:border-primary/25 hover:bg-primary/[0.05] hover:text-primary active:scale-[0.98]"
+            className="navbar-text-action hidden sm:inline-flex"
           >
             <Plus weight="bold" size={14} />
             <span>{t("add_account")}</span>
@@ -1942,14 +1940,14 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <main className="flex-1 w-full max-w-[1600px] mx-auto p-4 md:p-7 overflow-y-auto overflow-x-hidden animate-fade-in">
+      <main className="main-content dashboard-module-content dashboard-home-content animate-fade-in">
         {loading && accounts.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
             <Spinner className="animate-spin mb-4 text-primary" size={32} />
             <p className="text-sm font-medium">{t("loading")}</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-5 relative z-10">
+          <div className="dashboard-module-grid relative z-10">
             {accounts.map((acc) => {
               const initial = acc.name.charAt(0).toUpperCase();
               const statusInfo = accountStatusMap[acc.name];
@@ -1968,7 +1966,7 @@ export default function Dashboard() {
               return (
                 <div
                   key={acc.name}
-                  className="group relative flex flex-col justify-between p-5 bg-card/70 backdrop-blur-xl border border-border/70 rounded-2xl shadow-soft transition-all duration-500 hover:-translate-y-1.5 hover:shadow-soft-hover hover:border-primary/40 cursor-pointer overflow-hidden"
+                  className="dashboard-module-card group relative flex flex-col justify-between p-5 bg-card/70 backdrop-blur-xl border border-border/70 rounded-2xl shadow-soft transition-all duration-500 hover:-translate-y-1.5 hover:shadow-soft-hover hover:border-primary/40 cursor-pointer overflow-hidden"
                   onClick={() => handleAccountCardClick(acc)}
                 >
                   <div className="absolute inset-0 bg-gradient-to-br from-primary/[0.12] via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
@@ -2112,7 +2110,7 @@ export default function Dashboard() {
 
             <button
               type="button"
-              className="group relative flex flex-col items-center justify-center p-6 min-h-[200px] bg-card/40 backdrop-blur-md border-2 border-dashed border-border/70 rounded-2xl transition-all duration-500 hover:-translate-y-1 hover:bg-card/70 hover:border-primary/50 hover:shadow-soft-hover overflow-hidden"
+              className="dashboard-module-card group relative flex flex-col items-center justify-center p-6 bg-card/40 backdrop-blur-md border-2 border-dashed border-border/70 rounded-2xl transition-all duration-500 hover:-translate-y-1 hover:bg-card/70 hover:border-primary/50 hover:shadow-soft-hover overflow-hidden"
               onClick={openAddDialog}
             >
               <div className="absolute inset-0 bg-gradient-to-br from-primary/[0.05] via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />

@@ -63,12 +63,14 @@ function BroadcastInner() {
   return (
     <div className="w-full min-h-full flex flex-col">
       <header className="navbar">
-        <div>
-          <div className="nav-title">{isZh ? "消息群发" : "Broadcast"}</div>
-          <div className="text-[11px] text-muted-foreground mt-0.5">
-            {isZh
-              ? "基于签到任务引擎，独立隔离的群发调度"
-              : "Sign-task engine, isolated broadcast jobs"}
+        <div className="nav-brand">
+          <div className="navbar-title-block">
+            <div className="nav-title">{isZh ? "消息群发" : "Broadcast"}</div>
+            <div className="nav-subtitle">
+              {isZh
+                ? "基于签到任务引擎，独立隔离的群发调度"
+                : "Sign-task engine, isolated broadcast jobs"}
+            </div>
           </div>
         </div>
       </header>

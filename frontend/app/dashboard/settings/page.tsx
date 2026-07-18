@@ -2,7 +2,6 @@
 
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import Link from "next/link";
 import { getToken, setToken } from "../../../lib/auth";
 import {
   changePassword,
@@ -32,7 +31,6 @@ import {
   SystemLogsResponse,
 } from "../../../lib/api";
 import {
-  CaretLeft,
   User,
   Lock,
   ShieldCheck,
@@ -674,17 +672,10 @@ function SettingsPageContent() {
     <div id="settings-view" className="w-full h-full flex flex-col">
       <nav className="navbar">
         <div className="nav-brand min-w-0">
-          <div className="flex items-center gap-3 min-w-0">
-            <Link
-              href="/dashboard"
-              className="action-btn"
-              title={t("sidebar_home")}
-            >
-              <CaretLeft weight="bold" size={18} />
-            </Link>
-            <div className="min-w-0">
-              <h1 className="nav-title truncate">{t("sidebar_settings")}</h1>
-              <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+          <div className="flex items-center min-w-0">
+            <div className="navbar-title-block">
+              <h1 className="nav-title">{t("sidebar_settings")}</h1>
+              <p className="nav-subtitle">
                 {t("settings_account_security_desc")}
               </p>
             </div>
