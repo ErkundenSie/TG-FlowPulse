@@ -28,6 +28,11 @@ import {
 import { ThemeLanguageToggle } from "../../../../components/ThemeLanguageToggle";
 import { useLanguage } from "../../../../context/LanguageContext";
 import { ToastContainer, useToast } from "../../../../components/ui/toast";
+import {
+  ChatPickerField,
+  ChatPickerList,
+  formatChatSubtitle,
+} from "../../../../components/ui/chat-picker";
 
 type CreateTargetMode = "single_task" | "batch_tasks";
 type ActionTypeOption = "1" | "9" | "10";
@@ -606,7 +611,7 @@ export default function CreateSignTaskPage() {
 
       {/* Editing Dialog */}
       {editingChat && (
-        <div className="modal-overlay fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div className="modal-overlay active fixed inset-0 z-[100] flex items-center justify-center p-4">
           <div className="glass-panel modal-content w-full max-w-lg animate-scale-in flex flex-col overflow-hidden">
             <header className="p-6 border-b border-white/5 flex justify-between items-center bg-black/5">
               <h2 className="text-xl font-bold flex items-center gap-3">
@@ -624,135 +629,80 @@ export default function CreateSignTaskPage() {
             </header>
 
             <div className="p-6 space-y-6">
-              <div className="space-y-2">
-                <label className="text-xs uppercase tracking-widest font-bold text-main/40">
+              <div className="space-y-3">
+                <label className="text-xs uppercase tracking-widest font-bold text-muted-foreground">
                   {t("select_target_chat")}
                 </label>
-                <div className="space-y-2">
-                  <label className="text-[10px] text-main/40 uppercase tracking-wider">
-                    {t("search_chat")}
-                  </label>
-                  <input
-                    className="!mb-0"
-                    placeholder={t("search_chat_placeholder")}
-                    value={chatSearch}
-                    onChange={(e) => setChatSearch(e.target.value)}
-                  />
-                </div>
-                {chatSearch.trim() ? (
-                  <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-white/5 bg-black/5">
-                    {chatSearchLoading ? (
-                      <div className="px-3 py-2 text-xs text-main/40">
-                        {t("searching")}
-                      </div>
-                    ) : chatSearchResults.length > 0 ? (
-                      <div className="flex flex-col">
-                        {chatSearchResults.map((chat) => {
-                          const title = getChatTitle(chat);
-                          const selected = selectedDialogChats.some(
-                            (item) => item.id === chat.id,
-                          );
-                          return (
-                            <button
-                              key={chat.id}
-                              type="button"
-                              className="text-left px-3 py-2 hover:bg-white/5 border-b border-white/5 last:border-b-0 flex items-center gap-2"
-                              onClick={() => {
-                                toggleSelectedDialogChat(chat);
-                              }}
-                            >
-                              <input
-                                type="checkbox"
-                                readOnly
-                                checked={selected}
-                                className="!mb-0 h-4 w-4 accent-[#8a3ffc] shrink-0"
-                              />
-                              <div className="text-sm font-semibold truncate">
-                                {title}
-                              </div>
-                              <div className="text-[10px] text-main/40 font-mono truncate">
-                                {chat.id}
-                                {chat.username ? ` · @${chat.username}` : ""}
-                              </div>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="px-3 py-2 text-xs text-main/40">
-                        {t("search_no_results")}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-white/5 bg-black/5">
-                    {availableChats.map((chat) => {
-                      const title = getChatTitle(chat);
-                      const selected = selectedDialogChats.some(
+                <ChatPickerField
+                  label={t("search_chat")}
+                  searchValue={chatSearch}
+                  onSearchChange={setChatSearch}
+                  searchPlaceholder={t("search_chat_placeholder")}
+                >
+                  <ChatPickerList
+                    maxHeight={192}
+                    loading={chatSearch.trim() ? chatSearchLoading : false}
+                    loadingText={t("searching")}
+                    emptyText={
+                      chatSearch.trim()
+                        ? t("search_no_results")
+                        : t("select_from_list")
+                    }
+                    items={(chatSearch.trim()
+                      ? chatSearchResults
+                      : availableChats
+                    ).map((chat) => ({
+                      id: chat.id,
+                      title: getChatTitle(chat),
+                      subtitle: formatChatSubtitle(chat),
+                      selected: selectedDialogChats.some(
                         (item) => item.id === chat.id,
-                      );
-                      return (
-                        <button
-                          key={chat.id}
-                          type="button"
-                          className="w-full text-left px-3 py-2 hover:bg-white/5 border-b border-white/5 last:border-b-0 flex items-center gap-2"
-                          onClick={() => toggleSelectedDialogChat(chat)}
-                        >
-                          <input
-                            type="checkbox"
-                            readOnly
-                            checked={selected}
-                            className="!mb-0 h-4 w-4 accent-[#8a3ffc] shrink-0"
-                          />
-                          <div className="min-w-0">
-                            <div className="text-sm font-semibold truncate">
-                              {title}
-                            </div>
-                            <div className="text-[10px] text-main/40 font-mono truncate">
-                              {chat.id}
-                              {chat.username ? ` · @${chat.username}` : ""}
-                            </div>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-                <div className="mt-3 space-y-2">
+                      ),
+                    }))}
+                    onSelect={(id) => {
+                      const source = chatSearch.trim()
+                        ? chatSearchResults
+                        : availableChats;
+                      const chat = source.find((item) => item.id === id);
+                      if (chat) toggleSelectedDialogChat(chat);
+                    }}
+                  />
+                </ChatPickerField>
+                <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <label className="text-[10px] text-main/40 uppercase tracking-wider">
+                    <label className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">
                       {t("selected_chats")} ({selectedDialogChats.length})
                     </label>
                     <button
                       type="button"
-                      className="text-[10px] text-[#8a3ffc] hover:text-[#8a3ffc]/80 font-bold uppercase"
+                      className="text-[10px] text-primary hover:text-primary/80 font-bold uppercase"
                       onClick={() => setSelectedDialogChats([])}
                     >
                       {t("clear_selected")}
                     </button>
                   </div>
                   {selectedDialogChats.length > 0 ? (
-                    <div className="flex flex-wrap gap-2">
+                    <div className="chat-picker-chips">
                       {selectedDialogChats.map((chat) => (
                         <button
                           key={chat.id}
                           type="button"
-                          className="inline-flex max-w-full items-center gap-2 rounded-lg border border-white/5 bg-white/5 px-2 py-1 text-xs text-main/70 hover:bg-rose-500/10 hover:text-rose-300"
+                          className="chat-picker-chip"
                           onClick={() => toggleSelectedDialogChat(chat)}
                         >
-                          <span className="truncate max-w-[180px]">
+                          <span className="chat-picker-chip-text">
                             {getChatTitle(chat)}
                           </span>
-                          <X weight="bold" size={12} />
+                          <X weight="bold" size={11} />
                         </button>
                       ))}
                     </div>
                   ) : (
-                    <div className="text-xs text-main/30">
+                    <div className="text-xs text-muted-foreground">
                       {t("no_selected_chats")}
                     </div>
                   )}
-                  <div className="text-[10px] text-main/30">
+                  <div className="text-[10px] text-muted-foreground">
                     {t("multi_select_hint")}
                   </div>
                 </div>

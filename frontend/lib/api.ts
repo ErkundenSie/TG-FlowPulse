@@ -653,6 +653,7 @@ export const importSignTask = (
   configJson: string,
   taskName?: string,
   accountName?: string,
+  overwrite = true,
 ) =>
   request<{ success: boolean; task_name: string; message: string }>(
     "/config/import/sign",
@@ -662,6 +663,7 @@ export const importSignTask = (
         config_json: configJson,
         task_name: taskName,
         account_name: accountName,
+        overwrite,
       }),
     },
     token,
@@ -995,10 +997,13 @@ export interface LastRunInfo {
   message?: string;
 }
 
+export type SignTaskKind = "sign" | "broadcast";
+
 export interface SignTask {
   name: string;
   account_name: string;
   group?: string;
+  task_kind?: SignTaskKind | string;
   sign_at: string;
   chats: SignTaskChat[];
   random_seconds: number;
@@ -1015,6 +1020,7 @@ export interface CreateSignTaskRequest {
   name: string;
   account_name: string;
   group?: string;
+  task_kind?: SignTaskKind | string;
   sign_at: string;
   chats: SignTaskChat[];
   random_seconds?: number;
@@ -1029,6 +1035,7 @@ export interface CreateSignTaskRequest {
 export interface UpdateSignTaskRequest {
   name?: string;
   group?: string;
+  task_kind?: SignTaskKind | string;
   sign_at?: string;
   chats?: SignTaskChat[];
   random_seconds?: number;
@@ -1059,10 +1066,12 @@ export async function listSignTasks(
   token: string,
   accountName?: string,
   forceRefresh?: boolean,
+  taskKind: SignTaskKind | string = "sign",
 ): Promise<SignTask[]> {
   const params = new URLSearchParams();
   if (accountName) params.append("account_name", accountName);
   if (forceRefresh) params.append("force_refresh", "true");
+  if (taskKind) params.append("task_kind", String(taskKind));
   const url = `/sign-tasks${params.toString() ? `?${params.toString()}` : ""}`;
   return request<SignTask[]>(url, {}, token);
 }
@@ -1071,9 +1080,11 @@ export const getSignTask = (
   token: string,
   name: string,
   accountName?: string,
+  taskKind?: SignTaskKind | string,
 ) => {
   const params = new URLSearchParams();
   if (accountName) params.append("account_name", accountName);
+  if (taskKind) params.append("task_kind", String(taskKind));
   const url = `/sign-tasks/${pathSegment(name)}${params.toString() ? `?${params.toString()}` : ""}`;
   return request<SignTask>(url, {}, token);
 };
@@ -1083,7 +1094,7 @@ export const createSignTask = (token: string, data: CreateSignTaskRequest) =>
     "/sign-tasks",
     {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify({ task_kind: "sign", ...data }),
     },
     token,
   );
@@ -1093,28 +1104,40 @@ export const updateSignTask = (
   name: string,
   data: UpdateSignTaskRequest,
   accountName?: string,
-) =>
-  request<SignTask>(
-    `/sign-tasks/${pathSegment(name)}${accountName ? `?account_name=${encodeURIComponent(accountName)}` : ""}`,
+  taskKind?: SignTaskKind | string,
+) => {
+  const params = new URLSearchParams();
+  if (accountName) params.append("account_name", accountName);
+  if (taskKind) params.append("task_kind", String(taskKind));
+  const query = params.toString() ? `?${params.toString()}` : "";
+  return request<SignTask>(
+    `/sign-tasks/${pathSegment(name)}${query}`,
     {
       method: "PUT",
       body: JSON.stringify(data),
     },
     token,
   );
+};
 
 export const deleteSignTask = (
   token: string,
   name: string,
   accountName?: string,
-) =>
-  request<{ ok: boolean }>(
-    `/sign-tasks/${pathSegment(name)}${accountName ? `?account_name=${encodeURIComponent(accountName)}` : ""}`,
+  taskKind?: SignTaskKind | string,
+) => {
+  const params = new URLSearchParams();
+  if (accountName) params.append("account_name", accountName);
+  if (taskKind) params.append("task_kind", String(taskKind));
+  const query = params.toString() ? `?${params.toString()}` : "";
+  return request<{ ok: boolean }>(
+    `/sign-tasks/${pathSegment(name)}${query}`,
     {
       method: "DELETE",
     },
     token,
   );
+};
 
 export const runSignTask = (token: string, name: string, accountName: string) =>
   request<{ success: boolean; output: string; error: string }>(

@@ -125,6 +125,7 @@ class SignTaskCreate(BaseModel):
 
     enabled: bool = Field(True, description="Whether the task is enabled")
     notify_on_failure: bool = Field(True, description="Send notification when task fails")
+    task_kind: str = Field("sign", description="任务类型: sign/broadcast")
 
     @validator("name")
     def name_must_be_valid_filename(cls, v):
@@ -151,6 +152,7 @@ class SignTaskUpdate(BaseModel):
 
     enabled: Optional[bool] = Field(None, description="Whether the task is enabled")
     notify_on_failure: Optional[bool] = Field(None, description="Send notification when task fails")
+    task_kind: Optional[str] = Field(None, description="任务类型: sign/broadcast")
 
     @validator("name")
     def name_must_be_valid_filename(cls, v):
@@ -173,6 +175,7 @@ class SignTaskOut(BaseModel):
     name: str
     account_name: str = ""
     group: str = ""
+    task_kind: str = "sign"
     sign_at: str
     chats: List[Dict[str, Any]]
     random_seconds: int
@@ -224,10 +227,24 @@ class TaskHistoryItem(BaseModel):
 # API 路由
 
 
+def _normalize_task_kind(value: Optional[str]) -> str:
+    kind = (value or "sign").strip().lower() or "sign"
+    return kind if kind in {"sign", "broadcast"} else "sign"
+
+
+def _matches_task_kind(task: Dict[str, Any], task_kind: Optional[str]) -> bool:
+    if task.get("monitor_only"):
+        return False
+    expected = _normalize_task_kind(task_kind)
+    actual = _normalize_task_kind(task.get("task_kind"))
+    return actual == expected
+
+
 @router.get("", response_model=List[SignTaskOut])
 def list_sign_tasks(
     account_name: Optional[str] = None,
     force_refresh: bool = False,
+    task_kind: Optional[str] = Query("sign", description="任务类型: sign/broadcast"),
     current_user=Depends(get_current_user),
 ):
     """
@@ -235,12 +252,13 @@ def list_sign_tasks(
 
     Args:
         account_name: 可选，按账号名筛选任务
+        task_kind: 任务类型，默认 sign；broadcast 为消息群发
     """
     tasks = get_sign_task_service().list_tasks(
         account_name=account_name,
         force_refresh=force_refresh,
     )
-    return [task for task in tasks if not task.get("monitor_only")]
+    return [task for task in tasks if _matches_task_kind(task, task_kind)]
 
 
 @router.post("", response_model=SignTaskOut, status_code=status.HTTP_201_CREATED)
@@ -259,6 +277,7 @@ async def create_sign_task(
             task_name=payload.name,
             account_name=payload.account_name,
             group=payload.group,
+            task_kind=_normalize_task_kind(payload.task_kind),
             sign_at=payload.sign_at,
             chats=chats_dict,
             random_seconds=payload.random_seconds,
@@ -287,11 +306,14 @@ async def create_sign_task(
 def get_sign_task(
     task_name: str,
     account_name: Optional[str] = None,
+    task_kind: Optional[str] = Query(None, description="任务类型: sign/broadcast"),
     current_user=Depends(get_current_user),
 ):
     """获取单个签到任务的详细信息"""
     task = get_sign_task_service().get_task(task_name, account_name=account_name)
     if not task or task.get("monitor_only"):
+        raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+    if task_kind is not None and not _matches_task_kind(task, task_kind):
         raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
     return task
 
@@ -301,6 +323,7 @@ async def update_sign_task(
     task_name: str,
     payload: SignTaskUpdate,
     account_name: Optional[str] = None,
+    task_kind: Optional[str] = Query(None, description="任务类型: sign/broadcast"),
     current_user=Depends(get_current_user),
 ):
     """更新签到任务"""
@@ -308,6 +331,8 @@ async def update_sign_task(
         # 检查任务是否存在
         existing = get_sign_task_service().get_task(task_name, account_name=account_name)
         if not existing or existing.get("monitor_only"):
+            raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+        if task_kind is not None and not _matches_task_kind(existing, task_kind):
             raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
 
         # 转换 chats 为字典列表
@@ -329,6 +354,11 @@ async def update_sign_task(
             enabled=payload.enabled,
             notify_on_failure=payload.notify_on_failure,
             new_task_name=payload.name,
+            task_kind=(
+                _normalize_task_kind(payload.task_kind)
+                if payload.task_kind is not None
+                else existing.get("task_kind", "sign")
+            ),
         )
 
         # 同步调度器
@@ -352,11 +382,14 @@ async def update_sign_task(
 async def delete_sign_task(
     task_name: str,
     account_name: Optional[str] = None,
+    task_kind: Optional[str] = Query(None, description="任务类型: sign/broadcast"),
     current_user=Depends(get_current_user),
 ):
     """删除签到任务"""
     existing = get_sign_task_service().get_task(task_name, account_name=account_name)
     if not existing or existing.get("monitor_only"):
+        raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
+    if task_kind is not None and not _matches_task_kind(existing, task_kind):
         raise HTTPException(status_code=404, detail=f"任务 {task_name} 不存在")
     success = get_sign_task_service().delete_task(task_name, account_name=account_name)
     if not success:

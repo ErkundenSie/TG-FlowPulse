@@ -267,6 +267,11 @@ async def start_account_login(
         return LoginStartResponse(**result)
 
     except ValueError as e:
+        logger.warning(
+            "Telegram login code request failed for account '%s': %s",
+            request.account_name,
+            str(e),
+        )
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         raise HTTPException(
@@ -305,6 +310,11 @@ async def verify_account_login(
         )
 
     except ValueError as e:
+        logger.warning(
+            "Telegram login verification failed for account '%s': %s",
+            request.account_name,
+            str(e),
+        )
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
         raise HTTPException(

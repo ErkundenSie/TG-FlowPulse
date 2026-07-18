@@ -1,7 +1,7 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { getToken, setToken } from "../../../lib/auth";
 import {
@@ -77,8 +77,26 @@ type SettingsSection =
   | "logs"
   | "backup";
 
-export default function SettingsPage() {
+const SETTINGS_SECTIONS: SettingsSection[] = [
+  "account",
+  "global",
+  "notify",
+  "ai",
+  "telegram",
+  "logs",
+  "backup",
+];
+
+function parseSettingsSection(value: string | null): SettingsSection {
+  if (value && SETTINGS_SECTIONS.includes(value as SettingsSection)) {
+    return value as SettingsSection;
+  }
+  return "account";
+}
+
+function SettingsPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { t } = useLanguage();
   const { toasts, addToast, removeToast } = useToast();
   const [token, setLocalToken] = useState<string | null>(null);
@@ -90,8 +108,7 @@ export default function SettingsPage() {
   const [systemLogsLoading, setSystemLogsLoading] = useState(false);
   const [systemLogs, setSystemLogs] = useState<SystemLogsResponse | null>(null);
   const [systemLogLimit, setSystemLogLimit] = useState(800);
-  const [activeSection, setActiveSection] =
-    useState<SettingsSection>("account");
+  const activeSection = parseSettingsSection(searchParams.get("section"));
 
   // Username change form
   const [usernameForm, setUsernameForm] = useState({
@@ -656,18 +673,21 @@ export default function SettingsPage() {
   return (
     <div id="settings-view" className="w-full h-full flex flex-col">
       <nav className="navbar">
-        <div className="nav-brand">
-          <div className="flex items-center gap-4">
+        <div className="nav-brand min-w-0">
+          <div className="flex items-center gap-3 min-w-0">
             <Link
               href="/dashboard"
-              className="action-btn !w-8 !h-8"
+              className="action-btn"
               title={t("sidebar_home")}
             >
               <CaretLeft weight="bold" size={18} />
             </Link>
-            <h1 className="text-lg font-bold tracking-tight">
-              {t("sidebar_settings")}
-            </h1>
+            <div className="min-w-0">
+              <h1 className="nav-title truncate">{t("sidebar_settings")}</h1>
+              <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+                {t("settings_account_security_desc")}
+              </p>
+            </div>
           </div>
         </div>
         <div className="top-right-actions">
@@ -680,8 +700,9 @@ export default function SettingsPage() {
           >
             <GithubLogo weight="bold" />
           </a>
-          <div
-            className="action-btn !text-rose-400 hover:bg-rose-500/10"
+          <button
+            type="button"
+            className="action-btn !text-rose-500 hover:!bg-rose-500/10"
             title={t("logout")}
             onClick={() => {
               const { logout } = require("../../../lib/auth");
@@ -690,49 +711,12 @@ export default function SettingsPage() {
             }}
           >
             <SignOut weight="bold" />
-          </div>
+          </button>
         </div>
       </nav>
 
       <main className="main-content settings-main !pt-6">
-        <div className="settings-shell animate-float-up pb-10">
-          <aside className="settings-sidebar h-fit lg:self-start">
-            <div className="space-y-1">
-              {settingsSections.map((section) => {
-                const SectionIcon = section.icon;
-                const isActive = activeSection === section.id;
-
-                return (
-                  <button
-                    key={section.id}
-                    type="button"
-                    onClick={() => setActiveSection(section.id)}
-                    className={`settings-nav-item ${isActive ? "is-active" : ""}`}
-                  >
-                    <span
-                      className={`settings-icon flex items-center justify-center shrink-0 ${section.color}`}
-                    >
-                      <SectionIcon
-                        weight={isActive ? "fill" : "bold"}
-                        size={18}
-                      />
-                    </span>
-                    <span className="min-w-0">
-                      <span
-                        className={`block text-sm font-bold truncate ${isActive ? "text-main" : "text-main/75"}`}
-                      >
-                        {section.label}
-                      </span>
-                      <span className="block text-[10px] text-main/45 leading-relaxed truncate">
-                        {section.description}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </aside>
-
+        <div className="settings-shell settings-shell-single animate-float-up pb-10">
           <section className="settings-content min-w-0 space-y-4">
             <div className="settings-section-header flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">
@@ -1561,5 +1545,13 @@ export default function SettingsPage() {
 
       <ToastContainer toasts={toasts} removeToast={removeToast} />
     </div>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={null}>
+      <SettingsPageContent />
+    </Suspense>
   );
 }

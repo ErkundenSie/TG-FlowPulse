@@ -10,6 +10,11 @@ export const metadata: Metadata = {
   title: "TG-FlowPulse",
   description:
     "Telegram 多账号自动化任务编排、消息监听、通知转发与签到管理面板",
+  icons: {
+    icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
+    shortcut: ["/favicon.svg"],
+    apple: [{ url: "/favicon.svg" }],
+  },
 };
 
 export const viewport: Viewport = {
@@ -25,12 +30,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="zh">
-      <body className={inter.className}>
+    <html lang="zh" suppressHydrationWarning>
+      <body
+        className={`${inter.className} antialiased`}
+        suppressHydrationWarning
+      >
         <LanguageProvider>
-          <ThemeProvider>
-            {children}
-          </ThemeProvider>
+          <ThemeProvider>{children}</ThemeProvider>
         </LanguageProvider>
       </body>
     </html>

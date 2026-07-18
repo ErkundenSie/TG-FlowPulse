@@ -15,7 +15,6 @@ import {
   updateAccount,
   verifyAccountLogin,
   deleteAccount,
-  exportMatchedChatMembers,
   downloadChatMigrationJson,
   getImportAccountChatsJob,
   getAccountChatsExport,
@@ -524,6 +523,10 @@ export default function Dashboard() {
 
   const handleVerifyLogin = useCallback(async () => {
     if (!token) return;
+    if (!loginData.phone_code_hash) {
+      addToast("请先点击发送验证码", "error");
+      return;
+    }
     if (!loginData.phone_code) {
       addToast(t("login_code_required"), "error");
       return;
@@ -565,7 +568,15 @@ export default function Dashboard() {
       setShowAddDialog(false);
       loadData(token);
     } catch (err: any) {
-      addToast(formatErrorMessage("verify_failed", err), "error");
+      addToast(formatErrorMessage("verify_failed", err, true), "error");
+      const message = String(err?.message || "");
+      if (/验证码错误|验证码已过期|登录会话已过期|2FA 密码错误/.test(message)) {
+        setLoginData((current) => ({
+          ...current,
+          phone_code: "",
+          phone_code_hash: "",
+        }));
+      }
     } finally {
       setLoading(false);
     }
@@ -638,33 +649,6 @@ export default function Dashboard() {
     setChatExportSelectedIds({});
     setChatExportSearch("");
     setShowChatExportDialog(true);
-  };
-
-  const handleMemberScanExport = async (accountName: string) => {
-    if (!token) return;
-    const chatId = window.prompt("请输入群组 ID 或 @群组用户名：", "");
-    if (!chatId?.trim()) return;
-    const keywordText = window.prompt(
-      "可选：输入关键词以标记命中成员（英文逗号或中文逗号分隔；留空则导出全部）：",
-      "",
-    );
-    const keywords = (keywordText || "")
-      .split(/[,，]/)
-      .map((item) => item.trim())
-      .filter(Boolean);
-    try {
-      setLoading(true);
-      await exportMatchedChatMembers(token, accountName, {
-        chat_id: chatId.trim(),
-        keywords,
-        limit: 3000,
-      });
-      addToast("群成员导出已下载", "success");
-    } catch (err: any) {
-      addToast(`成员筛选失败: ${err?.message || "未知错误"}`, "error");
-    } finally {
-      setLoading(false);
-    }
   };
 
   const loadChatExportPreview = useCallback(
@@ -1479,7 +1463,7 @@ export default function Dashboard() {
         openReloginDialog(acc);
         return;
       }
-      router.push(`/dashboard/account-tasks?name=${acc.name}`);
+      router.push(`/dashboard/sign-tasks?name=${encodeURIComponent(acc.name)}`);
     },
     [accountStatusMap, openReloginDialog, router],
   );
@@ -1934,55 +1918,47 @@ export default function Dashboard() {
   }
 
   return (
-    <div id="dashboard-view" className="w-full h-full flex flex-col">
-      <nav className="navbar">
-        <div
-          className="nav-brand"
-          style={{ display: "flex", alignItems: "center", gap: "12px" }}
-        >
-          <Lightning
-            weight="fill"
-            style={{ fontSize: "28px", color: "#fcd34d" }}
-          />
-          <span className="nav-title font-bold tracking-tight text-lg">
-            TG-FlowPulse
-          </span>
+    <div
+      id="dashboard-view"
+      className="w-full h-full flex flex-col relative z-10"
+    >
+      <header className="flex-shrink-0 h-16 md:h-[72px] px-5 md:px-8 flex items-center justify-between border-b border-border/60 bg-background/70 backdrop-blur-xl sticky top-0 z-20">
+        <div className="min-w-0">
+          <h1 className="text-xl md:text-2xl font-black tracking-tight text-foreground truncate">
+            {t("sidebar_accounts")}
+          </h1>
+          <p className="text-[11px] md:text-xs font-medium text-muted-foreground mt-0.5 truncate">
+            {t("settings_desc")}
+          </p>
         </div>
-        <div className="top-right-actions">
-          <Link
-            href="/dashboard/monitors"
-            className="!hidden"
-            title={t("keyword_monitor")}
+        <div className="flex items-center gap-2.5 shrink-0">
+          <button
+            type="button"
+            onClick={openAddDialog}
+            className="hidden sm:inline-flex items-center gap-2 h-10 px-4 bg-gradient-to-r from-primary to-accent text-primary-foreground rounded-xl text-sm font-bold shadow-lg shadow-primary/20 transition-all hover:brightness-105 hover:-translate-y-0.5 active:scale-95"
           >
-            <ChatCircleText weight="bold" size={16} />
-            <span>消息监控</span>
-          </Link>
-          <ThemeLanguageToggle />
-          <Link
-            href="/dashboard/monitors"
-            title={t("keyword_monitor")}
-            className="hidden"
-          >
-            <ChatCircleText weight="bold" />
-          </Link>
+            <Plus weight="bold" size={15} />
+            <span>{t("add_account")}</span>
+          </button>
+
           <Link
             href="/dashboard/settings"
             title={t("sidebar_settings")}
-            className="action-btn"
+            className="w-10 h-10 flex items-center justify-center rounded-xl bg-secondary text-secondary-foreground border border-border/50 hover:bg-secondary/80 transition-all active:scale-95"
           >
-            <Gear weight="bold" />
+            <Gear weight="bold" size={18} />
           </Link>
         </div>
-      </nav>
+      </header>
 
-      <main className="main-content">
+      <main className="flex-1 w-full max-w-[1600px] mx-auto p-4 md:p-7 overflow-y-auto overflow-x-hidden animate-fade-in">
         {loading && accounts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-main/30">
-            <Spinner className="animate-spin mb-4" size={32} />
-            <p>{t("loading")}</p>
+          <div className="flex flex-col items-center justify-center py-24 text-muted-foreground">
+            <Spinner className="animate-spin mb-4 text-primary" size={32} />
+            <p className="text-sm font-medium">{t("loading")}</p>
           </div>
         ) : (
-          <div className="card-grid">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 md:gap-5 relative z-10">
             {accounts.map((acc) => {
               const initial = acc.name.charAt(0).toUpperCase();
               const statusInfo = accountStatusMap[acc.name];
@@ -1997,146 +1973,163 @@ export default function Dashboard() {
               const statusKey = isInvalid
                 ? "account_status_invalid"
                 : "connected";
-              const statusIconClass = isInvalid
-                ? "text-rose-400"
-                : "text-emerald-400";
+
               return (
                 <div
                   key={acc.name}
-                  className="glass-panel card account-card group cursor-pointer"
+                  className="group relative flex flex-col justify-between p-5 bg-card/80 backdrop-blur-xl border border-border/70 rounded-2xl shadow-soft transition-all duration-300 hover:-translate-y-1 hover:shadow-soft-hover hover:border-primary/30 cursor-pointer overflow-hidden"
                   onClick={() => handleAccountCardClick(acc)}
                 >
-                  <div className="card-top">
-                    <div className="account-name">
-                      <div className="account-avatar">{initial}</div>
+                  <div className="absolute inset-0 bg-gradient-to-br from-primary/[0.08] via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-400 pointer-events-none" />
+
+                  <div className="relative z-10 flex justify-between items-start gap-3 mb-5">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="shrink-0 w-11 h-11 rounded-xl bg-gradient-to-br from-primary to-accent flex items-center justify-center text-white font-black text-base shadow-lg shadow-primary/25">
+                        {initial}
+                      </div>
                       <div className="min-w-0">
-                        <div className="font-bold leading-tight truncate">
+                        <div className="font-bold text-foreground truncate text-[15px]">
                           {acc.name}
                         </div>
-                        {acc.remark ? (
-                          <div className="text-xs text-main/40 leading-tight truncate">
+                        {acc.remark && (
+                          <div className="text-xs font-medium text-muted-foreground truncate mt-0.5">
                             {acc.remark}
                           </div>
-                        ) : null}
+                        )}
                       </div>
                     </div>
-                    <div className="task-badge">
+                    <div className="shrink-0 px-2.5 py-1 rounded-full bg-primary/10 border border-primary/15 text-primary text-[10px] font-bold tracking-wide">
                       {getAccountTaskCount(acc.name)} {t("sidebar_tasks")}
                     </div>
                   </div>
 
-                  <div className="account-card-body">
+                  <div className="relative z-10 flex items-center justify-between mt-auto">
                     <div
-                      className={`account-status-pill ${isInvalid ? "invalid" : "connected"}`}
+                      className={`inline-flex items-center gap-2 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
+                        isInvalid
+                          ? "bg-destructive/10 text-destructive border-destructive/20"
+                          : "bg-emerald-500/10 text-emerald-500 border-emerald-500/20"
+                      }`}
                       title={statusInfo?.message || acc.status_message || ""}
                     >
-                      <span className="account-status-dot" />
-                      <Clock weight="fill" className={statusIconClass} />
+                      <span className="relative flex h-1.5 w-1.5">
+                        <span
+                          className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-60 ${
+                            isInvalid ? "bg-destructive" : "bg-emerald-500"
+                          }`}
+                        />
+                        <span
+                          className={`relative inline-flex rounded-full h-1.5 w-1.5 ${
+                            isInvalid ? "bg-destructive" : "bg-emerald-500"
+                          }`}
+                        />
+                      </span>
                       <span>{t(statusKey)}</span>
-                    </div>
-                    <div className="account-card-hint">
-                      {isInvalid ? t("relogin_account") : t("sidebar_tasks")}
                     </div>
                   </div>
 
-                  <div className="card-bottom account-card-footer">
-                    <div className="card-actions">
-                      <Link
-                        href={`/dashboard/account-tasks?name=${encodeURIComponent(acc.name)}`}
-                        className="action-icon action-primary"
-                        title="签到任务"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <Lightning weight="bold" size={16} />
-                      </Link>
-                      <Link
-                        href={`/dashboard/monitors?account_name=${encodeURIComponent(acc.name)}`}
-                        className="action-icon action-cyan"
-                        title="消息监控"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <ChatCircleText weight="bold" size={16} />
-                      </Link>
-                      <div
-                        className="action-icon"
-                        title={t("edit_account")}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleEditAccount(acc);
-                        }}
-                      >
-                        <PencilSimple weight="bold" size={16} />
-                      </div>
-                      <div
-                        className="action-icon action-emerald"
-                        title={t("chat_migration_export")}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openChatExportDialog(acc.name);
-                        }}
-                      >
-                        <UploadSimple weight="bold" size={16} />
-                      </div>
-                      <div
-                        className="action-icon action-cyan"
-                        title="按关键词筛选群成员并导出"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleMemberScanExport(acc.name);
-                        }}
-                      >
-                        <ListDashes weight="bold" size={16} />
-                      </div>
-                      <div
-                        className="action-icon action-sky"
-                        title={t("chat_migration_import")}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openChatImportDialog(acc.name);
-                        }}
-                      >
-                        <DownloadSimple weight="bold" size={16} />
-                      </div>
-                      <div
-                        className="action-icon delete"
-                        title={t("remove")}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteAccount(acc.name);
-                        }}
-                      >
-                        <Trash weight="bold" size={16} />
-                      </div>
-                    </div>
+                  <div
+                    className="relative z-20 mt-5 pt-4 border-t border-border/60 flex items-center justify-end gap-1 opacity-70 group-hover:opacity-100 transition-opacity"
+                    onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                  >
+                    {[
+                      {
+                        icon: Lightning,
+                        title: "签到任务",
+                        href: `/dashboard/sign-tasks?name=${encodeURIComponent(acc.name)}`,
+                        color: "text-amber-500 hover:bg-amber-500/10",
+                      },
+                      {
+                        icon: ChatCircleText,
+                        title: "消息监控",
+                        href: `/dashboard/monitors?account_name=${encodeURIComponent(acc.name)}`,
+                        color: "text-cyan-500 hover:bg-cyan-500/10",
+                      },
+                      {
+                        icon: ListDashes,
+                        title: "群成员导出",
+                        onClick: () =>
+                          router.push(
+                            `/dashboard/member-export?account_name=${encodeURIComponent(acc.name)}`,
+                          ),
+                        color: "text-indigo-500 hover:bg-indigo-500/10",
+                      },
+                      {
+                        icon: PencilSimple,
+                        title: t("edit_account"),
+                        onClick: () => handleEditAccount(acc),
+                        color:
+                          "text-muted-foreground hover:text-foreground hover:bg-muted",
+                      },
+                      {
+                        icon: UploadSimple,
+                        title: t("chat_migration_export"),
+                        onClick: () => openChatExportDialog(acc.name),
+                        color: "text-emerald-500 hover:bg-emerald-500/10",
+                      },
+                      {
+                        icon: DownloadSimple,
+                        title: t("chat_migration_import"),
+                        onClick: () => openChatImportDialog(acc.name),
+                        color: "text-sky-500 hover:bg-sky-500/10",
+                      },
+                      {
+                        icon: Trash,
+                        title: t("remove"),
+                        onClick: () => handleDeleteAccount(acc.name),
+                        color: "text-destructive hover:bg-destructive/10",
+                      },
+                    ].map((action, idx) =>
+                      action.href ? (
+                        <Link
+                          key={idx}
+                          href={action.href}
+                          className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all active:scale-90 ${action.color}`}
+                          title={action.title}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            router.push(action.href);
+                          }}
+                          onMouseDown={(e) => e.stopPropagation()}
+                        >
+                          <action.icon weight="bold" size={15} />
+                        </Link>
+                      ) : (
+                        <button
+                          key={idx}
+                          type="button"
+                          className={`flex items-center justify-center w-8 h-8 rounded-lg transition-all active:scale-90 ${action.color}`}
+                          title={action.title}
+                          onMouseDown={(e) => e.stopPropagation()}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            action.onClick?.();
+                          }}
+                        >
+                          <action.icon weight="bold" size={15} />
+                        </button>
+                      ),
+                    )}
                   </div>
                 </div>
               );
             })}
 
-            {/* 添加新账号卡片 */}
-            <Link href="/dashboard/monitors" className="hidden">
-              <div className="add-icon-circle !w-10 !h-10 !bg-cyan-500/10 !text-cyan-500">
-                <ChatCircleText weight="bold" size={20} />
-              </div>
-              <span
-                className="text-xs font-bold"
-                style={{ color: "var(--text-sub)" }}
-              >
-                消息监控
-              </span>
-            </Link>
-
-            <div
-              className="card card-add account-card-add"
+            <button
+              type="button"
+              className="group flex flex-col items-center justify-center p-6 min-h-[200px] bg-card/40 backdrop-blur-sm border-2 border-dashed border-border/70 rounded-2xl transition-all duration-300 hover:bg-card/70 hover:border-primary/40 hover:shadow-soft"
               onClick={openAddDialog}
             >
-              <div className="add-icon-circle">
-                <Plus weight="bold" size={20} />
+              <div className="w-12 h-12 rounded-2xl bg-muted flex items-center justify-center text-muted-foreground group-hover:bg-primary group-hover:text-primary-foreground group-hover:shadow-lg group-hover:shadow-primary/25 transition-all duration-300 mb-3 group-active:scale-95">
+                <Plus weight="bold" size={22} />
               </div>
-              <span className="text-sm font-bold text-main/70">
+              <span className="text-sm font-bold text-muted-foreground group-hover:text-foreground transition-colors">
                 {t("add_account")}
               </span>
-            </div>
+            </button>
           </div>
         )}
       </main>
@@ -2276,7 +2269,11 @@ export default function Dashboard() {
                     <button
                       className="btn-gradient flex-1 h-10 !py-0 !text-xs"
                       onClick={handleVerifyLogin}
-                      disabled={loading || !loginData.phone_code.trim()}
+                      disabled={
+                        loading ||
+                        !loginData.phone_code.trim() ||
+                        !loginData.phone_code_hash
+                      }
                     >
                       {loading ? (
                         <Spinner className="animate-spin" />

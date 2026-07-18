@@ -1,11 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   ArrowClockwise,
-  CaretLeft,
   ChatCircleText,
   Check,
   Copy,
@@ -39,8 +37,12 @@ import {
   searchAccountChats,
   updateMonitorTask,
 } from "../../../lib/api";
-import { ThemeLanguageToggle } from "../../../components/ThemeLanguageToggle";
 import { ToastContainer, useToast } from "../../../components/ui/toast";
+import {
+  ChatPickerField,
+  ChatPickerList,
+  formatChatSubtitle,
+} from "../../../components/ui/chat-picker";
 import { useLanguage } from "../../../context/LanguageContext";
 
 const emptyRule = (): MonitorRule => ({
@@ -846,20 +848,22 @@ export default function MonitorTasksPage() {
   return (
     <div id="monitor-view" className="w-full h-full flex flex-col">
       <nav className="navbar">
-        <div className="nav-brand">
-          <div className="flex items-center gap-4">
-            <Link
-              href="/dashboard"
-              className="action-btn"
-              title={t("sidebar_home")}
-            >
-              <CaretLeft weight="bold" />
-            </Link>
-            <h1 className="text-lg font-bold tracking-tight">{labels.title}</h1>
+        <div className="nav-brand min-w-0">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-cyan-500/10 text-cyan-500 flex items-center justify-center shrink-0">
+              <Eye weight="bold" size={18} />
+            </div>
+            <div className="min-w-0">
+              <h1 className="nav-title">{labels.title}</h1>
+              <p className="text-[11px] text-muted-foreground truncate mt-0.5 max-w-[min(48vw,360px)]">
+                {labels.subtitle}
+              </p>
+            </div>
           </div>
         </div>
-        <div className="top-right-actions">
+        <div className="top-right-actions shrink-0">
           <button
+            type="button"
             onClick={() => loadData(token)}
             disabled={loading}
             className="action-btn"
@@ -871,36 +875,17 @@ export default function MonitorTasksPage() {
             />
           </button>
           <button
+            type="button"
             onClick={openCreate}
-            className="action-btn !text-[#8a3ffc]"
+            className="action-btn !text-primary hover:!bg-primary/10"
             title={labels.add}
           >
             <Plus weight="bold" />
           </button>
-          <Link
-            href="/dashboard/speaker-collection"
-            className="action-btn !text-cyan-400"
-            title={isZh ? "发言者采集" : "Speaker Collection"}
-          >
-            <ChatCircleText weight="bold" />
-          </Link>
-          <ThemeLanguageToggle />
         </div>
       </nav>
 
       <main className="main-content !pt-6">
-        <header className="mb-6 flex flex-col gap-2">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center">
-              <Eye weight="bold" size={22} />
-            </div>
-            <div>
-              <h2 className="text-2xl font-bold">{labels.title}</h2>
-              <p className="text-sm text-main/45">{labels.subtitle}</p>
-            </div>
-          </div>
-        </header>
-
         {loading && tasks.length === 0 ? (
           <div className="py-20 flex justify-center text-main/30">
             <Spinner className="animate-spin" size={32} />
@@ -1038,19 +1023,19 @@ export default function MonitorTasksPage() {
       {showEditor && (
         <div className="modal-overlay active">
           <div
-            className="glass-panel modal-content !w-[min(96vw,1120px)] !max-w-[1120px] !h-[min(92vh,900px)] !p-0 overflow-hidden flex flex-col"
+            className="modal-content monitor-editor monitor-editor-shell !w-[min(96vw,1120px)] !max-w-[1120px] !h-[min(92vh,900px)] !p-0 overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="p-5 border-b border-white/5 flex justify-between items-center bg-white/2">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center">
+            <div className="monitor-editor-header p-5 border-b flex justify-between items-center">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-cyan-500/10 text-cyan-500 flex items-center justify-center shrink-0">
                   <Eye weight="bold" size={18} />
                 </div>
-                <div>
-                  <div className="font-bold">
+                <div className="min-w-0">
+                  <div className="font-bold text-[15px] truncate">
                     {editing ? labels.edit : labels.add}
                   </div>
-                  <div className="text-[10px] text-main/40">
+                  <div className="text-[11px] text-main/45 mt-0.5 truncate">
                     {labels.subtitle}
                   </div>
                 </div>
@@ -1063,352 +1048,366 @@ export default function MonitorTasksPage() {
               </button>
             </div>
 
-            <div className="p-5 grid grid-cols-1 lg:grid-cols-[0.95fr_1.05fr] gap-5 flex-1 min-h-0 overflow-y-auto custom-scrollbar">
-              <section className="space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-[11px] uppercase tracking-wider">
-                      {labels.monitorName}
-                    </label>
-                    <input
-                      className="!mb-0"
-                      value={form.name}
-                      onChange={(e) =>
-                        setForm({ ...form, name: e.target.value })
-                      }
-                      placeholder="monitor_gifts"
-                    />
+            <div className="monitor-editor-body p-5 grid grid-cols-1 lg:grid-cols-[0.96fr_1.04fr] gap-5 flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+              <section>
+                <div className="monitor-editor-card">
+                  <div className="monitor-editor-card-title">
+                    <Lightning weight="fill" className="text-violet-500" />
+                    {isZh ? "基本信息" : "Basics"}
                   </div>
-                  <div>
-                    <label className="text-[11px] uppercase tracking-wider">
-                      {labels.group}
-                    </label>
-                    <input
-                      className="!mb-0"
-                      value={form.group}
-                      onChange={(e) =>
-                        setForm({ ...form, group: e.target.value })
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="monitor-editor-label">
+                        {labels.monitorName}
+                      </label>
+                      <input
+                        className="!mb-0"
+                        value={form.name}
+                        onChange={(e) =>
+                          setForm({ ...form, name: e.target.value })
+                        }
+                        placeholder="monitor_gifts"
+                      />
+                    </div>
+                    <div>
+                      <label className="monitor-editor-label">
+                        {labels.group}
+                      </label>
+                      <input
+                        className="!mb-0"
+                        value={form.group}
+                        onChange={(e) =>
+                          setForm({ ...form, group: e.target.value })
+                        }
+                        placeholder="monitors"
+                      />
+                    </div>
+                  </div>
+                  <div className="monitor-editor-meta mt-3">
+                    <div className="min-w-0">
+                      <div className="monitor-editor-meta-title">
+                        {labels.account}
+                      </div>
+                      <div className="monitor-editor-meta-value truncate">
+                        {form.account_name || "-"}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setForm({ ...form, enabled: !form.enabled })
                       }
-                      placeholder="monitors"
-                    />
+                      className={`monitor-editor-toggle ${form.enabled ? "is-on" : ""}`}
+                    >
+                      {form.enabled ? labels.enabled : t("status_paused")}
+                    </button>
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-white/5 bg-white/5 p-3 flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="text-[10px] uppercase tracking-wider text-main/40">
-                      {labels.account}
-                    </div>
-                    <div className="text-sm font-bold truncate">
-                      {form.account_name || "-"}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setForm({ ...form, enabled: !form.enabled })}
-                    className={`h-9 px-4 rounded-lg text-xs font-bold border shrink-0 ${form.enabled ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/20" : "bg-white/5 text-main/35 border-white/10"}`}
-                  >
-                    {form.enabled ? labels.enabled : t("status_paused")}
-                  </button>
-                </div>
-
-                <div className="rounded-xl border border-white/5 bg-white/5 p-4 space-y-3">
-                  <div className="flex items-center gap-2 font-bold text-sm">
-                    <ChatCircleText weight="fill" className="text-cyan-400" />
+                <div className="monitor-editor-card">
+                  <div className="monitor-editor-card-title">
+                    <ChatCircleText weight="fill" className="text-cyan-500" />
                     {labels.source}
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-[10px] uppercase tracking-wider">
-                      {extraLabels.scope}
-                    </label>
-                    <div className="grid grid-cols-2 gap-2">
-                      {(
-                        [
-                          ["selected", extraLabels.selectedScope],
-                          ["private", extraLabels.privateScope],
-                        ] as const
-                      ).map(([scope, label]) => (
-                        <button
-                          key={scope}
-                          type="button"
-                          onClick={() => updateRule({ monitor_scope: scope })}
-                          className={`h-9 rounded-lg border text-xs font-bold ${currentRule.monitor_scope === scope ? "border-cyan-400/50 bg-cyan-400/10 text-cyan-400" : "border-white/5 bg-black/5 text-main/50"}`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                    {currentRule.monitor_scope !== "selected" && (
-                      <div className="rounded-lg border border-cyan-400/10 bg-cyan-400/5 p-3 text-xs text-main/50 leading-5">
-                        {extraLabels.privateHint}
-                      </div>
-                    )}
-                  </div>
-                  {currentRule.monitor_scope === "selected" && (
-                    <input
-                      className="!mb-0"
-                      placeholder={labels.chatSearch}
-                      value={chatSearch}
-                      onChange={(e) => setChatSearch(e.target.value)}
-                    />
-                  )}
-                  {currentRule.monitor_scope === "selected" && (
-                    <div className="max-h-48 overflow-y-auto rounded-lg border border-white/5 bg-black/5 custom-scrollbar">
-                      {chatSearchLoading ? (
-                        <div className="px-3 py-3 text-xs text-main/40">
-                          <Spinner className="animate-spin inline mr-2" />
-                          {t("loading")}
-                        </div>
-                      ) : visibleChats.length > 0 ? (
-                        visibleChats.map((chat) => {
-                          const selected = currentRule.selectedChats.some(
-                            (item) => String(item.chat_id) === String(chat.id),
-                          );
-                          return (
-                            <button
-                              key={chat.id}
-                              type="button"
-                              className={`w-full px-3 py-2 text-left hover:bg-white/5 border-b border-white/5 last:border-b-0 flex items-center gap-3 ${selected ? "bg-cyan-400/10" : ""}`}
-                              onClick={() => selectChat(chat)}
-                            >
-                              <span
-                                className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${selected ? "bg-cyan-400 border-cyan-400 text-white" : "border-main/25"}`}
-                              >
-                                {selected && <Check weight="bold" size={12} />}
-                              </span>
-                              <span className="min-w-0">
-                                <span className="block text-sm font-semibold truncate">
-                                  {getChatTitle(chat)}
-                                </span>
-                                <span className="block text-[10px] text-main/40 font-mono truncate">
-                                  {chat.id}
-                                  {chat.username ? ` · @${chat.username}` : ""}
-                                </span>
-                              </span>
-                            </button>
-                          );
-                        })
-                      ) : (
-                        <div className="px-3 py-3 text-xs text-main/35">
-                          {labels.selectChat}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  {currentRule.monitor_scope === "selected" &&
-                    currentRule.selectedChats.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {currentRule.selectedChats.map((chat) => (
+                  <div className="space-y-3">
+                    <div>
+                      <label className="monitor-editor-label">
+                        {extraLabels.scope}
+                      </label>
+                      <div className="monitor-editor-choice-grid cols-2">
+                        {(
+                          [
+                            ["selected", extraLabels.selectedScope],
+                            ["private", extraLabels.privateScope],
+                          ] as const
+                        ).map(([scope, label]) => (
                           <button
-                            key={String(chat.chat_id)}
+                            key={scope}
                             type="button"
-                            onClick={() => {
-                              const selectedChats =
-                                currentRule.selectedChats.filter(
-                                  (item) =>
-                                    String(item.chat_id) !==
-                                    String(chat.chat_id),
-                                );
-                              updateRule({
-                                selectedChats,
-                                chat_id: selectedChats[0]?.chat_id || "",
-                                chat_name: selectedChats[0]?.chat_name || "",
-                              });
-                            }}
-                            className="px-2 py-1 rounded-md bg-cyan-400/10 text-cyan-500 text-[10px] font-bold max-w-full truncate"
+                            onClick={() => updateRule({ monitor_scope: scope })}
+                            className={`monitor-editor-choice ${currentRule.monitor_scope === scope ? "is-active" : ""}`}
                           >
-                            {chat.chat_name} ×
+                            {label}
                           </button>
                         ))}
                       </div>
-                    )}
-                  {currentRule.monitor_scope === "selected" && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                      <div>
-                        <label className="text-[10px] uppercase tracking-wider">
-                          {labels.manualChat}
-                        </label>
-                        <input
-                          className="!mb-0"
-                          value={String(currentRule.chat_id || "")}
-                          onChange={(e) => setManualChat(e.target.value)}
-                          placeholder="-1001234567890 / @channel"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[10px] uppercase tracking-wider">
-                          {labels.topic}
-                        </label>
-                        <textarea
-                          className="!mb-0 min-h-[76px] custom-scrollbar"
-                          value={currentRule.topicIdsText || ""}
-                          onChange={(e) =>
-                            updateRule({ topicIdsText: e.target.value })
-                          }
-                          placeholder={extraLabels.topicPlaceholder}
-                        />
-                      </div>
+                      {currentRule.monitor_scope !== "selected" && (
+                        <div className="monitor-editor-help mt-3">
+                          {extraLabels.privateHint}
+                        </div>
+                      )}
                     </div>
-                  )}
-                  <div className="rounded-lg border border-white/5 bg-black/5 p-3 space-y-3">
-                    <label className="inline-flex items-start gap-2 text-xs cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(currentRule.time_window_enabled)}
-                        onChange={(e) =>
-                          updateRule({ time_window_enabled: e.target.checked })
-                        }
-                        className="accent-cyan-400 mt-0.5"
-                      />
-                      <span>
-                        <span className="block font-bold">
-                          {extraLabels.timeWindow}
-                        </span>
-                        <span className="block text-[10px] text-main/35 mt-0.5">
-                          {extraLabels.timeWindowHint}
-                        </span>
-                      </span>
-                    </label>
-                    {currentRule.time_window_enabled && (
-                      <div className="grid grid-cols-2 gap-3">
+                    {currentRule.monitor_scope === "selected" && (
+                      <ChatPickerField
+                        searchValue={chatSearch}
+                        onSearchChange={setChatSearch}
+                        searchPlaceholder={labels.chatSearch}
+                      >
+                        <ChatPickerList
+                          maxHeight={192}
+                          loading={chatSearchLoading}
+                          loadingText={t("loading")}
+                          emptyText={labels.selectChat}
+                          items={visibleChats.map((chat) => ({
+                            id: chat.id,
+                            title: getChatTitle(chat),
+                            subtitle: formatChatSubtitle(chat),
+                            selected: currentRule.selectedChats.some(
+                              (item) =>
+                                String(item.chat_id) === String(chat.id),
+                            ),
+                          }))}
+                          onSelect={(id) => {
+                            const chat = visibleChats.find(
+                              (item) => item.id === id,
+                            );
+                            if (chat) selectChat(chat);
+                          }}
+                        />
+                      </ChatPickerField>
+                    )}
+                    {currentRule.monitor_scope === "selected" &&
+                      currentRule.selectedChats.length > 0 && (
+                        <div className="chat-picker-chips">
+                          {currentRule.selectedChats.map((chat) => (
+                            <button
+                              key={String(chat.chat_id)}
+                              type="button"
+                              onClick={() => {
+                                const selectedChats =
+                                  currentRule.selectedChats.filter(
+                                    (item) =>
+                                      String(item.chat_id) !==
+                                      String(chat.chat_id),
+                                  );
+                                updateRule({
+                                  selectedChats,
+                                  chat_id: selectedChats[0]?.chat_id || "",
+                                  chat_name: selectedChats[0]?.chat_name || "",
+                                });
+                              }}
+                              className="chat-picker-chip"
+                            >
+                              <span className="chat-picker-chip-text">
+                                {chat.chat_name}
+                              </span>
+                              <span aria-hidden>×</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    {currentRule.monitor_scope === "selected" && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
-                          <label className="text-[10px] uppercase tracking-wider">
-                            {extraLabels.startTime}
+                          <label className="monitor-editor-label">
+                            {labels.manualChat}
                           </label>
                           <input
                             className="!mb-0"
-                            type="time"
-                            value={currentRule.active_time_start || ""}
-                            onChange={(e) =>
-                              updateRule({ active_time_start: e.target.value })
-                            }
+                            value={String(currentRule.chat_id || "")}
+                            onChange={(e) => setManualChat(e.target.value)}
+                            placeholder="-1001234567890 / @channel"
                           />
                         </div>
                         <div>
-                          <label className="text-[10px] uppercase tracking-wider">
-                            {extraLabels.endTime}
+                          <label className="monitor-editor-label">
+                            {labels.topic}
                           </label>
                           <input
                             className="!mb-0"
-                            type="time"
-                            value={currentRule.active_time_end || ""}
+                            value={currentRule.topicIdsText || ""}
                             onChange={(e) =>
-                              updateRule({ active_time_end: e.target.value })
+                              updateRule({ topicIdsText: e.target.value })
                             }
+                            placeholder={extraLabels.topicPlaceholder}
                           />
                         </div>
                       </div>
                     )}
+                    <div className="monitor-editor-help space-y-3">
+                      <label className="inline-flex items-start gap-2 text-xs cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(currentRule.time_window_enabled)}
+                          onChange={(e) =>
+                            updateRule({
+                              time_window_enabled: e.target.checked,
+                            })
+                          }
+                          className="accent-cyan-500 mt-0.5"
+                        />
+                        <span>
+                          <span className="block font-bold text-[12px] text-main">
+                            {extraLabels.timeWindow}
+                          </span>
+                          <span className="block text-[11px] text-main/45 mt-0.5">
+                            {extraLabels.timeWindowHint}
+                          </span>
+                        </span>
+                      </label>
+                      {currentRule.time_window_enabled && (
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="monitor-editor-label">
+                              {extraLabels.startTime}
+                            </label>
+                            <input
+                              className="!mb-0"
+                              type="time"
+                              value={currentRule.active_time_start || ""}
+                              onChange={(e) =>
+                                updateRule({
+                                  active_time_start: e.target.value,
+                                })
+                              }
+                            />
+                          </div>
+                          <div>
+                            <label className="monitor-editor-label">
+                              {extraLabels.endTime}
+                            </label>
+                            <input
+                              className="!mb-0"
+                              type="time"
+                              value={currentRule.active_time_end || ""}
+                              onChange={(e) =>
+                                updateRule({
+                                  active_time_end: e.target.value,
+                                })
+                              }
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
               </section>
 
-              <section className="space-y-4">
-                <div className="rounded-xl border border-white/5 bg-white/5 p-4 space-y-3">
-                  <div className="flex items-center gap-2 font-bold text-sm">
-                    <Lightning weight="fill" className="text-[#b57dff]" />
+              <section>
+                <div className="monitor-editor-card">
+                  <div className="monitor-editor-card-title">
+                    <Lightning weight="fill" className="text-violet-500" />
                     {labels.matchMode}
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="monitor-editor-choice-grid cols-3">
                     {(["contains", "exact", "regex"] as const).map((mode) => (
                       <button
                         key={mode}
                         type="button"
                         onClick={() => updateRule({ match_mode: mode })}
-                        className={`h-9 rounded-lg border text-xs font-bold ${currentRule.match_mode === mode ? "border-[#8a3ffc]/50 bg-[#8a3ffc]/15 text-[#b57dff]" : "border-white/5 bg-black/5 text-main/50"}`}
+                        className={`monitor-editor-choice is-violet ${currentRule.match_mode === mode ? "is-active" : ""}`}
                       >
                         {mode}
                       </button>
                     ))}
                   </div>
-                  <div className="rounded-lg border border-[#8a3ffc]/10 bg-[#8a3ffc]/5 px-3 py-2 text-[11px] text-main/50 leading-5">
+                  <div className="monitor-editor-help mt-3">
                     {matchModeHelp[currentRule.match_mode]}
                   </div>
-                  <textarea
-                    className="!mb-0 min-h-[120px] custom-scrollbar"
-                    value={currentRule.keywordsText}
-                    onChange={(e) =>
-                      updateRule({ keywordsText: e.target.value })
-                    }
-                    placeholder={labels.keywords}
-                  />
-                  <div className="text-[10px] text-main/35">
-                    {labels.keywordsHint}
+                  <div className="mt-3">
+                    <label className="monitor-editor-label">
+                      {labels.keywords}
+                    </label>
+                    <textarea
+                      className="!mb-0 min-h-[120px] custom-scrollbar"
+                      value={currentRule.keywordsText}
+                      onChange={(e) =>
+                        updateRule({ keywordsText: e.target.value })
+                      }
+                      placeholder={labels.keywords}
+                    />
+                    <div className="monitor-editor-hint">
+                      {labels.keywordsHint}
+                    </div>
                   </div>
-                  <label className="inline-flex items-start gap-2 text-xs cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(currentRule.match_all)}
-                      onChange={(e) =>
-                        updateRule({ match_all: e.target.checked })
-                      }
-                      className="accent-[#8a3ffc] mt-0.5"
-                    />
-                    <span>
-                      <span className="block">{extraLabels.matchAll}</span>
-                      <span className="block text-[10px] text-main/35 mt-0.5">
-                        {extraLabels.matchAllHint}
+                  <div className="mt-3 space-y-3">
+                    <label className="inline-flex items-start gap-2 text-xs cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(currentRule.match_all)}
+                        onChange={(e) =>
+                          updateRule({ match_all: e.target.checked })
+                        }
+                        className="accent-violet-500 mt-0.5"
+                      />
+                      <span>
+                        <span className="block font-semibold text-[12px]">
+                          {extraLabels.matchAll}
+                        </span>
+                        <span className="block text-[11px] text-main/45 mt-0.5">
+                          {extraLabels.matchAllHint}
+                        </span>
                       </span>
-                    </span>
-                  </label>
-                  <label className="inline-flex items-center gap-2 text-xs cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={currentRule.ignore_case}
-                      onChange={(e) =>
-                        updateRule({ ignore_case: e.target.checked })
-                      }
-                      className="accent-[#8a3ffc]"
-                    />
-                    {labels.ignoreCase}
-                  </label>
-                  <label className="inline-flex items-start gap-2 text-xs cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(currentRule.include_self_messages)}
-                      onChange={(e) =>
-                        updateRule({ include_self_messages: e.target.checked })
-                      }
-                      className="accent-[#8a3ffc] mt-0.5"
-                    />
-                    <span>
-                      <span className="block">{labels.includeSelf}</span>
-                      <span className="block text-[10px] text-main/35 mt-0.5">
-                        {labels.includeSelfHint}
+                    </label>
+                    <label className="inline-flex items-center gap-2 text-xs cursor-pointer font-semibold">
+                      <input
+                        type="checkbox"
+                        checked={currentRule.ignore_case}
+                        onChange={(e) =>
+                          updateRule({ ignore_case: e.target.checked })
+                        }
+                        className="accent-violet-500"
+                      />
+                      {labels.ignoreCase}
+                    </label>
+                    <label className="inline-flex items-start gap-2 text-xs cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(currentRule.include_self_messages)}
+                        onChange={(e) =>
+                          updateRule({
+                            include_self_messages: e.target.checked,
+                          })
+                        }
+                        className="accent-violet-500 mt-0.5"
+                      />
+                      <span>
+                        <span className="block font-semibold text-[12px]">
+                          {labels.includeSelf}
+                        </span>
+                        <span className="block text-[11px] text-main/45 mt-0.5">
+                          {labels.includeSelfHint}
+                        </span>
                       </span>
-                    </span>
-                  </label>
+                    </label>
+                  </div>
                 </div>
 
-                <div className="rounded-xl border border-white/5 bg-white/5 p-4 space-y-3">
-                  <div className="flex items-center gap-2 font-bold text-sm">
+                <div className="monitor-editor-card">
+                  <div className="monitor-editor-card-title">
                     <PaperPlaneTilt
                       weight="fill"
-                      className="text-emerald-400"
+                      className="text-emerald-500"
                     />
                     {labels.handling}
                   </div>
-                  <select
-                    className="!mb-0"
-                    value={currentRule.push_channel}
-                    onChange={(e) =>
-                      updateRule({
-                        push_channel: e.target
-                          .value as MonitorRule["push_channel"],
-                      })
-                    }
-                  >
-                    <option value="telegram">{labels.telegramNotify}</option>
-                    <option value="forward">{labels.forward}</option>
-                    <option value="continue">{labels.reply}</option>
-                    <option value="bark">{labels.bark}</option>
-                    <option value="custom">{labels.custom}</option>
-                  </select>
+                  <div>
+                    <label className="monitor-editor-label">
+                      {labels.pushChannel}
+                    </label>
+                    <select
+                      className="!mb-0"
+                      value={currentRule.push_channel}
+                      onChange={(e) =>
+                        updateRule({
+                          push_channel: e.target
+                            .value as MonitorRule["push_channel"],
+                        })
+                      }
+                    >
+                      <option value="telegram">{labels.telegramNotify}</option>
+                      <option value="forward">{labels.forward}</option>
+                      <option value="continue">{labels.reply}</option>
+                      <option value="bark">{labels.bark}</option>
+                      <option value="custom">{labels.custom}</option>
+                    </select>
+                  </div>
 
                   {currentRule.push_channel === "forward" && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
                       <div>
-                        <label className="text-[10px] uppercase tracking-wider">
+                        <label className="monitor-editor-label">
                           {labels.forwardChat}
                         </label>
                         <input
@@ -1421,7 +1420,7 @@ export default function MonitorTasksPage() {
                         />
                       </div>
                       <div>
-                        <label className="text-[10px] uppercase tracking-wider">
+                        <label className="monitor-editor-label">
                           {labels.forwardTopic}
                         </label>
                         <input
@@ -1441,7 +1440,7 @@ export default function MonitorTasksPage() {
                   )}
 
                   {currentRule.push_channel === "continue" && (
-                    <div className="space-y-3">
+                    <div className="space-y-3 mt-3">
                       <label className="inline-flex items-center gap-2 text-xs cursor-pointer">
                         <input
                           type="checkbox"
@@ -1449,7 +1448,7 @@ export default function MonitorTasksPage() {
                           onChange={(e) =>
                             updateRule({ ai_auto_reply: e.target.checked })
                           }
-                          className="accent-emerald-400"
+                          className="accent-emerald-500"
                         />
                         <span className="font-bold flex items-center gap-1">
                           <Robot weight="bold" />
@@ -1459,7 +1458,7 @@ export default function MonitorTasksPage() {
                       {currentRule.ai_auto_reply ? (
                         <div className="space-y-3">
                           <div>
-                            <label className="text-[10px] uppercase tracking-wider flex items-center gap-1">
+                            <label className="monitor-editor-label flex items-center gap-1">
                               <Robot weight="bold" />
                               {labels.aiPrompt}
                             </label>
@@ -1473,7 +1472,7 @@ export default function MonitorTasksPage() {
                             />
                           </div>
                           <div>
-                            <label className="text-[10px] uppercase tracking-wider">
+                            <label className="monitor-editor-label">
                               {labels.aiPersona}
                             </label>
                             <textarea
@@ -1487,7 +1486,7 @@ export default function MonitorTasksPage() {
                           </div>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div>
-                              <label className="text-[10px] uppercase tracking-wider">
+                              <label className="monitor-editor-label">
                                 {labels.aiContextMessages}
                               </label>
                               <input
@@ -1510,7 +1509,7 @@ export default function MonitorTasksPage() {
                               </div>
                             </div>
                             <div>
-                              <label className="text-[10px] uppercase tracking-wider">
+                              <label className="monitor-editor-label">
                                 {labels.aiDailyLimit}
                               </label>
                               <input
@@ -1538,7 +1537,7 @@ export default function MonitorTasksPage() {
                           </div>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div>
-                              <label className="text-[10px] uppercase tracking-wider">
+                              <label className="monitor-editor-label">
                                 {labels.aiWhitelist}
                               </label>
                               <textarea
@@ -1553,7 +1552,7 @@ export default function MonitorTasksPage() {
                               />
                             </div>
                             <div>
-                              <label className="text-[10px] uppercase tracking-wider">
+                              <label className="monitor-editor-label">
                                 {labels.aiBlacklist}
                               </label>
                               <textarea
@@ -1571,7 +1570,7 @@ export default function MonitorTasksPage() {
                         </div>
                       ) : (
                         <div>
-                          <label className="text-[10px] uppercase tracking-wider flex items-center gap-1">
+                          <label className="monitor-editor-label flex items-center gap-1">
                             <Robot weight="bold" />
                             {labels.autoReply}
                           </label>
@@ -1589,8 +1588,8 @@ export default function MonitorTasksPage() {
                   )}
 
                   {currentRule.push_channel === "bark" && (
-                    <div>
-                      <label className="text-[10px] uppercase tracking-wider">
+                    <div className="mt-3">
+                      <label className="monitor-editor-label">
                         {labels.barkUrl}
                       </label>
                       <input
@@ -1605,8 +1604,8 @@ export default function MonitorTasksPage() {
                   )}
 
                   {currentRule.push_channel === "custom" && (
-                    <div>
-                      <label className="text-[10px] uppercase tracking-wider">
+                    <div className="mt-3">
+                      <label className="monitor-editor-label">
                         {labels.customUrl}
                       </label>
                       <input
@@ -1623,7 +1622,7 @@ export default function MonitorTasksPage() {
               </section>
             </div>
 
-            <div className="p-5 border-t border-white/5 bg-black/10 flex gap-3 shrink-0">
+            <div className="monitor-editor-footer p-5 border-t flex gap-3 shrink-0">
               <button
                 onClick={() => setShowEditor(false)}
                 className="btn-secondary flex-1"

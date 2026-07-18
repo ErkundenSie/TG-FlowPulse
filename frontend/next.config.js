@@ -1,19 +1,24 @@
 /** @type {import('next').NextConfig} */
-const isProd = process.env.NODE_ENV === 'production';
+const isProd = process.env.NODE_ENV === "production";
 const backendPort = process.env.BACKEND_PORT || "8000";
 
 const nextConfig = {
   output: isProd ? "export" : undefined,
+  experimental: {
+    cpus: 2,
+    workerThreads: false,
+    webpackBuildWorker: false,
+  },
   // distDir: "out",
 };
 
 if (!isProd) {
   nextConfig.rewrites = async () => [
-      {
-        source: "/api/:path*",
-        destination: `http://127.0.0.1:${backendPort}/api/:path*`,
-      },
-    ];
+    {
+      source: "/api/:path*",
+      destination: `http://127.0.0.1:${backendPort}/api/:path*`,
+    },
+  ];
 }
 
 module.exports = nextConfig;

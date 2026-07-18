@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import {
-  CaretLeft,
   DownloadSimple,
+  MagnifyingGlass,
   Play,
   Plus,
   Spinner,
@@ -31,11 +30,20 @@ import { ToastContainer, useToast } from "../../../components/ui/toast";
 const localDateTime = (value?: string | null) =>
   value ? value.slice(0, 16) : "";
 
+const chatLabel = (chat: ChatInfo) => {
+  const title = chat.title || chat.username || String(chat.id);
+  return chat.username ? `${title} (@${chat.username})` : title;
+};
+
+const truncateLabel = (value: string, max = 42) =>
+  value.length > max ? `${value.slice(0, max - 1)}…` : value;
+
 export default function SpeakerCollectionPage() {
   const { toasts, addToast, removeToast } = useToast();
   const [token, setToken] = useState<string | null>(null);
   const [accounts, setAccounts] = useState<AccountInfo[]>([]);
   const [chats, setChats] = useState<ChatInfo[]>([]);
+  const [chatSearch, setChatSearch] = useState("");
   const [configs, setConfigs] = useState<SpeakerCollectionConfig[]>([]);
   const [records, setRecords] = useState<SpeakerCollectionRecord[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -141,260 +149,296 @@ export default function SpeakerCollectionPage() {
     setRecords([]);
     await refresh(token);
   };
+  const normalizedChatSearch = chatSearch.trim().toLowerCase();
+  const filteredChats = normalizedChatSearch
+    ? chats.filter((chat) =>
+        [chat.title, chat.username, String(chat.id)].some((value) =>
+          value?.toLowerCase().includes(normalizedChatSearch),
+        ),
+      )
+    : chats;
 
   return (
-    <div className="main-content !pt-6">
+    <div className="w-full min-h-full flex flex-col">
       <nav className="navbar">
-        <div className="nav-brand flex items-center gap-3">
-          <Link href="/dashboard/monitors" className="action-btn">
-            <CaretLeft weight="bold" />
-          </Link>
-          <h1 className="text-lg font-bold">发言者采集</h1>
+        <div className="min-w-0">
+          <h1 className="nav-title truncate">群发言者筛选</h1>
+          <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+            扫描历史消息并持续收集新发言者的公开简介
+          </div>
         </div>
       </nav>
-      <div className="grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-5 mt-6">
-        <section className="glass-panel p-5 space-y-4">
-          <div className="flex items-center gap-2 font-bold">
-            <Users weight="fill" className="text-cyan-400" />
-            新增/更新采集
-          </div>
-          <input
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            placeholder="采集名称"
-          />
-          <select
-            value={form.account_name}
-            onChange={(e) =>
-              setForm({ ...form, account_name: e.target.value, chat_id: "" })
-            }
-          >
-            <option value="">选择账号</option>
-            {accounts.map((a) => (
-              <option key={a.name} value={a.name}>
-                {a.name}
-              </option>
-            ))}
-          </select>
-          <select
-            value={String(form.chat_id)}
-            onChange={(e) => {
-              const chat = chats.find((c) => String(c.id) === e.target.value);
-              setForm({
-                ...form,
-                chat_id: e.target.value,
-                chat_name: chat?.title || chat?.username || e.target.value,
-              });
-            }}
-          >
-            <option value="">选择群/频道</option>
-            {chats.map((c) => (
-              <option key={c.id} value={String(c.id)}>
-                {c.title || c.username || c.id}
-              </option>
-            ))}
-          </select>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="text-xs">
-              开始时间
-              <input
-                type="datetime-local"
-                value={localDateTime(form.start_at)}
-                onChange={(e) =>
-                  setForm({ ...form, start_at: e.target.value || null })
-                }
-              />
-            </label>
-            <label className="text-xs">
-              结束时间
-              <input
-                type="datetime-local"
-                value={localDateTime(form.end_at)}
-                onChange={(e) =>
-                  setForm({ ...form, end_at: e.target.value || null })
-                }
-              />
-            </label>
-          </div>
-          <label className="text-xs">
-            每次历史消息数
+      <main className="main-content !pt-7">
+        <div className="grid grid-cols-1 xl:grid-cols-[420px_1fr] gap-5">
+          <section className="glass-panel p-5 space-y-4">
+            <div className="flex items-center gap-2 font-bold">
+              <Users weight="fill" className="text-cyan-400" />
+              新增/更新采集
+            </div>
             <input
-              type="number"
-              min="1"
-              max="5000"
-              value={form.history_limit || 1000}
-              onChange={(e) =>
-                setForm({ ...form, history_limit: Number(e.target.value) })
-              }
+              value={form.name}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="采集名称"
             />
-          </label>
-          <label className="text-xs">
-            简介关键词（逗号或换行分隔，留空则收集全部发言者）
-            <textarea
-              className="!mb-0 min-h-[84px]"
-              value={(form.profile_keywords || []).join("\n")}
-              onChange={(e) =>
-                setForm({
-                  ...form,
-                  profile_keywords: e.target.value
-                    .split(/[\n,，]/)
-                    .map((item) => item.trim())
-                    .filter(Boolean),
-                })
-              }
-              placeholder="例如：招聘, 代理, 采购"
-            />
-          </label>
-          <label className="flex gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={!!form.continuous}
-              onChange={(e) =>
-                setForm({ ...form, continuous: e.target.checked })
-              }
-            />
-            持续监控新发言（每 30 秒）
-          </label>
-          <button
-            className="btn-gradient w-full"
-            onClick={save}
-            disabled={loading}
-          >
-            {loading ? (
-              <Spinner className="animate-spin" />
-            ) : (
-              <Plus weight="bold" />
-            )}
-            保存配置
-          </button>
-          <p className="text-xs text-main/45">
-            仅收集当前账号已可见消息的发言者，并按群组和用户 ID
-            自动去重；不会获取 Telegram 隐藏成员。
-          </p>
-        </section>
-        <section className="space-y-5">
-          <div className="glass-panel p-5">
-            <div className="font-bold mb-3">采集任务</div>
-            <div className="space-y-2">
-              {configs.map((c) => (
-                <div
-                  key={c.id}
-                  className="rounded-lg border border-white/10 p-3 flex justify-between gap-3"
-                >
-                  <button
-                    className="text-left min-w-0"
-                    onClick={() => selectConfig(c)}
-                  >
-                    <div className="font-bold truncate">{c.name}</div>
-                    <div className="text-xs text-main/45 truncate">
-                      {c.account_name} · {c.chat_name} · 最近扫描：
-                      {c.last_scan_at || "未扫描"}
-                    </div>
-                    {c.last_scan_summary && (
-                      <div className="text-[10px] text-main/40 mt-1">
-                        消息 {c.last_scan_summary.scanned_messages || 0} ·
-                        发言者 {c.last_scan_summary.unique_speakers || 0} ·
-                        无发送人{" "}
-                        {c.last_scan_summary.messages_without_user || 0} ·
-                        无简介 {c.last_scan_summary.profiles_without_bio || 0}
-                      </div>
-                    )}
-                    <div className="text-[10px] text-main/40 mt-1 truncate">
-                      简介关键词：
-                      {(c.profile_keywords || []).join("、") ||
-                        "未设置（收集全部发言者）"}
-                    </div>
-                  </button>
-                  <div className="flex gap-1">
-                    <button
-                      className="action-btn !text-cyan-400"
-                      onClick={() => scan(c.id || "")}
-                      title="立即扫描"
-                    >
-                      <Play weight="bold" />
-                    </button>
-                    <button
-                      className="action-btn !text-rose-400"
-                      onClick={() => remove(c.id || "")}
-                    >
-                      <Trash weight="bold" />
-                    </button>
-                  </div>
-                </div>
+            <select
+              value={form.account_name}
+              onChange={(e) => {
+                setChatSearch("");
+                setForm({ ...form, account_name: e.target.value, chat_id: "" });
+              }}
+            >
+              <option value="">选择账号</option>
+              {accounts.map((a) => (
+                <option key={a.name} value={a.name}>
+                  {a.name}
+                </option>
               ))}
-              {!configs.length && (
-                <div className="text-sm text-main/40">暂无采集配置</div>
-              )}
-            </div>
-          </div>
-          <div className="glass-panel p-5">
-            <div className="flex justify-between mb-3">
-              <div className="font-bold">
-                已去重发言者 {selectedId ? `(${records.length})` : ""}
+            </select>
+            <div className="chat-picker">
+              <div className="chat-picker-label">搜索群/频道</div>
+              <div className="relative">
+                <MagnifyingGlass
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none z-10"
+                  size={16}
+                />
+                <input
+                  className="chat-picker-search-input !pl-10"
+                  value={chatSearch}
+                  onChange={(e) => setChatSearch(e.target.value)}
+                  placeholder="输入群名称、用户名或 ID 查询"
+                  autoComplete="off"
+                />
               </div>
-              {selectedId && (
-                <button
-                  className="action-btn"
-                  onClick={() =>
-                    exportSpeakerCollectionRecords(token!, selectedId)
+              <select
+                className="!mb-0"
+                value={String(form.chat_id)}
+                onChange={(e) => {
+                  const chat = chats.find(
+                    (c) => String(c.id) === e.target.value,
+                  );
+                  setForm({
+                    ...form,
+                    chat_id: e.target.value,
+                    chat_name: chat?.title || chat?.username || e.target.value,
+                  });
+                }}
+              >
+                <option value="">选择群/频道</option>
+                {filteredChats.map((c) => {
+                  const full = chatLabel(c);
+                  return (
+                    <option key={c.id} value={String(c.id)} title={full}>
+                      {truncateLabel(full)}
+                    </option>
+                  );
+                })}
+              </select>
+              {normalizedChatSearch && !filteredChats.length && (
+                <p className="chat-picker-footer">未找到匹配的群组或频道</p>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-xs">
+                开始时间
+                <input
+                  type="datetime-local"
+                  value={localDateTime(form.start_at)}
+                  onChange={(e) =>
+                    setForm({ ...form, start_at: e.target.value || null })
                   }
-                  title="导出 XLSX"
-                >
-                  <DownloadSimple />
-                </button>
-              )}
+                />
+              </label>
+              <label className="text-xs">
+                结束时间
+                <input
+                  type="datetime-local"
+                  value={localDateTime(form.end_at)}
+                  onChange={(e) =>
+                    setForm({ ...form, end_at: e.target.value || null })
+                  }
+                />
+              </label>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="text-left text-main/45">
-                    <th>发言者</th>
-                    <th>用户名</th>
-                    <th>简介</th>
-                    <th>命中关键词</th>
-                    <th>消息数</th>
-                    <th>最近发言</th>
-                    <th>示例消息</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {records.map((r) => (
-                    <tr key={r.id} className="border-t border-white/5">
-                      <td className="py-2">
-                        {r.profile_url ? (
-                          <a
-                            className="text-cyan-400"
-                            href={r.profile_url}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {r.sender}
-                          </a>
-                        ) : (
-                          r.sender
-                        )}
-                      </td>
-                      <td>{r.sender_username}</td>
-                      <td className="max-w-[250px] truncate">{r.bio}</td>
-                      <td>{(r.matched_keywords || []).join(", ")}</td>
-                      <td>{r.message_count}</td>
-                      <td>{r.last_message_at}</td>
-                      <td className="max-w-[300px] truncate">
-                        {r.sample_message}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {selectedId && !records.length && (
-                <div className="py-6 text-center text-main/40">
-                  尚未收集到发言者
+            <label className="text-xs">
+              每次历史消息数
+              <input
+                type="number"
+                min="1"
+                max="5000"
+                value={form.history_limit || 1000}
+                onChange={(e) =>
+                  setForm({ ...form, history_limit: Number(e.target.value) })
+                }
+              />
+            </label>
+            <label className="text-xs">
+              简介关键词（逗号或换行分隔，留空则收集全部发言者）
+              <textarea
+                className="!mb-0 min-h-[84px]"
+                value={(form.profile_keywords || []).join("\n")}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    profile_keywords: e.target.value
+                      .split(/[\n,，]/)
+                      .map((item) => item.trim())
+                      .filter(Boolean),
+                  })
+                }
+                placeholder="例如：招聘, 代理, 采购"
+              />
+            </label>
+            <label className="flex gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={!!form.continuous}
+                onChange={(e) =>
+                  setForm({ ...form, continuous: e.target.checked })
+                }
+              />
+              持续监控新发言（每 30 秒）
+            </label>
+            <button
+              className="btn-gradient w-full"
+              onClick={save}
+              disabled={loading}
+            >
+              {loading ? (
+                <Spinner className="animate-spin" />
+              ) : (
+                <Plus weight="bold" />
+              )}
+              保存配置
+            </button>
+            <p className="text-xs text-main/45">
+              仅收集当前账号已可见消息的发言者，并按群组和用户 ID
+              自动去重；不会获取 Telegram 隐藏成员。
+            </p>
+          </section>
+          <section className="space-y-5">
+            <div className="glass-panel p-5">
+              <div className="font-bold mb-3">采集任务</div>
+              <div className="space-y-2">
+                {configs.map((c) => (
+                  <div
+                    key={c.id}
+                    className="rounded-lg border border-white/10 p-3 flex justify-between gap-3"
+                  >
+                    <button
+                      className="text-left min-w-0"
+                      onClick={() => selectConfig(c)}
+                    >
+                      <div className="font-bold truncate">{c.name}</div>
+                      <div className="text-xs text-main/45 truncate">
+                        {c.account_name} · {c.chat_name} · 最近扫描：
+                        {c.last_scan_at || "未扫描"}
+                      </div>
+                      {c.last_scan_summary && (
+                        <div className="text-[10px] text-main/40 mt-1">
+                          消息 {c.last_scan_summary.scanned_messages || 0} ·
+                          发言者 {c.last_scan_summary.unique_speakers || 0} ·
+                          无发送人{" "}
+                          {c.last_scan_summary.messages_without_user || 0} ·
+                          无简介 {c.last_scan_summary.profiles_without_bio || 0}
+                        </div>
+                      )}
+                      <div className="text-[10px] text-main/40 mt-1 truncate">
+                        简介关键词：
+                        {(c.profile_keywords || []).join("、") ||
+                          "未设置（收集全部发言者）"}
+                      </div>
+                    </button>
+                    <div className="flex gap-1">
+                      <button
+                        className="action-btn !text-cyan-400"
+                        onClick={() => scan(c.id || "")}
+                        title="立即扫描"
+                      >
+                        <Play weight="bold" />
+                      </button>
+                      <button
+                        className="action-btn !text-rose-400"
+                        onClick={() => remove(c.id || "")}
+                      >
+                        <Trash weight="bold" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {!configs.length && (
+                  <div className="text-sm text-main/40">暂无采集配置</div>
+                )}
+              </div>
+            </div>
+            <div className="glass-panel p-5">
+              <div className="flex justify-between mb-3">
+                <div className="font-bold">
+                  已去重发言者 {selectedId ? `(${records.length})` : ""}
                 </div>
-              )}
+                {selectedId && (
+                  <button
+                    className="action-btn"
+                    onClick={() =>
+                      exportSpeakerCollectionRecords(token!, selectedId)
+                    }
+                    title="导出 XLSX"
+                  >
+                    <DownloadSimple />
+                  </button>
+                )}
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-main/45">
+                      <th>发言者</th>
+                      <th>用户名</th>
+                      <th>简介</th>
+                      <th>命中关键词</th>
+                      <th>消息数</th>
+                      <th>最近发言</th>
+                      <th>示例消息</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {records.map((r) => (
+                      <tr key={r.id} className="border-t border-white/5">
+                        <td className="py-2">
+                          {r.profile_url ? (
+                            <a
+                              className="text-cyan-400"
+                              href={r.profile_url}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {r.sender}
+                            </a>
+                          ) : (
+                            r.sender
+                          )}
+                        </td>
+                        <td>{r.sender_username}</td>
+                        <td className="max-w-[250px] truncate">{r.bio}</td>
+                        <td>{(r.matched_keywords || []).join(", ")}</td>
+                        <td>{r.message_count}</td>
+                        <td>{r.last_message_at}</td>
+                        <td className="max-w-[300px] truncate">
+                          {r.sample_message}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {selectedId && !records.length && (
+                  <div className="py-6 text-center text-main/40">
+                    尚未收集到发言者
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        </section>
-      </div>
+          </section>
+        </div>
+      </main>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
     </div>
   );

@@ -22,6 +22,7 @@ import {
   ChatInfo,
   CreateSignTaskRequest,
   SignTaskChat,
+  SignTaskKind,
 } from "../../../lib/api";
 import {
   CaretLeft,
@@ -33,7 +34,6 @@ import {
   Spinner,
   Clock,
   ChatCircleText,
-  CheckCircle,
   Hourglass,
   Power,
   ArrowClockwise,
@@ -47,6 +47,11 @@ import {
   Image as ImageIcon,
 } from "@phosphor-icons/react";
 import { ToastContainer, useToast } from "../../../components/ui/toast";
+import {
+  ChatPickerField,
+  ChatPickerList,
+  formatChatSubtitle,
+} from "../../../components/ui/chat-picker";
 import { useLanguage } from "../../../context/LanguageContext";
 
 type ActionTypeOption =
@@ -439,18 +444,25 @@ const TaskItem = memo(
 
 TaskItem.displayName = "TaskItem";
 
-export default function AccountTasksContent() {
+type AccountTasksContentProps = {
+  taskKind?: SignTaskKind;
+  pageTitle?: string;
+};
+
+export default function AccountTasksContent({
+  taskKind = "sign",
+  pageTitle,
+}: AccountTasksContentProps = {}) {
   const router = useRouter();
   const { t, language } = useLanguage();
   const searchParams = useSearchParams();
   const accountName = searchParams.get("name") || "";
+  const resolvedTaskKind: SignTaskKind =
+    taskKind === "broadcast" ? "broadcast" : "sign";
   const { toasts, addToast, removeToast } = useToast();
-  const fieldLabelClass =
-    "text-[10px] font-bold uppercase tracking-wider text-main/40 mb-1 block";
-  const dialogSectionClass =
-    "rounded-xl border border-white/5 bg-white/5 p-4 space-y-4";
-  const dialogSectionTitleClass =
-    "text-sm font-bold text-main/80 flex items-center gap-2";
+  const fieldLabelClass = "task-editor-label";
+  const dialogSectionClass = "task-editor-card space-y-4";
+  const dialogSectionTitleClass = "task-editor-card-title";
 
   const [token, setLocalToken] = useState<string | null>(null);
   const [tasks, setTasks] = useState<SignTask[]>([]);
@@ -1046,7 +1058,12 @@ export default function AccountTasksContent() {
     async (tokenStr: string) => {
       try {
         setLoading(true);
-        const tasksData = await listSignTasks(tokenStr, accountName);
+        const tasksData = await listSignTasks(
+          tokenStr,
+          accountName,
+          false,
+          resolvedTaskKind,
+        );
         setTasks(tasksData);
       } catch (err: any) {
         if (handleAccountSessionInvalid(err)) return;
@@ -1058,7 +1075,12 @@ export default function AccountTasksContent() {
         setLoading(false);
       }
     },
-    [accountName, formatErrorMessage, handleAccountSessionInvalid],
+    [
+      accountName,
+      formatErrorMessage,
+      handleAccountSessionInvalid,
+      resolvedTaskKind,
+    ],
   );
 
   const groupedTasks = tasks.reduce<Array<{ name: string; tasks: SignTask[] }>>(
@@ -1285,7 +1307,7 @@ export default function AccountTasksContent() {
 
     try {
       setLoading(true);
-      await deleteSignTask(token, taskName, accountName);
+      await deleteSignTask(token, taskName, accountName, resolvedTaskKind);
       // No toast here; refresh the list after deleting.
       await loadData(token);
     } catch (err: any) {
@@ -1356,8 +1378,9 @@ export default function AccountTasksContent() {
       await updateSignTask(
         token,
         task.name,
-        { enabled: nextEnabled },
+        { enabled: nextEnabled, task_kind: resolvedTaskKind },
         accountName,
+        resolvedTaskKind,
       );
       setTasks((prev) =>
         prev.map((item) =>
@@ -1427,21 +1450,45 @@ export default function AccountTasksContent() {
           const config: Record<string, any> = {
             ...(value as Record<string, any>),
             account_name: accountName,
+            task_kind: resolvedTaskKind,
           };
           const taskName = String(config.name || key).split("@")[0];
           taskOnlyBundle.signs[`${taskName}@${accountName}`] = config;
         }
-        await importAllConfigs(token, JSON.stringify(taskOnlyBundle), false);
+        // 剪贴板导入允许同名：覆盖已有任务
+        await importAllConfigs(token, JSON.stringify(taskOnlyBundle), true);
         addToast(t("paste_all_tasks_success"), "success");
         await loadData(token);
         return { ok: true };
       }
 
+      // 单任务导入：若同名则自动加后缀，保证可导入
+      let importName: string | undefined;
+      try {
+        const single = JSON.parse(taskConfig);
+        const baseName = sanitizeTaskName(
+          String(single?.task_name || single?.config?.name || "imported_task"),
+        );
+        if (baseName) {
+          const exists = tasks.some(
+            (item) => item.name.toLowerCase() === baseName.toLowerCase(),
+          );
+          // 允许同名：保留原名（后端 save 会覆盖）；若用户不想覆盖可改名后再贴
+          importName = baseName || undefined;
+          if (exists) {
+            // 同名覆盖提示
+          }
+        }
+      } catch {
+        importName = undefined;
+      }
+
       const result = await importSignTask(
         token,
         taskConfig,
-        undefined,
+        importName,
         accountName,
+        true, // 允许同名覆盖
       );
       addToast(pasteTaskSuccess(result.task_name), "success");
       await loadData(token);
@@ -1513,6 +1560,7 @@ export default function AccountTasksContent() {
         name: cloneName,
         account_name: accountName || task.account_name,
         group: task.group || "",
+        task_kind: resolvedTaskKind,
         sign_at: task.sign_at,
         chats: task.chats,
         random_seconds: task.random_seconds,
@@ -1710,6 +1758,7 @@ export default function AccountTasksContent() {
       const commonRequest = {
         account_name: accountName,
         group: newTask.group.trim(),
+        task_kind: resolvedTaskKind,
         sign_at: nextSignAt,
         random_seconds: newTask.random_minutes * 60,
         execution_mode: nextExecutionMode,
@@ -1900,6 +1949,7 @@ export default function AccountTasksContent() {
         {
           name: nextTaskName,
           group: editTask.group.trim(),
+          task_kind: resolvedTaskKind,
           sign_at: nextSignAt,
           random_seconds: editTask.random_minutes * 60,
           chats: updatedChats,
@@ -1910,6 +1960,7 @@ export default function AccountTasksContent() {
           notify_on_failure: editTask.notify_on_failure,
         },
         accountName,
+        resolvedTaskKind,
       );
 
       addToast(t("update_success"), "success");
@@ -2042,157 +2093,221 @@ export default function AccountTasksContent() {
   const visibleChats = chats.slice(0, CHAT_LIST_PREVIEW_LIMIT);
 
   if (!token || checking) {
-    return null;
+    return (
+      <div
+        id="account-tasks-view"
+        className="w-full h-full min-h-[50vh] flex flex-col items-center justify-center gap-3 text-main/35"
+      >
+        <Spinner size={32} weight="bold" className="animate-spin" />
+        <p className="text-xs font-bold uppercase tracking-widest">
+          {t("loading")}
+        </p>
+      </div>
+    );
   }
 
+  const isTaskEditorOpen = showCreateDialog || showEditDialog;
+
   return (
-    <div id="account-tasks-view" className="w-full h-full flex flex-col">
-      <nav className="navbar">
-        <div className="nav-brand">
-          <div className="flex items-center gap-4">
-            <Link
-              href="/dashboard"
-              className="action-btn"
-              title={t("sidebar_home")}
-            >
-              <CaretLeft weight="bold" />
-            </Link>
-            <h1 className="text-lg font-bold tracking-tight">{accountName}</h1>
-          </div>
-        </div>
-        <div className="top-right-actions">
-          <button
-            onClick={handleCopyAllTasks}
-            disabled={loading}
-            className="action-btn"
-            title={copyAllTasksTitle}
-          >
-            <Copy weight="bold" />
-          </button>
-          <button
-            onClick={handlePasteTask}
-            disabled={loading}
-            className="action-btn"
-            title={pasteTaskTitle}
-          >
-            <ClipboardText weight="bold" />
-          </button>
-          <button
-            onClick={() => setShowCreateDialog(true)}
-            className="action-btn"
-            title={t("add_task")}
-          >
-            <Plus weight="bold" />
-          </button>
-        </div>
-      </nav>
-
-      <main className="main-content !pt-6">
-        {loading && tasks.length === 0 ? (
-          <div className="w-full py-20 flex flex-col items-center justify-center text-main/20">
-            <Spinner size={40} weight="bold" className="animate-spin mb-4" />
-            <p className="text-xs uppercase tracking-widest font-bold font-mono">
-              {t("loading")}
-            </p>
-          </div>
-        ) : tasks.length === 0 ? (
-          <div
-            className="glass-panel p-20 flex flex-col items-center text-center justify-center border-dashed border-2 group hover:border-[#8a3ffc]/30 transition-all cursor-pointer"
-            onClick={() => setShowCreateDialog(true)}
-          >
-            <div className="w-20 h-20 rounded-3xl bg-main/5 flex items-center justify-center text-main/20 mb-6 group-hover:scale-110 transition-transform group-hover:bg-[#8a3ffc]/10 group-hover:text-[#8a3ffc]">
-              <Plus size={40} weight="bold" />
-            </div>
-            <h3 className="text-xl font-bold mb-2">{t("no_tasks")}</h3>
-            <p className="text-sm text-[#9496a1]">{t("no_tasks_desc")}</p>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-4">
-            {groupedTasks.map((group) => {
-              const collapsed = collapsedGroups.has(group.name);
-              const enabledCount = group.tasks.filter(
-                (task) => task.enabled !== false,
-              ).length;
-              return (
-                <section
-                  key={group.name}
-                  className="flex flex-col gap-3 scroll-mt-4"
-                >
-                  <button
-                    type="button"
-                    className="flex items-center justify-between gap-3 px-2 pt-1 pb-2 text-left"
-                    onClick={() => toggleGroupCollapsed(group.name)}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <CaretDown
-                        weight="bold"
-                        size={14}
-                        className={`text-main/35 shrink-0 transition-transform ${collapsed ? "-rotate-90" : ""}`}
-                      />
-                      <span className="font-bold text-sm truncate">
-                        {group.name}
-                      </span>
-                      <span className="rounded-full bg-[#8a3ffc]/10 px-2 py-0.5 text-[10px] font-bold text-[#8a3ffc]">
-                        {group.tasks.length}
-                      </span>
-                    </div>
-                    <span className="text-[10px] font-bold text-main/35">
-                      {enabledCount}/{group.tasks.length} {taskEnabledLabel}
-                    </span>
-                  </button>
-                  {!collapsed ? (
-                    <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-4 gap-3">
-                      {group.tasks.map((task) => (
-                        <TaskItem
-                          key={task.name}
-                          task={task}
-                          loading={loading}
-                          running={runningTaskNames.has(task.name)}
-                          onEdit={handleEditTask}
-                          onRun={handleRunTask}
-                          onToggleEnabled={handleToggleTaskEnabled}
-                          onViewLogs={handleShowTaskHistory}
-                          onClone={openCloneTaskDialog}
-                          onDelete={handleDeleteTask}
-                          t={t}
-                          language={language}
-                        />
-                      ))}
-                    </div>
-                  ) : null}
-                </section>
-              );
-            })}
-          </div>
-        )}
-      </main>
-
-      {/* Create/Edit task dialog */}
-      {(showCreateDialog || showEditDialog) && (
-        <div className="modal-overlay active">
-          <div
-            className="glass-panel modal-content !w-[min(96vw,1120px)] !max-w-[1120px] !h-[min(92vh,900px)] !p-0 overflow-hidden flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <header className="p-5 border-b border-white/5 flex justify-between items-center bg-white/2 shrink-0">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="w-9 h-9 rounded-xl bg-[#8a3ffc]/10 text-[#b57dff] flex items-center justify-center shrink-0">
-                  <Lightning weight="fill" size={18} />
-                </div>
-                <div className="min-w-0">
-                  <div className="font-bold truncate">
-                    {showCreateDialog
-                      ? t("create_task")
-                      : `${t("edit_task")}: ${editingTaskName}`}
+    <div
+      id="account-tasks-view"
+      className={`w-full flex flex-col ${isTaskEditorOpen ? "h-full min-h-0 overflow-hidden" : "h-full"}`}
+    >
+      {!isTaskEditorOpen && (
+        <nav className="navbar">
+          <div className="nav-brand">
+            <div className="flex items-center gap-4 min-w-0">
+              <Link
+                href="/dashboard"
+                className="action-btn shrink-0"
+                title={t("sidebar_home")}
+              >
+                <CaretLeft weight="bold" />
+              </Link>
+              <div className="min-w-0">
+                <h1 className="nav-title">{pageTitle || accountName}</h1>
+                {pageTitle ? (
+                  <div className="text-[11px] text-main/40 truncate">
+                    {accountName}
                   </div>
-                  <div className="text-[10px] text-main/40">{accountName}</div>
+                ) : null}
+              </div>
+            </div>
+          </div>
+          <div className="top-right-actions shrink-0">
+            <button
+              onClick={handleCopyAllTasks}
+              disabled={loading}
+              className="action-btn"
+              title={copyAllTasksTitle}
+            >
+              <Copy weight="bold" />
+            </button>
+            <button
+              onClick={handlePasteTask}
+              disabled={loading}
+              className="action-btn"
+              title={pasteTaskTitle}
+            >
+              <ClipboardText weight="bold" />
+            </button>
+            <button
+              onClick={() => setShowCreateDialog(true)}
+              className="action-btn"
+              title={t("add_task")}
+            >
+              <Plus weight="bold" />
+            </button>
+          </div>
+        </nav>
+      )}
+
+      {!isTaskEditorOpen && (
+        <main className="main-content !pt-6">
+          {loading && tasks.length === 0 ? (
+            <div className="w-full py-20 flex flex-col items-center justify-center text-main/20">
+              <Spinner size={40} weight="bold" className="animate-spin mb-4" />
+              <p className="text-xs uppercase tracking-widest font-bold font-mono">
+                {t("loading")}
+              </p>
+            </div>
+          ) : tasks.length === 0 ? (
+            <div
+              className="glass-panel p-20 flex flex-col items-center text-center justify-center border-dashed border-2 group hover:border-[#8a3ffc]/30 transition-all cursor-pointer"
+              onClick={() => setShowCreateDialog(true)}
+            >
+              <div className="w-20 h-20 rounded-3xl bg-main/5 flex items-center justify-center text-main/20 mb-6 group-hover:scale-110 transition-transform group-hover:bg-[#8a3ffc]/10 group-hover:text-[#8a3ffc]">
+                <Plus size={40} weight="bold" />
+              </div>
+              <h3 className="text-xl font-bold mb-2">
+                {resolvedTaskKind === "broadcast"
+                  ? language === "zh"
+                    ? "配置第一个群发任务"
+                    : "Configure Your First Broadcast"
+                  : t("no_tasks")}
+              </h3>
+              <p className="text-sm text-[#9496a1]">
+                {resolvedTaskKind === "broadcast"
+                  ? language === "zh"
+                    ? "选择目标会话，设定发送内容与时间"
+                    : "Pick target chats, set message content and schedule"
+                  : t("no_tasks_desc")}
+              </p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {groupedTasks.map((group) => {
+                const collapsed = collapsedGroups.has(group.name);
+                const enabledCount = group.tasks.filter(
+                  (task) => task.enabled !== false,
+                ).length;
+                return (
+                  <section
+                    key={group.name}
+                    className="flex flex-col gap-3 scroll-mt-4"
+                  >
+                    <button
+                      type="button"
+                      className="flex items-center justify-between gap-3 px-2 pt-1 pb-2 text-left"
+                      onClick={() => toggleGroupCollapsed(group.name)}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <CaretDown
+                          weight="bold"
+                          size={14}
+                          className={`text-main/35 shrink-0 transition-transform ${collapsed ? "-rotate-90" : ""}`}
+                        />
+                        <span className="font-bold text-sm truncate">
+                          {group.name}
+                        </span>
+                        <span className="rounded-full bg-[#8a3ffc]/10 px-2 py-0.5 text-[10px] font-bold text-[#8a3ffc]">
+                          {group.tasks.length}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-bold text-main/35">
+                        {enabledCount}/{group.tasks.length} {taskEnabledLabel}
+                      </span>
+                    </button>
+                    {!collapsed ? (
+                      <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-4 gap-3">
+                        {group.tasks.map((task) => (
+                          <TaskItem
+                            key={task.name}
+                            task={task}
+                            loading={loading}
+                            running={runningTaskNames.has(task.name)}
+                            onEdit={handleEditTask}
+                            onRun={handleRunTask}
+                            onToggleEnabled={handleToggleTaskEnabled}
+                            onViewLogs={handleShowTaskHistory}
+                            onClone={openCloneTaskDialog}
+                            onDelete={handleDeleteTask}
+                            t={t}
+                            language={language}
+                          />
+                        ))}
+                      </div>
+                    ) : null}
+                  </section>
+                );
+              })}
+            </div>
+          )}
+        </main>
+      )}
+
+      {/* Create/Edit task - 单页内嵌，不再弹窗 */}
+      {isTaskEditorOpen && (
+        <div className="task-editor task-editor-page w-full">
+          <div className="task-editor-shell">
+            <header className="task-editor-header">
+              <div className="task-editor-header-main">
+                <button
+                  type="button"
+                  className="task-editor-back"
+                  onClick={() => {
+                    setShowCreateDialog(false);
+                    setShowEditDialog(false);
+                    if (showCreateDialog) resetCreateTaskForm();
+                  }}
+                  title={t("cancel")}
+                >
+                  <CaretLeft weight="bold" size={16} />
+                </button>
+                <div className="task-editor-title-wrap">
+                  <div className="task-editor-kicker">
+                    {resolvedTaskKind === "broadcast"
+                      ? language === "zh"
+                        ? "消息群发"
+                        : "Broadcast"
+                      : language === "zh"
+                        ? "签到任务"
+                        : "Sign Task"}
+                    <span>·</span>
+                    {accountName}
+                  </div>
+                  <h2 className="task-editor-title">
+                    {showCreateDialog
+                      ? resolvedTaskKind === "broadcast"
+                        ? language === "zh"
+                          ? "创建群发任务"
+                          : "Create Broadcast Task"
+                        : t("create_task")
+                      : `${t("edit_task")}: ${editingTaskName}`}
+                  </h2>
                 </div>
               </div>
-              <div className="flex items-center gap-3 shrink-0">
-                <label className="inline-flex h-7 items-center gap-1.5 text-[10px] text-main/60 font-medium whitespace-nowrap">
+              <div className="task-editor-header-actions">
+                <label
+                  className={`task-editor-toggle ${
+                    (showCreateDialog ? newTask.enabled : editTask.enabled)
+                      ? "is-on"
+                      : ""
+                  }`}
+                >
                   <input
                     type="checkbox"
-                    className="!mb-0 h-3.5 w-3.5 accent-emerald-500"
+                    className="!mb-0 accent-emerald-500"
                     checked={
                       showCreateDialog ? newTask.enabled : editTask.enabled
                     }
@@ -2207,10 +2322,20 @@ export default function AccountTasksContent() {
                   />
                   {taskEnabledLabel}
                 </label>
-                <label className="inline-flex h-7 items-center gap-1.5 text-[10px] text-main/60 font-medium whitespace-nowrap">
+                <label
+                  className={`task-editor-toggle is-notify ${
+                    (
+                      showCreateDialog
+                        ? newTask.notify_on_failure
+                        : editTask.notify_on_failure
+                    )
+                      ? "is-on"
+                      : ""
+                  }`}
+                >
                   <input
                     type="checkbox"
-                    className="!mb-0 h-3.5 w-3.5 accent-[#8a3ffc]"
+                    className="!mb-0 accent-[#8a3ffc]"
                     checked={
                       showCreateDialog
                         ? newTask.notify_on_failure
@@ -2230,31 +2355,21 @@ export default function AccountTasksContent() {
                   />
                   {taskFailureNotifyLabel}
                 </label>
-                <button
-                  onClick={() => {
-                    setShowCreateDialog(false);
-                    setShowEditDialog(false);
-                    if (showCreateDialog) resetCreateTaskForm();
-                  }}
-                  className="action-btn !w-8 !h-8"
-                >
-                  <X weight="bold" />
-                </button>
               </div>
             </header>
 
-            <div className="p-5 grid grid-cols-1 lg:grid-cols-[0.85fr_1.15fr] gap-5 flex-1 min-h-0 overflow-y-auto custom-scrollbar">
-              <section className="space-y-4">
+            <div className="task-editor-body custom-scrollbar">
+              <section className="task-editor-col">
                 <div className={dialogSectionClass}>
                   <h3 className={dialogSectionTitleClass}>
-                    <Lightning weight="fill" className="text-[#b57dff]" />
+                    <Lightning weight="fill" className="text-[#8a3ffc]" />
                     {t("basic_config") === "basic_config"
                       ? language === "zh"
                         ? "基础配置"
                         : "Basic Config"
                       : t("basic_config")}
                   </h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3.5 items-start">
                     {showCreateDialog ? (
                       <div className="space-y-2">
                         <label className={fieldLabelClass}>
@@ -2331,7 +2446,7 @@ export default function AccountTasksContent() {
                       <label className={fieldLabelClass}>
                         {t("scheduling_mode")}
                       </label>
-                      <div className="grid grid-cols-3 gap-2">
+                      <div className="task-editor-choice-grid cols-3">
                         {(
                           [
                             ["fixed_time", scheduleFixedTimeLabel],
@@ -2347,7 +2462,7 @@ export default function AccountTasksContent() {
                             <button
                               key={mode}
                               type="button"
-                              className={`h-10 rounded-lg border text-xs font-bold transition-colors ${active ? "border-[#8a3ffc]/50 bg-[#8a3ffc]/15 text-[#b57dff]" : "border-white/5 bg-black/5 text-main/50 hover:text-main/80"}`}
+                              className={`task-editor-choice ${active ? "is-active" : ""}`}
                               onClick={() =>
                                 showCreateDialog
                                   ? setNewTask({
@@ -2615,409 +2730,41 @@ export default function AccountTasksContent() {
                     </div>
                   </div>
                 </div>
-              </section>
-              <section className="space-y-1.5">
-                <div className="rounded-xl border border-white/5 bg-white/5 p-3 space-y-3">
-                  <h3 className={dialogSectionTitleClass}>
-                    <ChatCircleText weight="bold" className="text-cyan-400" />
-                    {t("target_chats") === "target_chats"
-                      ? language === "zh"
-                        ? "目标会话"
-                        : "Target Chats"
-                      : t("target_chats")}
-                  </h3>
-                  {showCreateDialog && (
-                    <div className="space-y-2">
-                      <label className="text-[10px] text-main/40 uppercase tracking-wider">
-                        {createTargetModeLabel}
-                      </label>
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          type="button"
-                          className={`h-9 rounded-lg border text-xs font-bold transition-colors ${createTargetMode === "single_task" ? "border-[#8a3ffc]/50 bg-[#8a3ffc]/15 text-[#b57dff]" : "border-white/5 bg-black/5 text-main/50 hover:text-main/80"}`}
-                          onClick={() => setCreateTargetMode("single_task")}
-                        >
-                          {createModeSingleTaskLabel}
-                        </button>
-                        <button
-                          type="button"
-                          className={`h-9 rounded-lg border text-xs font-bold transition-colors ${createTargetMode === "batch_tasks" ? "border-[#8a3ffc]/50 bg-[#8a3ffc]/15 text-[#b57dff]" : "border-white/5 bg-black/5 text-main/50 hover:text-main/80"}`}
-                          onClick={() => setCreateTargetMode("batch_tasks")}
-                        >
-                          {createModeBatchTasksLabel}
-                        </button>
-                      </div>
-                    </div>
-                  )}
 
-                  <div className="space-y-2">
-                    <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 items-end rounded-xl border border-cyan-400/10 bg-cyan-400/[0.035] p-2">
-                      <div className="space-y-2">
-                        <label className="text-[10px] text-main/40 uppercase tracking-wider">
-                          {t("search_chat")}
-                        </label>
-                        <input
-                          className="!mb-0 !bg-white/70 dark:!bg-white/[0.04]"
-                          placeholder={t("search_chat_placeholder")}
-                          value={chatSearch}
-                          onChange={(e) => setChatSearch(e.target.value)}
-                        />
-                      </div>
-                      <button
-                        onClick={handleRefreshChats}
-                        disabled={refreshingChats}
-                        className="h-10 px-3 rounded-lg text-[10px] text-[#8a3ffc] hover:text-[#8a3ffc]/80 hover:bg-[#8a3ffc]/10 transition-colors uppercase font-bold tracking-tighter flex items-center gap-1"
-                        title={t("refresh_chat_title")}
-                      >
-                        {refreshingChats ? (
-                          <div className="w-3 h-3 border-2 border-[#8a3ffc] border-t-transparent rounded-full animate-spin"></div>
-                        ) : (
-                          <ArrowClockwise weight="bold" size={12} />
-                        )}
-                        {t("refresh_list")}
-                      </button>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_236px] gap-3 items-start">
-                      <div className="space-y-1.5">
-                        <div className="text-[10px] text-main/35 uppercase tracking-wider">
-                          {chatSearch.trim()
-                            ? isZh
-                              ? "搜索结果"
-                              : "Search Results"
-                            : t("select_from_list")}
-                        </div>
-                        <div className="h-[166px] overflow-y-auto rounded-xl border border-white/5 bg-black/[0.035] custom-scrollbar">
-                          {chatSearch.trim() ? (
-                            chatSearchLoading ? (
-                              <div className="px-3 py-2 text-xs text-main/40">
-                                {t("searching")}
-                              </div>
-                            ) : chatSearchResults.length > 0 ? (
-                              chatSearchResults.map((chat) => {
-                                const title = getChatTitle(chat);
-                                const selected = showCreateDialog
-                                  ? selectedCreateChats.some(
-                                      (item) => item.id === chat.id,
-                                    )
-                                  : editTask.target_chats.some(
-                                      (item) => item.chat_id === chat.id,
-                                    );
-                                return (
-                                  <button
-                                    key={chat.id}
-                                    type="button"
-                                    className={`w-full text-left px-3 py-1.5 hover:bg-white/5 border-b border-white/5 last:border-b-0 flex items-center gap-2.5 transition-colors ${selected ? "bg-cyan-400/[0.08]" : ""}`}
-                                    onClick={() =>
-                                      showCreateDialog
-                                        ? toggleSelectedChat(chat)
-                                        : toggleEditTargetChat(chat)
-                                    }
-                                  >
-                                    <span
-                                      className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${selected ? "bg-cyan-400 border-cyan-400 text-white" : "border-main/20 bg-white/40 dark:bg-white/5"}`}
-                                    >
-                                      {selected && (
-                                        <CheckCircle weight="bold" size={12} />
-                                      )}
-                                    </span>
-                                    <div className="min-w-0">
-                                      <div className="text-sm font-semibold truncate">
-                                        {title}
-                                      </div>
-                                      <div className="text-[10px] text-main/40 font-mono truncate">
-                                        {chat.id}
-                                        {chat.username
-                                          ? ` · @${chat.username}`
-                                          : ""}
-                                      </div>
-                                    </div>
-                                  </button>
-                                );
-                              })
-                            ) : (
-                              <div className="px-3 py-2 text-xs text-main/40">
-                                {t("search_no_results")}
-                              </div>
-                            )
-                          ) : chatsLoading ? (
-                            <div className="px-3 py-2 text-xs text-main/40 flex items-center gap-2">
-                              <Spinner className="animate-spin" size={12} />
-                              {t("loading")}
-                            </div>
-                          ) : visibleChats.length > 0 ? (
-                            visibleChats.map((chat) => {
-                              const title = getChatTitle(chat);
-                              const selected = showCreateDialog
-                                ? selectedCreateChats.some(
-                                    (item) => item.id === chat.id,
-                                  )
-                                : editTask.target_chats.some(
-                                    (item) => item.chat_id === chat.id,
-                                  );
-                              return (
-                                <button
-                                  key={chat.id}
-                                  type="button"
-                                  className={`w-full text-left px-3 py-1.5 hover:bg-white/5 border-b border-white/5 last:border-b-0 flex items-center gap-2.5 transition-colors ${selected ? "bg-cyan-400/[0.08]" : ""}`}
-                                  onClick={() =>
-                                    showCreateDialog
-                                      ? toggleSelectedChat(chat)
-                                      : toggleEditTargetChat(chat)
-                                  }
-                                >
-                                  <span
-                                    className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${selected ? "bg-cyan-400 border-cyan-400 text-white" : "border-main/20 bg-white/40 dark:bg-white/5"}`}
-                                  >
-                                    {selected && (
-                                      <CheckCircle weight="bold" size={12} />
-                                    )}
-                                  </span>
-                                  <div className="min-w-0">
-                                    <div className="text-sm font-semibold truncate">
-                                      {title}
-                                    </div>
-                                    <div className="text-[10px] text-main/40 font-mono truncate">
-                                      {chat.id}
-                                      {chat.username
-                                        ? ` · @${chat.username}`
-                                        : ""}
-                                    </div>
-                                  </div>
-                                </button>
-                              );
-                            })
-                          ) : (
-                            <div className="px-3 py-2 text-xs text-main/40">
-                              {chatsLoaded
-                                ? t("search_no_results")
-                                : t("loading")}
-                            </div>
-                          )}
-                        </div>
-                        {chats.length > CHAT_LIST_PREVIEW_LIMIT && (
-                          <div className="pt-2 text-[10px] text-main/30">
-                            {chatListPreviewHint(
-                              CHAT_LIST_PREVIEW_LIMIT,
-                              chats.length,
-                            )}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="space-y-3 rounded-xl border border-white/5 bg-white/[0.035] p-3">
-                        <div className="space-y-2">
-                          <label className="text-[10px] text-main/40 uppercase tracking-wider">
-                            {t("manual_chat_id")}
-                          </label>
-                          {(() => {
-                            const hasSelectedTargets = showCreateDialog
-                              ? selectedCreateChats.length > 0
-                              : editTask.target_chats.length > 0;
-                            return (
-                              <input
-                                placeholder={t("manual_id_placeholder")}
-                                className="!mb-0 !h-9 !text-xs"
-                                disabled={hasSelectedTargets}
-                                value={
-                                  hasSelectedTargets
-                                    ? ""
-                                    : showCreateDialog
-                                      ? newTask.chat_id_manual
-                                      : editTask.chat_id_manual
-                                }
-                                onChange={(e) => {
-                                  if (showCreateDialog) {
-                                    setSelectedCreateChats([]);
-                                    setNewTask({
-                                      ...newTask,
-                                      chat_id_manual: e.target.value,
-                                      chat_id: 0,
-                                      chat_name: "",
-                                    });
-                                  } else {
-                                    const value = e.target.value.trim();
-                                    const chatId = parseInt(value) || 0;
-                                    setEditTask({
-                                      ...editTask,
-                                      chat_id_manual: value,
-                                      chat_id: 0,
-                                      chat_name: value
-                                        ? t("chat_default_name").replace(
-                                            "{id}",
-                                            value,
-                                          )
-                                        : "",
-                                      target_chats: chatId
-                                        ? [
-                                            {
-                                              chat_id: chatId,
-                                              name: t(
-                                                "chat_default_name",
-                                              ).replace("{id}", value),
-                                              actions: [],
-                                              action_interval:
-                                                editTask.action_interval,
-                                              message_thread_id:
-                                                editTask.message_thread_id,
-                                              delete_after:
-                                                editTask.delete_after,
-                                            },
-                                          ]
-                                        : [],
-                                    });
-                                  }
-                                }}
-                              />
-                            );
-                          })()}
-                          {(showCreateDialog
-                            ? selectedCreateChats.length > 0
-                            : editTask.target_chats.length > 0) && (
-                            <div className="text-[10px] text-main/30 leading-4">
-                              {manualChatDisabledHint}
-                            </div>
-                          )}
-                        </div>
-                        <div className="space-y-2">
-                          <label className="text-[10px] text-main/40 uppercase tracking-wider">
-                            {t("topic_id_label") ||
-                              "Topic/Thread ID (Optional)"}
-                          </label>
-                          <input
-                            inputMode="numeric"
-                            className="!mb-0 !h-9 !text-xs"
-                            placeholder={
-                              t("topic_id_placeholder") ||
-                              "Leave blank if not applicable"
-                            }
-                            value={
-                              showCreateDialog
-                                ? newTask.message_thread_id || ""
-                                : editTask.message_thread_id || ""
-                            }
-                            onChange={(e) => {
-                              const val = e.target.value
-                                ? parseInt(e.target.value)
-                                : undefined;
-                              showCreateDialog
-                                ? setNewTask({
-                                    ...newTask,
-                                    message_thread_id: val,
-                                  })
-                                : setEditTask({
-                                    ...editTask,
-                                    message_thread_id: val,
-                                  });
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    <div className="min-h-[62px] rounded-xl border border-cyan-400/10 bg-cyan-400/[0.035] px-3 py-2.5">
-                      <div className="grid grid-cols-1 md:grid-cols-[96px_minmax(0,1fr)] gap-2 md:gap-3 items-start">
-                        <div className="flex md:flex-col items-center md:items-start justify-between gap-2">
-                          <label className="text-[10px] text-main/45 uppercase tracking-wider whitespace-nowrap">
-                            {selectedChatsLabel} (
-                            {showCreateDialog
-                              ? selectedCreateChats.length
-                              : editTask.target_chats.length}
-                            )
-                          </label>
-                          <button
-                            type="button"
-                            className="text-[10px] text-[#8a3ffc] hover:text-[#8a3ffc]/80 font-bold uppercase shrink-0"
-                            onClick={() =>
-                              showCreateDialog
-                                ? setSelectedCreateChats([])
-                                : setEditTask({
-                                    ...editTask,
-                                    target_chats: [],
-                                    chat_id: 0,
-                                    chat_id_manual: "",
-                                    chat_name: "",
-                                  })
-                            }
-                          >
-                            {clearSelectedChatsLabel}
-                          </button>
-                        </div>
-                        <div className="min-w-0 space-y-1.5">
-                          {(showCreateDialog
-                            ? selectedCreateChats.length
-                            : editTask.target_chats.length) > 0 ? (
-                            <div className="flex max-h-[76px] flex-wrap gap-2 overflow-y-auto pr-1 custom-scrollbar">
-                              {showCreateDialog
-                                ? selectedCreateChats.map((chat) => (
-                                    <button
-                                      key={chat.id}
-                                      type="button"
-                                      className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-cyan-400/[0.12] px-2 py-1 text-[10px] font-bold text-cyan-700 dark:text-cyan-300 hover:bg-rose-500/10 hover:text-rose-300"
-                                      onClick={() => toggleSelectedChat(chat)}
-                                    >
-                                      <span className="truncate max-w-[150px]">
-                                        {getChatTitle(chat)}
-                                      </span>
-                                      <X weight="bold" size={12} />
-                                    </button>
-                                  ))
-                                : editTask.target_chats.map((chat) => (
-                                    <button
-                                      key={chat.chat_id}
-                                      type="button"
-                                      className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-cyan-400/[0.12] px-2 py-1 text-[10px] font-bold text-cyan-700 dark:text-cyan-300 hover:bg-rose-500/10 hover:text-rose-300"
-                                      onClick={() =>
-                                        removeEditTargetChat(chat.chat_id)
-                                      }
-                                    >
-                                      <span className="truncate max-w-[150px]">
-                                        {chat.name || chat.chat_id}
-                                      </span>
-                                      <X weight="bold" size={12} />
-                                    </button>
-                                  ))}
-                            </div>
-                          ) : (
-                            <div className="text-xs text-main/30">
-                              {noSelectedChatsLabel}
-                            </div>
-                          )}
-                          <div className="text-[10px] text-main/30 leading-4">
-                            {multiSelectHint}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="rounded-xl border border-white/5 bg-white/5 p-3 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h3 className={dialogSectionTitleClass}>
-                      <DotsThreeVertical weight="bold" />
+                <div
+                  className={`${dialogSectionClass} task-editor-actions-card`}
+                >
+                  <div className="task-editor-card-head">
+                    <h3
+                      className={`${dialogSectionTitleClass} !mb-0 !pb-0 !border-0`}
+                    >
+                      <DotsThreeVertical
+                        weight="bold"
+                        className="text-[#8a3ffc]"
+                      />
                       {t("action_sequence")}
                     </h3>
                     <button
+                      type="button"
                       onClick={
                         showCreateDialog ? handleAddAction : handleEditAddAction
                       }
-                      className="btn-secondary !h-7 !px-3 !text-[10px]"
+                      className="task-editor-mini-btn"
                     >
                       + {t("add_action")}
                     </button>
                   </div>
-
-                  <div className="flex flex-col gap-3">
+                  <div className="task-editor-action-list">
                     {(showCreateDialog
                       ? newTask.actions
                       : editTask.actions
                     ).map((action, index) => (
                       <div
                         key={index}
-                        className="rounded-xl border border-white/5 bg-black/5 p-3 animate-scale-in"
+                        className="task-editor-action-item animate-scale-in"
                       >
-                        <div className="grid grid-cols-[2rem_minmax(0,1fr)_2.5rem] md:grid-cols-[2rem_minmax(0,125px)_minmax(0,1fr)_2.5rem] gap-3 items-start">
-                          <div className="shrink-0 w-8 h-10 flex items-center justify-center font-mono text-[10px] text-main/35 font-bold border border-white/5 rounded-lg bg-white/5">
+                        <div className="grid grid-cols-[2rem_minmax(0,1fr)_2.5rem] md:grid-cols-[2rem_minmax(0,132px)_minmax(0,1fr)_2.5rem] gap-3 items-start">
+                          <div className="task-editor-action-index shrink-0">
                             {index + 1}
                           </div>
                           <select
@@ -4048,32 +3795,343 @@ export default function AccountTasksContent() {
                   </div>
                 </div>
               </section>
+              <section className="task-editor-col">
+                <div
+                  className={`${dialogSectionClass} task-editor-targets-card`}
+                >
+                  <h3 className={dialogSectionTitleClass}>
+                    <ChatCircleText weight="bold" className="text-cyan-500" />
+                    {t("target_chats") === "target_chats"
+                      ? language === "zh"
+                        ? "目标会话"
+                        : "Target Chats"
+                      : t("target_chats")}
+                  </h3>
+                  {showCreateDialog && (
+                    <div className="space-y-2">
+                      <label className={fieldLabelClass}>
+                        {createTargetModeLabel}
+                      </label>
+                      <div className="task-editor-choice-grid cols-2">
+                        <button
+                          type="button"
+                          className={`task-editor-choice ${createTargetMode === "single_task" ? "is-active" : ""}`}
+                          onClick={() => setCreateTargetMode("single_task")}
+                        >
+                          {createModeSingleTaskLabel}
+                        </button>
+                        <button
+                          type="button"
+                          className={`task-editor-choice ${createTargetMode === "batch_tasks" ? "is-active" : ""}`}
+                          onClick={() => setCreateTargetMode("batch_tasks")}
+                        >
+                          {createModeBatchTasksLabel}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="space-y-3">
+                    <ChatPickerField
+                      label={t("search_chat")}
+                      searchValue={chatSearch}
+                      onSearchChange={setChatSearch}
+                      searchPlaceholder={t("search_chat_placeholder")}
+                      onRefresh={handleRefreshChats}
+                      refreshing={refreshingChats}
+                      refreshLabel={t("refresh_list")}
+                    >
+                      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_240px] gap-3 items-start">
+                        <div className="min-w-0 space-y-1.5">
+                          <div className="chat-picker-label">
+                            {chatSearch.trim()
+                              ? isZh
+                                ? "搜索结果"
+                                : "Search Results"
+                              : t("select_from_list")}
+                          </div>
+                          <ChatPickerList
+                            maxHeight={360}
+                            loading={
+                              chatSearch.trim()
+                                ? chatSearchLoading
+                                : chatsLoading
+                            }
+                            loadingText={
+                              chatSearch.trim() ? t("searching") : t("loading")
+                            }
+                            emptyText={
+                              chatSearch.trim()
+                                ? t("search_no_results")
+                                : chatsLoaded
+                                  ? t("search_no_results")
+                                  : t("loading")
+                            }
+                            items={(chatSearch.trim()
+                              ? chatSearchResults
+                              : visibleChats
+                            ).map((chat) => {
+                              const selected = showCreateDialog
+                                ? selectedCreateChats.some(
+                                    (item) => item.id === chat.id,
+                                  )
+                                : editTask.target_chats.some(
+                                    (item) => item.chat_id === chat.id,
+                                  );
+                              return {
+                                id: chat.id,
+                                title: getChatTitle(chat),
+                                subtitle: formatChatSubtitle(chat),
+                                selected,
+                              };
+                            })}
+                            onSelect={(id) => {
+                              const source = chatSearch.trim()
+                                ? chatSearchResults
+                                : visibleChats;
+                              const chat = source.find(
+                                (item) => item.id === id,
+                              );
+                              if (!chat) return;
+                              if (showCreateDialog) {
+                                toggleSelectedChat(chat);
+                              } else {
+                                toggleEditTargetChat(chat);
+                              }
+                            }}
+                          />
+                          {chats.length > CHAT_LIST_PREVIEW_LIMIT &&
+                            !chatSearch.trim() && (
+                              <div className="chat-picker-footer">
+                                {chatListPreviewHint(
+                                  CHAT_LIST_PREVIEW_LIMIT,
+                                  chats.length,
+                                )}
+                              </div>
+                            )}
+                        </div>
+
+                        <div className="task-editor-sidebox space-y-3">
+                          <div className="space-y-2">
+                            <label className={fieldLabelClass}>
+                              {t("manual_chat_id")}
+                            </label>
+                            {(() => {
+                              const hasSelectedTargets = showCreateDialog
+                                ? selectedCreateChats.length > 0
+                                : editTask.target_chats.length > 0;
+                              return (
+                                <input
+                                  placeholder={t("manual_id_placeholder")}
+                                  className="!mb-0 !h-9 !text-xs"
+                                  disabled={hasSelectedTargets}
+                                  value={
+                                    hasSelectedTargets
+                                      ? ""
+                                      : showCreateDialog
+                                        ? newTask.chat_id_manual
+                                        : editTask.chat_id_manual
+                                  }
+                                  onChange={(e) => {
+                                    if (showCreateDialog) {
+                                      setSelectedCreateChats([]);
+                                      setNewTask({
+                                        ...newTask,
+                                        chat_id_manual: e.target.value,
+                                        chat_id: 0,
+                                        chat_name: "",
+                                      });
+                                    } else {
+                                      const value = e.target.value.trim();
+                                      const chatId = parseInt(value) || 0;
+                                      setEditTask({
+                                        ...editTask,
+                                        chat_id_manual: value,
+                                        chat_id: 0,
+                                        chat_name: value
+                                          ? t("chat_default_name").replace(
+                                              "{id}",
+                                              value,
+                                            )
+                                          : "",
+                                        target_chats: chatId
+                                          ? [
+                                              {
+                                                chat_id: chatId,
+                                                name: t(
+                                                  "chat_default_name",
+                                                ).replace("{id}", value),
+                                                actions: [],
+                                                action_interval:
+                                                  editTask.action_interval,
+                                                message_thread_id:
+                                                  editTask.message_thread_id,
+                                                delete_after:
+                                                  editTask.delete_after,
+                                              },
+                                            ]
+                                          : [],
+                                      });
+                                    }
+                                  }}
+                                />
+                              );
+                            })()}
+                            {(showCreateDialog
+                              ? selectedCreateChats.length > 0
+                              : editTask.target_chats.length > 0) && (
+                              <div className="text-[10px] text-main/30 leading-4">
+                                {manualChatDisabledHint}
+                              </div>
+                            )}
+                          </div>
+                          <div className="space-y-2">
+                            <label className={fieldLabelClass}>
+                              {t("topic_id_label") ||
+                                "Topic/Thread ID (Optional)"}
+                            </label>
+                            <input
+                              inputMode="numeric"
+                              className="!mb-0 !h-9 !text-xs"
+                              placeholder={
+                                t("topic_id_placeholder") ||
+                                "Leave blank if not applicable"
+                              }
+                              value={
+                                showCreateDialog
+                                  ? newTask.message_thread_id || ""
+                                  : editTask.message_thread_id || ""
+                              }
+                              onChange={(e) => {
+                                const val = e.target.value
+                                  ? parseInt(e.target.value)
+                                  : undefined;
+                                showCreateDialog
+                                  ? setNewTask({
+                                      ...newTask,
+                                      message_thread_id: val,
+                                    })
+                                  : setEditTask({
+                                      ...editTask,
+                                      message_thread_id: val,
+                                    });
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </ChatPickerField>
+
+                    <div className="task-editor-selected">
+                      <div className="grid grid-cols-1 md:grid-cols-[104px_minmax(0,1fr)] gap-2 md:gap-3 items-start">
+                        <div className="flex md:flex-col items-center md:items-start justify-between gap-2">
+                          <label className="task-editor-label !mb-0 whitespace-nowrap">
+                            {selectedChatsLabel} (
+                            {showCreateDialog
+                              ? selectedCreateChats.length
+                              : editTask.target_chats.length}
+                            )
+                          </label>
+                          <button
+                            type="button"
+                            className="text-[11px] text-[#8a3ffc] hover:text-[#7c3aed] font-bold shrink-0"
+                            onClick={() =>
+                              showCreateDialog
+                                ? setSelectedCreateChats([])
+                                : setEditTask({
+                                    ...editTask,
+                                    target_chats: [],
+                                    chat_id: 0,
+                                    chat_id_manual: "",
+                                    chat_name: "",
+                                  })
+                            }
+                          >
+                            {clearSelectedChatsLabel}
+                          </button>
+                        </div>
+                        <div className="min-w-0 space-y-1.5">
+                          {(showCreateDialog
+                            ? selectedCreateChats.length
+                            : editTask.target_chats.length) > 0 ? (
+                            <div className="chat-picker-chips max-h-[88px] overflow-y-auto pr-1">
+                              {showCreateDialog
+                                ? selectedCreateChats.map((chat) => (
+                                    <button
+                                      key={chat.id}
+                                      type="button"
+                                      className="chat-picker-chip"
+                                      onClick={() => toggleSelectedChat(chat)}
+                                    >
+                                      <span className="chat-picker-chip-text">
+                                        {getChatTitle(chat)}
+                                      </span>
+                                      <X weight="bold" size={11} />
+                                    </button>
+                                  ))
+                                : editTask.target_chats.map((chat) => (
+                                    <button
+                                      key={chat.chat_id}
+                                      type="button"
+                                      className="chat-picker-chip"
+                                      onClick={() =>
+                                        removeEditTargetChat(chat.chat_id)
+                                      }
+                                    >
+                                      <span className="chat-picker-chip-text">
+                                        {chat.name || chat.chat_id}
+                                      </span>
+                                      <X weight="bold" size={11} />
+                                    </button>
+                                  ))}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-[var(--te-muted)]">
+                              {noSelectedChatsLabel}
+                            </div>
+                          )}
+                          <div className="task-editor-hint !mt-0">
+                            {multiSelectHint}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
             </div>
 
-            <footer className="p-5 border-t border-white/5 bg-black/10 flex gap-3 shrink-0">
-              <button
-                className="btn-secondary flex-1"
-                onClick={() => {
-                  setShowCreateDialog(false);
-                  setShowEditDialog(false);
-                  if (showCreateDialog) resetCreateTaskForm();
-                }}
-              >
-                {t("cancel")}
-              </button>
-              <button
-                className="btn-gradient flex-1"
-                onClick={showCreateDialog ? handleCreateTask : handleSaveEdit}
-                disabled={loading}
-              >
-                {loading ? (
-                  <Spinner className="animate-spin" />
-                ) : showCreateDialog ? (
-                  t("add_task")
-                ) : (
-                  t("save_changes")
-                )}
-              </button>
+            <footer className="task-editor-footer">
+              <div className="task-editor-footer-note">
+                {language === "zh"
+                  ? "左侧配置任务与动作，右侧选择目标会话后保存。"
+                  : "Configure task and actions on the left, pick chats on the right, then save."}
+              </div>
+              <div className="task-editor-footer-actions">
+                <button
+                  className="btn-secondary"
+                  onClick={() => {
+                    setShowCreateDialog(false);
+                    setShowEditDialog(false);
+                    if (showCreateDialog) resetCreateTaskForm();
+                  }}
+                >
+                  {t("cancel")}
+                </button>
+                <button
+                  className="btn-gradient"
+                  onClick={showCreateDialog ? handleCreateTask : handleSaveEdit}
+                  disabled={loading}
+                >
+                  {loading ? (
+                    <Spinner className="animate-spin" />
+                  ) : showCreateDialog ? (
+                    t("add_task")
+                  ) : (
+                    t("save_changes")
+                  )}
+                </button>
+              </div>
             </footer>
           </div>
         </div>

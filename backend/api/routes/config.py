@@ -46,6 +46,7 @@ class ImportTaskRequest(BaseModel):
     config_json: str
     task_name: Optional[str] = None
     account_name: Optional[str] = None
+    overwrite: bool = True
 
 
 class ImportTaskResponse(BaseModel):
@@ -136,7 +137,10 @@ async def import_sign_task(
             )
 
         success = service.import_sign_task(
-            request.config_json, request.task_name, request.account_name
+            request.config_json,
+            request.task_name,
+            request.account_name,
+            overwrite=request.overwrite,
         )
         if not success:
             raise HTTPException(
@@ -146,6 +150,7 @@ async def import_sign_task(
 
         data = json.loads(request.config_json)
         final_task_name = request.task_name or data.get("task_name", "imported_task")
+        # 若同名覆盖，返回原名；若自动改名需再读一次不必要，覆盖模式保持同名
 
         from backend.scheduler import sync_jobs
 
@@ -189,9 +194,7 @@ def export_all_configs(
         return Response(
             content=config_json.encode("utf-8"),
             media_type="application/json; charset=utf-8",
-            headers={
-                "Content-Disposition": f'attachment; filename="{filename}"'
-            },
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
     except Exception as e:
         raise HTTPException(
@@ -438,7 +441,9 @@ async def save_global_settings(
             "telegram_bot_chat_id": request.telegram_bot_chat_id,
             "telegram_bot_message_thread_id": request.telegram_bot_message_thread_id,
         }
-        fields_set = getattr(request, "model_fields_set", getattr(request, "__fields_set__", set()))
+        fields_set = getattr(
+            request, "model_fields_set", getattr(request, "__fields_set__", set())
+        )
         if "data_dir" in fields_set:
             settings["data_dir"] = request.data_dir
         if "telegram_bot_token" in fields_set:

@@ -6,9 +6,9 @@ import { getToken } from "../../../lib/auth";
 import { listAccounts, AccountInfo } from "../../../lib/api";
 import AccountTasksContent from "../account-tasks/AccountTasksContent";
 import { useLanguage } from "../../../context/LanguageContext";
-import { Spinner, ListChecks } from "@phosphor-icons/react";
+import { Spinner, PaperPlaneTilt } from "@phosphor-icons/react";
 
-function SignTasksInner() {
+function BroadcastInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { language } = useLanguage();
@@ -32,7 +32,7 @@ function SignTasksInner() {
         setAccounts(data.accounts || []);
         if (data.accounts?.[0]?.name) {
           router.replace(
-            `/dashboard/sign-tasks?name=${encodeURIComponent(data.accounts[0].name)}`,
+            `/dashboard/broadcast?name=${encodeURIComponent(data.accounts[0].name)}`,
           );
         }
       })
@@ -43,8 +43,8 @@ function SignTasksInner() {
   if (accountName) {
     return (
       <AccountTasksContent
-        taskKind="sign"
-        pageTitle={isZh ? "签到任务" : "Sign Tasks"}
+        taskKind="broadcast"
+        pageTitle={isZh ? "消息群发" : "Broadcast"}
       />
     );
   }
@@ -64,26 +64,26 @@ function SignTasksInner() {
     <div className="w-full min-h-full flex flex-col">
       <header className="navbar">
         <div>
-          <div className="nav-title">{isZh ? "签到任务" : "Sign Tasks"}</div>
+          <div className="nav-title">{isZh ? "消息群发" : "Broadcast"}</div>
           <div className="text-[11px] text-muted-foreground mt-0.5">
             {isZh
-              ? "按账号管理自动签到任务，与消息群发隔离"
-              : "Manage sign-in tasks per account, isolated from broadcast"}
+              ? "基于签到任务引擎，独立隔离的群发调度"
+              : "Sign-task engine, isolated broadcast jobs"}
           </div>
         </div>
       </header>
       <main className="main-content !pt-8">
         <div className="glass-panel p-8 max-w-xl mx-auto text-center space-y-4">
           <div className="w-12 h-12 mx-auto rounded-2xl bg-violet-500/10 text-violet-500 grid place-items-center">
-            <ListChecks weight="fill" size={22} />
+            <PaperPlaneTilt weight="fill" size={22} />
           </div>
           <h1 className="text-lg font-bold">
             {isZh ? "请先添加 Telegram 账号" : "Add a Telegram account first"}
           </h1>
           <p className="text-sm text-main/50">
             {isZh
-              ? "签到任务会按账号隔离保存，不会与消息群发混在一起。"
-              : "Sign tasks are stored per account and isolated from broadcast jobs."}
+              ? "消息群发会按账号隔离保存，不会与签到任务混在一起。"
+              : "Broadcast jobs are stored per account and isolated from sign tasks."}
           </p>
           <button
             className="btn-gradient"
@@ -99,7 +99,7 @@ function SignTasksInner() {
                   className="btn-secondary w-full"
                   onClick={() =>
                     router.push(
-                      `/dashboard/sign-tasks?name=${encodeURIComponent(acc.name)}`,
+                      `/dashboard/broadcast?name=${encodeURIComponent(acc.name)}`,
                     )
                   }
                 >
@@ -114,7 +114,7 @@ function SignTasksInner() {
   );
 }
 
-export default function SignTasksPage() {
+export default function BroadcastPage() {
   const { t } = useLanguage();
   return (
     <Suspense
@@ -124,7 +124,7 @@ export default function SignTasksPage() {
         </div>
       }
     >
-      <SignTasksInner />
+      <BroadcastInner />
     </Suspense>
   );
 }

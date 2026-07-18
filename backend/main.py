@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, Response, status
@@ -77,8 +78,14 @@ def ready_check(response: Response) -> dict[str, str]:
 
 
 # 静态前端托管（Mode A: 单容器，FastAPI 提供静态文件）
-# 挂载 Next.js 静态资源
-web_dir = Path("/web")
+# 挂载 Next.js 静态资源。容器使用 /web，本地运行使用 frontend/out。
+configured_web_dir = os.getenv("APP_WEB_DIR", "").strip()
+local_web_dir = Path(__file__).resolve().parents[1] / "frontend" / "out"
+web_dir = (
+    Path(configured_web_dir).expanduser()
+    if configured_web_dir
+    else Path("/web") if Path("/web").exists() else local_web_dir
+)
 next_static_dir = web_dir / "_next"
 static_resolver = StaticFileResolver(web_dir)
 
@@ -90,34 +97,30 @@ if next_static_dir.exists():
     )
 
 
-# Catch-all 路由：处理所有前端路由，返回 index.html
-@app.get("/{full_path:path}")
-async def serve_spa(full_path: str):
-    """
-    SPA fallback: 对于所有非 API 路由，返回 index.html
-    这样刷新页面时不会 404
-    """
+def _spa_response(full_path: str):
+    """Resolve SPA/static frontend file for GET/HEAD page navigation."""
     if not next_static_dir.exists():
         return {"detail": "Frontend not built"}
 
     file_path = static_resolver.existing_file(full_path)
-
-    # 如果文件存在且不是目录，直接返回文件
     if file_path:
         return FileResponse(file_path)
 
-    # 尝试添加 .html 后缀（Next.js 导出通常会生成 .html 文件）
     html_path = static_resolver.existing_html_file(full_path)
     if html_path:
         return FileResponse(html_path)
 
-    # 否则返回 index.html（SPA 路由）
     index_path = static_resolver.index_file()
     if index_path:
         return FileResponse(index_path)
 
-    # 如果 index.html 也不存在，返回 404
     return {"detail": "Frontend not built"}
+
+
+# Catch-all：兼容 Next.js 客户端路由的 GET/HEAD 预取，避免 HEAD 405 导致空白页
+@app.api_route("/{full_path:path}", methods=["GET", "HEAD"])
+async def serve_spa(full_path: str):
+    return _spa_response(full_path)
 
 
 @app.on_event("startup")
