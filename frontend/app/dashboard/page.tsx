@@ -1934,9 +1934,9 @@ export default function Dashboard() {
           <button
             type="button"
             onClick={openAddDialog}
-            className="hidden sm:inline-flex items-center gap-2 h-10 px-4 bg-gradient-to-r from-primary to-accent text-primary-foreground rounded-xl text-sm font-bold shadow-lg shadow-primary/20 transition-all hover:brightness-105 hover:-translate-y-0.5 active:scale-95"
+            className="hidden sm:inline-flex h-9 items-center gap-1.5 rounded-lg border border-border/80 bg-background/45 px-3.5 text-xs font-semibold text-muted-foreground shadow-sm transition-all hover:border-primary/25 hover:bg-primary/[0.05] hover:text-primary active:scale-[0.98]"
           >
-            <Plus weight="bold" size={15} />
+            <Plus weight="bold" size={14} />
             <span>{t("add_account")}</span>
           </button>
         </div>

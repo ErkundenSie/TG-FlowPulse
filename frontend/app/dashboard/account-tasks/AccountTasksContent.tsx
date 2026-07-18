@@ -45,6 +45,7 @@ import {
   ClipboardText,
   FastForward,
   Image as ImageIcon,
+  UsersThree,
 } from "@phosphor-icons/react";
 import { ToastContainer, useToast } from "../../../components/ui/toast";
 import {
@@ -327,15 +328,24 @@ const TaskItem = memo(
                   {taskGroup}
                 </span>
               ) : null}
-              <span
-                className="text-[10px] font-mono text-main/35 bg-white/5 px-2 py-1 rounded-md border border-white/5 truncate max-w-[150px]"
-                title={String(task.chats[0]?.chat_id || "-")}
-              >
-                {task.chats[0]?.chat_id || "-"}
-              </span>
-              {task.chats.length > 1 && (
-                <span className="text-[10px] font-bold text-[#8a3ffc]/70 bg-[#8a3ffc]/10 px-2 py-1 rounded-md border border-[#8a3ffc]/10">
-                  +{task.chats.length - 1}
+              {task.chats.length > 1 ? (
+                <span
+                  className="inline-flex items-center gap-1.5 rounded-md border border-blue-500/15 bg-blue-500/[0.08] px-2 py-1 text-[10px] font-bold text-blue-400"
+                  title={task.chats
+                    .map((chat) => chat.name || String(chat.chat_id))
+                    .join("\n")}
+                >
+                  <UsersThree weight="fill" size={12} />
+                  {language === "zh"
+                    ? `${task.chats.length} 个群组`
+                    : `${task.chats.length} chats`}
+                </span>
+              ) : (
+                <span
+                  className="max-w-[150px] truncate rounded-md border border-main/10 bg-main/[0.04] px-2 py-1 font-mono text-[10px] font-semibold text-main/45"
+                  title={String(task.chats[0]?.chat_id || "-")}
+                >
+                  {task.chats[0]?.chat_id || "-"}
                 </span>
               )}
             </div>
