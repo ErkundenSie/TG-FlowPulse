@@ -1968,10 +1968,11 @@ export default function Dashboard() {
               return (
                 <div
                   key={acc.name}
-                  className="group relative flex flex-col justify-between p-5 bg-card/80 backdrop-blur-xl border border-border/70 rounded-2xl shadow-soft transition-all duration-300 hover:-translate-y-1 hover:shadow-soft-hover hover:border-primary/30 cursor-pointer overflow-hidden"
+                  className="group relative flex flex-col justify-between p-5 bg-card/70 backdrop-blur-xl border border-border/70 rounded-2xl shadow-soft transition-all duration-500 hover:-translate-y-1.5 hover:shadow-soft-hover hover:border-primary/40 cursor-pointer overflow-hidden"
                   onClick={() => handleAccountCardClick(acc)}
                 >
-                  <div className="absolute inset-0 bg-gradient-to-br from-primary/[0.08] via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-400 pointer-events-none" />
+                  <div className="absolute inset-0 bg-gradient-to-br from-primary/[0.12] via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+                  <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-primary/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
 
                   <div className="relative z-10 flex justify-between items-start gap-3 mb-5">
                     <div className="flex items-center gap-3 min-w-0">
@@ -2111,9 +2112,10 @@ export default function Dashboard() {
 
             <button
               type="button"
-              className="group flex flex-col items-center justify-center p-6 min-h-[200px] bg-card/40 backdrop-blur-sm border-2 border-dashed border-border/70 rounded-2xl transition-all duration-300 hover:bg-card/70 hover:border-primary/40 hover:shadow-soft"
+              className="group relative flex flex-col items-center justify-center p-6 min-h-[200px] bg-card/40 backdrop-blur-md border-2 border-dashed border-border/70 rounded-2xl transition-all duration-500 hover:-translate-y-1 hover:bg-card/70 hover:border-primary/50 hover:shadow-soft-hover overflow-hidden"
               onClick={openAddDialog}
             >
+              <div className="absolute inset-0 bg-gradient-to-br from-primary/[0.05] via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
               <div className="w-12 h-12 rounded-2xl bg-muted flex items-center justify-center text-muted-foreground group-hover:bg-primary group-hover:text-primary-foreground group-hover:shadow-lg group-hover:shadow-primary/25 transition-all duration-300 mb-3 group-active:scale-95">
                 <Plus weight="bold" size={22} />
               </div>

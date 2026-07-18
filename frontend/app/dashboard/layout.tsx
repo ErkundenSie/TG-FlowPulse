@@ -196,7 +196,10 @@ function DashboardSidebar({
                 if (children?.length) {
                   const expanded = settingsOpen || onSettings;
                   return (
-                    <div key={item.href} className="sidebar-tree">
+                    <div
+                      key={item.href}
+                      className={`sidebar-tree${expanded ? " is-expanded" : ""}`}
+                    >
                       <button
                         type="button"
                         className={navItemClass(active)}

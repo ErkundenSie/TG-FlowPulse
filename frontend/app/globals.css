@@ -320,10 +320,22 @@
 }
 
 .sidebar-nav-item-nested {
-  min-height: 36px;
-  padding-left: 12px;
-  font-size: 13px;
-  font-weight: 550;
+  min-height: 38px;
+  padding: 0 9px;
+  border-radius: 9px;
+  gap: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.sidebar-nav-item-nested .sidebar-nav-icon {
+  width: 16px;
+  height: 16px;
+  opacity: 0.78;
+}
+
+.sidebar-nav-item-nested.is-active .sidebar-nav-icon {
+  opacity: 1;
 }
 
 .sidebar-nav-icon {
@@ -353,16 +365,55 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  transition: var(--transition);
+}
+
+.sidebar-tree.is-expanded {
+  padding: 3px;
+  border-color: color-mix(in srgb, #8b5cf6 10%, var(--glass-border));
+  background: color-mix(in srgb, #8b5cf6 3%, transparent);
+}
+
+.sidebar-tree.is-expanded > .sidebar-nav-item.is-active {
+  min-height: 38px;
+  color: #7c3aed;
+  background: transparent;
+}
+
+.light .sidebar-tree.is-expanded,
+[data-theme="light"] .sidebar-tree.is-expanded {
+  border-color: rgba(139, 92, 246, 0.1);
+  background: rgba(139, 92, 246, 0.025);
+}
+
+.light .sidebar-tree.is-expanded > .sidebar-nav-item.is-active,
+[data-theme="light"] .sidebar-tree.is-expanded > .sidebar-nav-item.is-active {
+  background: transparent;
 }
 
 .sidebar-subnav {
-  margin: 2px 0 4px 18px;
-  padding-left: 8px;
-  border-left: 1px solid
-    color-mix(in srgb, var(--glass-border) 80%, transparent);
+  margin: 0 3px 3px 8px;
+  padding: 2px 0 2px 6px;
+  border-left: 1px solid color-mix(in srgb, #8b5cf6 24%, var(--glass-border));
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
+}
+
+.sidebar-subnav .sidebar-nav-item:hover {
+  background: rgba(139, 92, 246, 0.06);
+}
+
+.sidebar-subnav .sidebar-nav-item.is-active {
+  background: rgba(139, 92, 246, 0.1);
+  box-shadow: inset 2px 0 0 rgba(139, 92, 246, 0.5);
+}
+
+.light .sidebar-subnav .sidebar-nav-item.is-active,
+[data-theme="light"] .sidebar-subnav .sidebar-nav-item.is-active {
+  background: rgba(139, 92, 246, 0.09);
 }
 
 .sidebar-footer {
@@ -769,6 +820,7 @@ input[type="radio"] {
 
 /* ================= Surfaces ================= */
 .glass-panel {
+  position: relative;
   background: var(--glass-bg);
   backdrop-filter: var(--glass-blur);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -782,10 +834,54 @@ input[type="radio"] {
     background var(--transition);
 }
 
+.glass-panel::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.25),
+    transparent
+  );
+  opacity: 0;
+  transition: opacity var(--transition);
+  pointer-events: none;
+  border-radius: 16px 16px 0 0;
+}
+
+.glass-panel:not(.modal-content):hover {
+  transform: translateY(-2px);
+  box-shadow: var(--card-shadow-hover);
+  border-color: rgba(139, 92, 246, 0.35);
+}
+
+.glass-panel:not(.modal-content):hover::before {
+  opacity: 1;
+}
+
 .light .glass-panel,
 [data-theme="light"] .glass-panel {
   background: hsl(var(--card));
   box-shadow: var(--card-shadow);
+}
+
+.light .glass-panel:not(.modal-content):hover,
+[data-theme="light"] .glass-panel:not(.modal-content):hover {
+  border-color: rgba(139, 92, 246, 0.3);
+}
+
+.light .glass-panel::before,
+[data-theme="light"] .glass-panel::before {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(139, 92, 246, 0.25),
+    transparent
+  );
 }
 
 .task-card {
@@ -793,15 +889,34 @@ input[type="radio"] {
 }
 
 .task-card-row {
+  position: relative;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 12px;
+  transition: all var(--transition);
+}
+
+.task-card-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(139, 92, 246, 0.3);
+  transform: translateX(3px);
+  box-shadow: var(--card-shadow);
 }
 
 .light .task-card-row,
 [data-theme="light"] .task-card-row {
   background: hsl(var(--muted));
   border-color: hsl(var(--border));
+}
+
+.light .task-card-row:hover,
+[data-theme="light"] .task-card-row:hover {
+  background: color-mix(
+    in srgb,
+    hsl(var(--muted)) 85%,
+    hsl(var(--primary)) 15%
+  );
+  border-color: rgba(139, 92, 246, 0.3);
 }
 
 .log-dialog {
@@ -2015,8 +2130,7 @@ input[type="radio"] {
   display: grid;
   grid-template-columns: 1fr;
   gap: 0;
-  background:
-    linear-gradient(180deg, #f8fafc 0%, #f3f6fb 100%);
+  background: linear-gradient(180deg, #f8fafc 0%, #f3f6fb 100%);
 }
 
 @media (min-width: 1180px) {
@@ -2188,7 +2302,11 @@ input[type="radio"] {
 .task-editor input:not([type="checkbox"]):not([type="radio"]):focus,
 .task-editor textarea:focus,
 .task-editor select:focus {
-  border-color: color-mix(in srgb, var(--te-accent) 55%, transparent) !important;
+  border-color: color-mix(
+    in srgb,
+    var(--te-accent) 55%,
+    transparent
+  ) !important;
   box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.12) !important;
 }
 
