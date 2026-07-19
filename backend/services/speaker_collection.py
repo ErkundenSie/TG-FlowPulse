@@ -28,6 +28,7 @@ class SpeakerCollectionService(ChatMigrationService):
         r"(?<!@)(?:(?:https?://|www\.)[^\s<>\[\]{}()]+|(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:com|net|org|io|co|cn|app|dev|me|vip|xyz|info|site|top|pro|cc|ai)(?:/[^\s<>\[\]{}()]*)?)",
         re.IGNORECASE,
     )
+    PUBLIC_CHAT_USERNAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]{2,31}$")
 
     def __init__(self) -> None:
         super().__init__()
@@ -81,6 +82,54 @@ class SpeakerCollectionService(ChatMigrationService):
         if not text:
             raise ValueError("请提供群组 ID 或 @用户名")
         return int(text) if text.lstrip("-").isdigit() else text
+
+    @classmethod
+    def _public_chat_username(cls, value: Any) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("请输入公开群组或频道的用户名")
+        if text.lower().startswith(("http://", "https://", "t.me/")):
+            url = text if "://" in text else f"https://{text}"
+            parts = [part for part in urlparse(url).path.split("/") if part]
+            if parts and parts[0].lower() == "s":
+                parts = parts[1:]
+            text = parts[0] if parts else ""
+        text = text.lstrip("@").strip()
+        if not cls.PUBLIC_CHAT_USERNAME_RE.fullmatch(text):
+            raise ValueError("请输入有效的公开群组或频道用户名")
+        return text
+
+    async def resolve_public_chat(
+        self, account_name: str, query: str
+    ) -> dict[str, Any]:
+        username = self._public_chat_username(query)
+
+        async def _resolve(client: Any) -> dict[str, Any]:
+            try:
+                chat = await client.get_chat(username)
+            except Exception as exc:
+                logger.info("公开群组解析失败 @%s: %s", username, exc)
+                raise ValueError("当前账号无法找到该公开群组或频道") from exc
+            chat_type = self._chat_type_name(chat)
+            if chat_type not in {"group", "supergroup", "channel"}:
+                raise ValueError("该用户名不是群组或频道")
+            chat_id = getattr(chat, "id", None)
+            if chat_id is None:
+                raise ValueError("无法读取该群组或频道的信息")
+            resolved_username = self._normalize_username(
+                getattr(chat, "username", None)
+            )
+            return {
+                "id": chat_id,
+                "title": getattr(chat, "title", None)
+                or resolved_username
+                or str(chat_id),
+                "username": resolved_username or username,
+                "type": chat_type,
+                "first_name": None,
+            }
+
+        return await self._with_client(account_name, _resolve)
 
     @staticmethod
     def _keywords(value: Any) -> list[str]:

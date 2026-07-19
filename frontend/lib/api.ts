@@ -1460,6 +1460,18 @@ export const listSpeakerCollections = (token: string, accountName?: string) =>
     {},
     token,
   );
+export const resolveSpeakerCollectionChat = (
+  token: string,
+  accountName: string,
+  query: string,
+) => {
+  const params = new URLSearchParams({ account_name: accountName, q: query });
+  return request<ChatInfo>(
+    `/speaker-collections/resolve-chat?${params.toString()}`,
+    {},
+    token,
+  );
+};
 export const saveSpeakerCollection = (
   token: string,
   data: SpeakerCollectionConfig,

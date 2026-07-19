@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional, Union
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from backend.core.auth import get_current_user
@@ -32,11 +32,33 @@ class SpeakerCollectionEnabled(BaseModel):
     enabled: bool
 
 
+class ResolvedPublicChat(BaseModel):
+    id: int
+    title: Optional[str] = None
+    username: Optional[str] = None
+    type: str
+    first_name: Optional[str] = None
+
+
 @router.get("")
 def list_configs(
     account_name: Optional[str] = None, current_user: User = Depends(get_current_user)
 ):
     return get_speaker_collection_service().list_configs(account_name)
+
+
+@router.get("/resolve-chat", response_model=ResolvedPublicChat)
+async def resolve_public_chat(
+    account_name: str,
+    q: str = Query(..., min_length=1, max_length=200),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        return await get_speaker_collection_service().resolve_public_chat(
+            account_name, q
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.post("", status_code=status.HTTP_201_CREATED)

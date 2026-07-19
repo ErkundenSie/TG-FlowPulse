@@ -29,6 +29,7 @@ import {
   getSpeakerCollectionRecords,
   listAccounts,
   listSpeakerCollections,
+  resolveSpeakerCollectionChat,
   saveSpeakerCollection,
   scanSpeakerCollection,
   setSpeakerCollectionEnabled,
@@ -42,9 +43,31 @@ import {
 const localDateTime = (value?: string | null) =>
   value ? value.slice(0, 16) : "";
 
+const parseProfileKeywords = (value: string) =>
+  value
+    .split(/[\n,，]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
 const chatLabel = (chat: ChatInfo) => {
   const title = chat.title || chat.username || String(chat.id);
   return chat.username ? `${title} (@${chat.username})` : title;
+};
+
+const publicChatUsername = (value: string) => {
+  let text = value.trim();
+  if (/^(?:https?:\/\/)?t\.me\//i.test(text)) {
+    try {
+      const url = new URL(text.includes("://") ? text : `https://${text}`);
+      const parts = url.pathname.split("/").filter(Boolean);
+      if (parts[0]?.toLowerCase() === "s") parts.shift();
+      text = parts[0] || "";
+    } catch {
+      return null;
+    }
+  }
+  text = text.replace(/^@/, "");
+  return /^[A-Za-z][A-Za-z0-9_]{2,31}$/.test(text) ? text : null;
 };
 
 const formatDateTime = (value?: string | null) => {
@@ -80,6 +103,9 @@ export default function SpeakerCollectionPage() {
   const [chats, setChats] = useState<ChatInfo[]>([]);
   const [chatSearch, setChatSearch] = useState("");
   const [chatPickerOpen, setChatPickerOpen] = useState(false);
+  const [resolvingChat, setResolvingChat] = useState(false);
+  const [resolvedQuery, setResolvedQuery] = useState("");
+  const [profileKeywordsText, setProfileKeywordsText] = useState("");
   const chatPickerRef = useRef<HTMLDivElement>(null);
   const [configs, setConfigs] = useState<SpeakerCollectionConfig[]>([]);
   const [records, setRecords] = useState<SpeakerCollectionRecord[]>([]);
@@ -113,6 +139,7 @@ export default function SpeakerCollectionPage() {
       profile_keywords: [],
     });
     setChatSearch("");
+    setProfileKeywordsText("");
     setSelectedId("");
     setRecords([]);
     setRecordsPage(1);
@@ -131,6 +158,7 @@ export default function SpeakerCollectionPage() {
         ...firstConfig,
         profile_keywords: firstConfig.profile_keywords || [],
       });
+      setProfileKeywordsText((firstConfig.profile_keywords || []).join("\n"));
       setSelectedId(firstConfig.id);
       setRecords(await getSpeakerCollectionRecords(auth, firstConfig.id));
       setRecordsPage(1);
@@ -152,11 +180,54 @@ export default function SpeakerCollectionPage() {
     refresh(auth).catch((e) => addToast(e.message || "加载失败", "error"));
   }, [addToast, refresh]);
   useEffect(() => {
-    if (token && form.account_name)
-      getAccountChats(token, form.account_name)
+    if (token && form.account_name) {
+      setChats([]);
+      getAccountChats(token, form.account_name, true)
         .then(setChats)
         .catch(() => setChats([]));
+    }
   }, [token, form.account_name]);
+  useEffect(() => {
+    const username = publicChatUsername(chatSearch);
+    setResolvedQuery("");
+    if (!token || !form.account_name || !username) {
+      setResolvingChat(false);
+      return;
+    }
+    const normalized = username.toLowerCase();
+    const alreadyLoaded = chats.some(
+      (chat) => chat.username?.toLowerCase() === normalized,
+    );
+    if (alreadyLoaded) {
+      setResolvingChat(false);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setResolvingChat(true);
+      try {
+        const chat = await resolveSpeakerCollectionChat(
+          token,
+          form.account_name,
+          username,
+        );
+        if (cancelled) return;
+        setChats((current) =>
+          current.some((item) => String(item.id) === String(chat.id))
+            ? current
+            : [chat, ...current],
+        );
+      } catch {
+        if (!cancelled) setResolvedQuery(normalized);
+      } finally {
+        if (!cancelled) setResolvingChat(false);
+      }
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [chatSearch, chats, form.account_name, token]);
   useEffect(() => {
     const closePicker = (event: MouseEvent) => {
       if (!chatPickerRef.current?.contains(event.target as Node)) {
@@ -186,6 +257,7 @@ export default function SpeakerCollectionPage() {
     notify = false,
   ) => {
     setForm({ ...config, profile_keywords: config.profile_keywords || [] });
+    setProfileKeywordsText((config.profile_keywords || []).join("\n"));
     await loadRecords(config.id || "", notify);
   };
   const save = async () => {
@@ -195,6 +267,7 @@ export default function SpeakerCollectionPage() {
       setSaving(true);
       const saved = await saveSpeakerCollection(token, {
         ...form,
+        profile_keywords: parseProfileKeywords(profileKeywordsText),
         enabled: form.enabled !== false,
         start_at: form.start_at ? new Date(form.start_at).toISOString() : null,
         end_at: form.end_at ? new Date(form.end_at).toISOString() : null,
@@ -206,6 +279,7 @@ export default function SpeakerCollectionPage() {
       ]);
       setSelectedId(saved.id || "");
       setForm(saved);
+      setProfileKeywordsText((saved.profile_keywords || []).join("\n"));
       setRecords([]);
       setRecordsPage(1);
     } catch (e: any) {
@@ -277,7 +351,10 @@ export default function SpeakerCollectionPage() {
       setDeletingId("");
     }
   };
-  const normalizedChatSearch = chatSearch.trim().toLowerCase();
+  const searchedUsername = publicChatUsername(chatSearch);
+  const normalizedChatSearch = (
+    searchedUsername || chatSearch.trim()
+  ).toLowerCase();
   const filteredChats = normalizedChatSearch
     ? chats.filter((chat) =>
         [chat.title, chat.username, String(chat.id)].some((value) =>
@@ -386,7 +463,16 @@ export default function SpeakerCollectionPage() {
                         subtitle: formatChatSubtitle(chat),
                         selected: String(chat.id) === String(form.chat_id),
                       }))}
-                      emptyText="未找到匹配的群组或频道"
+                      loading={resolvingChat}
+                      loadingText="正在通过 Telegram 查询..."
+                      emptyText={
+                        searchedUsername &&
+                        resolvedQuery === searchedUsername.toLowerCase()
+                          ? "当前账号在 Telegram 中也未找到该公开群组或频道"
+                          : searchedUsername
+                            ? "正在等待查询公开群组或频道"
+                            : "未找到匹配项；可输入完整的 @用户名或 t.me 链接"
+                      }
                       maxHeight="min(360px, 48vh)"
                       multi={false}
                       onSelect={(id) => {
@@ -445,16 +531,8 @@ export default function SpeakerCollectionPage() {
               简介关键词（逗号或换行分隔，留空则收集全部发言者）
               <textarea
                 className="!mb-0 min-h-[84px]"
-                value={(form.profile_keywords || []).join("\n")}
-                onChange={(e) =>
-                  setForm({
-                    ...form,
-                    profile_keywords: e.target.value
-                      .split(/[\n,，]/)
-                      .map((item) => item.trim())
-                      .filter(Boolean),
-                  })
-                }
+                value={profileKeywordsText}
+                onChange={(e) => setProfileKeywordsText(e.target.value)}
                 placeholder="例如：招聘, 代理, 采购"
               />
             </label>
