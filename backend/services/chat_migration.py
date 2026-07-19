@@ -123,7 +123,9 @@ class ChatMigrationService:
         try:
             from backend.services.config import get_config_service
 
-            global_proxy = get_config_service().get_global_settings().get("global_proxy")
+            global_proxy = (
+                get_config_service().get_global_settings().get("global_proxy")
+            )
             if isinstance(global_proxy, str) and global_proxy.strip():
                 return global_proxy.strip()
         except Exception:
@@ -149,26 +151,24 @@ class ChatMigrationService:
             raise ValueError("未配置 Telegram API ID 或 API Hash")
         return parsed_api_id, str(api_hash)
 
-    def _build_client(self, account_name: str):
+    def _build_client(self, account_name: str, *, no_updates: bool = True):
         account_name = self._validate_account_name(account_name)
         session_mode = get_session_mode()
         session_string = None
         in_memory = session_mode == "string"
 
         if session_mode == "string":
-            session_string = (
-                get_account_session_string(account_name)
-                or load_session_string_file(self.session_dir, account_name)
-            )
+            session_string = get_account_session_string(
+                account_name
+            ) or load_session_string_file(self.session_dir, account_name)
             if not session_string:
                 raise ValueError(f"账号 {account_name} 登录已失效，请重新登录")
         else:
             session_file = self.session_dir / f"{account_name}.session"
             if not session_file.exists():
-                fallback_session_string = (
-                    get_account_session_string(account_name)
-                    or load_session_string_file(self.session_dir, account_name)
-                )
+                fallback_session_string = get_account_session_string(
+                    account_name
+                ) or load_session_string_file(self.session_dir, account_name)
                 if fallback_session_string:
                     session_string = fallback_session_string
                     in_memory = True
@@ -189,7 +189,7 @@ class ChatMigrationService:
             session_string=session_string,
             in_memory=in_memory,
             proxy=proxy_dict,
-            no_updates=True,
+            no_updates=no_updates,
         )
 
     async def _with_client(self, account_name: str, handler):
@@ -235,7 +235,9 @@ class ChatMigrationService:
             join_value = invite_link
             join_url = invite_link
         elif not export_note:
-            export_note = "私密群/频道缺少公开用户名或可用邀请链接，需要手动复制邀请链接后加入。"
+            export_note = (
+                "私密群/频道缺少公开用户名或可用邀请链接，需要手动复制邀请链接后加入。"
+            )
 
         return {
             "id": chat_id,
@@ -408,7 +410,9 @@ class ChatMigrationService:
             keys.update(self._chat_membership_keys(chat))
         return keys
 
-    def _already_member_result(self, item: Dict[str, Any], join_ref: str = "") -> Dict[str, Any]:
+    def _already_member_result(
+        self, item: Dict[str, Any], join_ref: str = ""
+    ) -> Dict[str, Any]:
         result = self._base_result(
             item,
             "already_member",
@@ -428,7 +432,9 @@ class ChatMigrationService:
     def _base_result(item: Dict[str, Any], status: str, message: str) -> Dict[str, Any]:
         return {
             "id": item.get("id"),
-            "title": item.get("title") or item.get("username") or str(item.get("id") or ""),
+            "title": item.get("title")
+            or item.get("username")
+            or str(item.get("id") or ""),
             "username": item.get("username"),
             "type": item.get("type"),
             "status": status,
@@ -582,7 +588,9 @@ class ChatMigrationService:
             remaining -= chunk
         return bool(cancel_requested and cancel_requested())
 
-    def _note_flood_wait_retry(self, result: Dict[str, Any], wait_seconds: float) -> None:
+    def _note_flood_wait_retry(
+        self, result: Dict[str, Any], wait_seconds: float
+    ) -> None:
         result["status"] = "failed"
         result["message"] = (
             f"{result.get('message') or '触发 Telegram 频率限制。'}"
@@ -625,7 +633,11 @@ class ChatMigrationService:
                     result = self._base_result(
                         item,
                         "ready" if join_ref else "manual_required",
-                        "可自动尝试加入。" if join_ref else "缺少公开用户名或邀请链接，需人工加入。",
+                        (
+                            "可自动尝试加入。"
+                            if join_ref
+                            else "缺少公开用户名或邀请链接，需人工加入。"
+                        ),
                     )
                     result["join_ref"] = join_ref or None
                     result["needs_manual_check"] = not bool(join_ref)
@@ -761,7 +773,11 @@ class ChatMigrationService:
                     result = self._base_result(
                         item,
                         "ready" if join_ref else "manual_required",
-                        "可自动尝试加入。" if join_ref else "缺少公开用户名或邀请链接，需人工加入。",
+                        (
+                            "可自动尝试加入。"
+                            if join_ref
+                            else "缺少公开用户名或邀请链接，需人工加入。"
+                        ),
                     )
                     result["join_ref"] = join_ref or None
                     result["needs_manual_check"] = not bool(join_ref)
@@ -829,7 +845,9 @@ class ChatMigrationService:
             "ready": 0,
         }
 
-    def _summarize_import_results(self, results: List[Dict[str, Any]]) -> Dict[str, int]:
+    def _summarize_import_results(
+        self, results: List[Dict[str, Any]]
+    ) -> Dict[str, int]:
         summary = self._empty_import_summary()
         summary["total"] = len(results)
         for result in results:

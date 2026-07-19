@@ -49,7 +49,7 @@ def create_cron_trigger(cron_str: str) -> CronTrigger:
             hour=parts[2],
             day=parts[3],
             month=parts[4],
-            day_of_week=parts[5]
+            day_of_week=parts[5],
         )
     return CronTrigger.from_crontab(cron_str)
 
@@ -145,7 +145,12 @@ def _schedule_range_catchup_if_needed(task_config: dict) -> None:
         now = __import__("datetime").datetime.now(tz)
         window_start, window_end = _range_window_for_now(range_start, range_end, now)
     except Exception as exc:
-        logger.warning("Scheduler: 无法计算随机时间段补跑窗口 %s/%s: %s", account_name, task_name, exc)
+        logger.warning(
+            "Scheduler: 无法计算随机时间段补跑窗口 %s/%s: %s",
+            account_name,
+            task_name,
+            exc,
+        )
         return
 
     if not (window_start <= now <= window_end):
@@ -270,6 +275,28 @@ async def _job_run_sign_task(account_name: str, task_name: str) -> None:
         logger.error(f"Scheduler: 运行签到任务 {task_name} 失败: {e}", exc_info=True)
 
 
+async def _job_run_automation_rule(rule_id: str, trigger_index: int) -> None:
+    """运行自动化规则定时触发器。"""
+    import logging
+
+    from backend.services.automation_rules import get_automation_rule_service
+
+    logger = logging.getLogger("backend.scheduler")
+    try:
+        await get_automation_rule_service().execute(
+            rule_id,
+            trigger_type="timer",
+            trigger_index=trigger_index,
+        )
+    except Exception as exc:
+        logger.error(
+            "Scheduler: 自动化规则 %s 执行失败: %s",
+            rule_id,
+            exc,
+            exc_info=True,
+        )
+
+
 async def _job_maintenance() -> None:
     """每日维护任务：清理旧日志等"""
     db: Session = get_session_local()()
@@ -376,6 +403,10 @@ async def sync_jobs() -> None:
         # remove obsolete jobs
         for job_id in existing_ids - desired_ids:
             scheduler.remove_job(job_id)
+
+        from backend.services.automation_rules import get_automation_rule_service
+
+        await get_automation_rule_service().sync_schedules()
     finally:
         db.close()
 

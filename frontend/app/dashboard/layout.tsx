@@ -9,12 +9,14 @@ import {
   Cpu,
   DownloadSimple,
   Gear,
+  GithubLogo,
   House,
   ListChecks,
   PaperPlaneTilt,
   Robot as BotIcon,
   ShieldCheck,
   SignOut,
+  SignIn,
   Terminal,
   UsersThree,
   UserList,
@@ -48,6 +50,11 @@ const navGroups = [
     label: { zh: "消息自动化", en: "Message Automation" },
     items: [
       {
+        href: "/dashboard/automation-rules",
+        label: { zh: "自动化规则", en: "Automation Rules" },
+        icon: BotIcon,
+      },
+      {
         href: "/dashboard/monitors",
         label: { zh: "关键词监控", en: "Keyword Monitor" },
         icon: ChatCircleText,
@@ -55,12 +62,17 @@ const navGroups = [
     ],
   },
   {
-    label: { zh: "群组工具", en: "Group Tools" },
+    label: { zh: "群组/频道工具", en: "Group / Channel Tools" },
     items: [
       {
         href: "/dashboard/broadcast",
         label: { zh: "消息群发", en: "Broadcast" },
         icon: PaperPlaneTilt,
+      },
+      {
+        href: "/dashboard/bulk-groups",
+        label: { zh: "批量加入/退出", en: "Bulk Join / Leave" },
+        icon: SignIn,
       },
     ],
   },
@@ -283,6 +295,20 @@ function DashboardSidebar({
       <div className="sidebar-footer">
         <div className="sidebar-footer-tools">
           <ThemeLanguageToggle />
+          <a
+            href="https://github.com/ErkundenSie/TG-FlowPulse"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="sidebar-project-link"
+            title={language === "zh" ? "GitHub 项目地址" : "GitHub repository"}
+            aria-label={
+              language === "zh"
+                ? "打开 GitHub 项目地址"
+                : "Open GitHub repository"
+            }
+          >
+            <GithubLogo weight="bold" size={18} />
+          </a>
         </div>
         <div className="sidebar-user">
           <div className="sidebar-user-avatar" aria-hidden>

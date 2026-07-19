@@ -444,7 +444,26 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
+  gap: 6px;
   padding: 0 2px;
+}
+
+.sidebar-project-link {
+  width: 36px;
+  height: 36px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-sub);
+  transition: var(--transition);
+}
+
+.sidebar-project-link:hover {
+  color: var(--text-main);
+  border-color: var(--glass-border);
+  background: color-mix(in srgb, var(--text-main) 6%, transparent);
 }
 
 .sidebar-user {

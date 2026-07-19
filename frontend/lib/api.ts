@@ -353,6 +353,53 @@ export interface ChatMigrationImportJobResponse {
   notice?: string | null;
 }
 
+export type BulkGroupMembershipMode =
+  | "join"
+  | "leave_selected"
+  | "leave_all_groups";
+
+export interface BulkGroupItem {
+  id: number;
+  title: string;
+  username?: string | null;
+  type: "group" | "supergroup" | "channel" | string;
+}
+
+export interface BulkGroupMembershipLog {
+  time: string;
+  level: "info" | "success" | "warning" | "error" | string;
+  message: string;
+  ref?: string | null;
+}
+
+export interface BulkGroupMembershipResult {
+  ref?: string | null;
+  title?: string | null;
+  chat_id?: number | string | null;
+  status: string;
+  message: string;
+  wait_seconds?: number | null;
+  needs_manual_check?: boolean;
+}
+
+export interface BulkGroupMembershipJob {
+  job_id: string;
+  status: "running" | "canceling" | "canceled" | "completed" | "failed";
+  mode: BulkGroupMembershipMode;
+  account_name: string;
+  min_delay_seconds: number;
+  max_delay_seconds: number;
+  auto_wait_flood: boolean;
+  created_at: string;
+  updated_at: string;
+  finished_at?: string | null;
+  progress: { done: number; total: number };
+  summary: Record<string, number>;
+  results: BulkGroupMembershipResult[];
+  logs: BulkGroupMembershipLog[];
+  error?: string | null;
+}
+
 export type ChatMigrationExportScope = "all" | "groups" | "channels";
 
 export interface MemberScanRequest {
@@ -508,6 +555,55 @@ export const getImportAccountChatsJob = (token: string, jobId: string) =>
 export const cancelImportAccountChatsJob = (token: string, jobId: string) =>
   request<ChatMigrationImportJobResponse>(
     `/accounts/chats/import-jobs/${pathSegment(jobId)}/cancel`,
+    { method: "POST" },
+    token,
+  );
+
+export const listBulkGroupMembershipJobs = (token: string, limit = 20) =>
+  request<BulkGroupMembershipJob[]>(
+    `/bulk-group-membership/jobs?limit=${Math.max(1, Math.min(limit, 50))}`,
+    {},
+    token,
+  );
+
+export const listBulkGroupMembershipGroups = (
+  token: string,
+  accountName: string,
+) =>
+  request<BulkGroupItem[]>(
+    `/bulk-group-membership/accounts/${pathSegment(accountName)}/groups`,
+    {},
+    token,
+  );
+
+export const startBulkGroupMembershipJob = (
+  token: string,
+  data: {
+    account_name: string;
+    mode: BulkGroupMembershipMode;
+    links: string[];
+    selected_chat_ids: number[];
+    min_delay_seconds: number;
+    max_delay_seconds: number;
+    auto_wait_flood: boolean;
+  },
+) =>
+  request<BulkGroupMembershipJob>(
+    "/bulk-group-membership/jobs",
+    { method: "POST", body: JSON.stringify(data) },
+    token,
+  );
+
+export const getBulkGroupMembershipJob = (token: string, jobId: string) =>
+  request<BulkGroupMembershipJob>(
+    `/bulk-group-membership/jobs/${pathSegment(jobId)}`,
+    {},
+    token,
+  );
+
+export const cancelBulkGroupMembershipJob = (token: string, jobId: string) =>
+  request<BulkGroupMembershipJob>(
+    `/bulk-group-membership/jobs/${pathSegment(jobId)}/cancel`,
     { method: "POST" },
     token,
   );
@@ -1520,3 +1616,138 @@ export const exportSpeakerCollectionRecords = async (
   );
   downloadBlob(blob, "speaker_collection.xlsx");
 };
+
+export type AutomationTriggerType = "message" | "timer" | "startup";
+
+export interface AutomationTrigger {
+  id?: string;
+  type: AutomationTriggerType;
+  params: Record<string, any>;
+}
+
+export interface AutomationFilter {
+  chat_id?: string | number | null;
+  chat_ids?: Array<string | number>;
+  from_user_ids?: Array<string | number>;
+  text_rule?: "all" | "exact" | "contains" | "regex";
+  text_value?: string | null;
+  ignore_case?: boolean;
+}
+
+export interface AutomationHandler {
+  handler: string;
+  params: Record<string, any>;
+}
+
+export interface AutomationRule {
+  id?: string;
+  name: string;
+  account_name: string;
+  group?: string;
+  enabled?: boolean;
+  drop_if_running?: boolean;
+  triggers: AutomationTrigger[];
+  filters?: AutomationFilter | null;
+  handlers: AutomationHandler[];
+  vars?: Record<string, any>;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface AutomationLog {
+  time: string;
+  level: string;
+  trigger?: string;
+  message: string;
+  context?: Record<string, any>;
+}
+
+export interface AutomationStatus {
+  enabled: boolean;
+  running: boolean;
+  listener_active: boolean;
+  scheduled_jobs: Array<{ id: string; next_run_time?: string | null }>;
+  last_log?: AutomationLog | null;
+}
+
+export const listAutomationRules = (token: string, accountName?: string) =>
+  request<AutomationRule[]>(
+    `/automation-rules${accountName ? `?account_name=${pathSegment(accountName)}` : ""}`,
+    {},
+    token,
+  );
+
+export const createAutomationRule = (token: string, data: AutomationRule) =>
+  request<AutomationRule>(
+    "/automation-rules",
+    { method: "POST", body: JSON.stringify(data) },
+    token,
+  );
+
+export const updateAutomationRule = (
+  token: string,
+  id: string,
+  data: AutomationRule,
+) =>
+  request<AutomationRule>(
+    `/automation-rules/${pathSegment(id)}`,
+    { method: "PUT", body: JSON.stringify(data) },
+    token,
+  );
+
+export const deleteAutomationRule = (token: string, id: string) =>
+  request<{ ok: boolean }>(
+    `/automation-rules/${pathSegment(id)}`,
+    { method: "DELETE" },
+    token,
+  );
+
+export const setAutomationRuleEnabled = (
+  token: string,
+  id: string,
+  enabled: boolean,
+) =>
+  request<AutomationRule>(
+    `/automation-rules/${pathSegment(id)}/enabled`,
+    { method: "PATCH", body: JSON.stringify({ enabled }) },
+    token,
+  );
+
+export const runAutomationRule = (token: string, id: string) =>
+  request<Record<string, any>>(
+    `/automation-rules/${pathSegment(id)}/run`,
+    { method: "POST" },
+    token,
+  );
+
+export const getAutomationRuleStatus = (token: string, id: string) =>
+  request<AutomationStatus>(
+    `/automation-rules/${pathSegment(id)}/status`,
+    {},
+    token,
+  );
+
+export const getAutomationRuleLogs = (
+  token: string,
+  id: string,
+  limit: number = 200,
+) =>
+  request<AutomationLog[]>(
+    `/automation-rules/${pathSegment(id)}/logs?limit=${limit}`,
+    {},
+    token,
+  );
+
+export const getAutomationRuleState = (token: string, id: string) =>
+  request<Record<string, any>>(
+    `/automation-rules/${pathSegment(id)}/state`,
+    {},
+    token,
+  );
+
+export const clearAutomationRuleState = (token: string, id: string) =>
+  request<{ ok: boolean }>(
+    `/automation-rules/${pathSegment(id)}/state`,
+    { method: "DELETE" },
+    token,
+  );

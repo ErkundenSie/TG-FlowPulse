@@ -51,6 +51,8 @@ import {
   WarningCircle,
   ArrowsOutSimple,
   Stop,
+  Robot,
+  SignIn,
 } from "@phosphor-icons/react";
 import { ToastContainer, useToast } from "../../components/ui/toast";
 import { ThemeLanguageToggle } from "../../components/ThemeLanguageToggle";
@@ -1929,6 +1931,13 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="top-right-actions shrink-0">
+          <Link
+            href="/dashboard/automation-rules"
+            className="navbar-text-action hidden sm:inline-flex"
+          >
+            <Robot weight="bold" size={14} />
+            <span>自动化规则</span>
+          </Link>
           <button
             type="button"
             onClick={openAddDialog}
@@ -2035,6 +2044,18 @@ export default function Dashboard() {
                         title: "消息监控",
                         href: `/dashboard/monitors?account_name=${encodeURIComponent(acc.name)}`,
                         color: "text-cyan-500 hover:bg-cyan-500/10",
+                      },
+                      {
+                        icon: Robot,
+                        title: "自动化规则",
+                        href: `/dashboard/automation-rules?account_name=${encodeURIComponent(acc.name)}`,
+                        color: "text-violet-500 hover:bg-violet-500/10",
+                      },
+                      {
+                        icon: SignIn,
+                        title: "批量加退群/频道",
+                        href: `/dashboard/bulk-groups?account_name=${encodeURIComponent(acc.name)}`,
+                        color: "text-fuchsia-500 hover:bg-fuchsia-500/10",
                       },
                       {
                         icon: ListDashes,
