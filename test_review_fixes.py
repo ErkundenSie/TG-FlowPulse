@@ -554,3 +554,86 @@ async def test_continuous_speaker_collection_only_scans_new_messages():
     assert second["scanned_messages"] == 1
     assert record["message_count"] == 4
     assert service._data["configs"]["task"]["latest_message_id_seen"] == 4
+
+
+@pytest.mark.asyncio
+async def test_channel_difference_timeout_returns_empty_and_opens_circuit(monkeypatch):
+    from pyrogram import raw
+
+    from tg_signer import core
+
+    calls = []
+
+    async def fail(*_args, **_kwargs):
+        calls.append("invoke")
+        raise asyncio.TimeoutError("network timeout")
+
+    core._update_backpressure.reset()
+    monkeypatch.setattr(core, "_original_invoke", fail)
+    query = SimpleNamespace(pts=15, limit=50000)
+
+    first = await core._invoke_channel_difference(SimpleNamespace(), query, (), {})
+    second = await core._invoke_channel_difference(SimpleNamespace(), query, (), {})
+
+    assert isinstance(first, raw.types.updates.ChannelDifferenceEmpty)
+    assert first.pts == 15
+    assert isinstance(second, raw.types.updates.ChannelDifferenceEmpty)
+    assert calls == ["invoke"]
+    assert query.limit == core._CHANNEL_DIFF_LIMIT
+
+
+@pytest.mark.asyncio
+async def test_channel_difference_clamps_limit_and_resets_circuit(monkeypatch):
+    from tg_signer import core
+
+    calls = []
+
+    async def succeed(_self, query, *_args, **_kwargs):
+        calls.append(query.limit)
+        return "fresh"
+
+    core._update_backpressure.reset()
+    monkeypatch.setattr(core, "_original_invoke", succeed)
+    query = SimpleNamespace(pts=3, limit=99999)
+
+    result = await core._invoke_channel_difference(SimpleNamespace(), query, (), {})
+
+    assert result == "fresh"
+    assert calls == [core._CHANNEL_DIFF_LIMIT]
+    assert core._update_backpressure.channel_diff_open_until == 0.0
+
+
+@pytest.mark.asyncio
+async def test_handle_updates_swallows_fire_and_forget_errors(monkeypatch):
+    from tg_signer import core
+
+    async def explode(*_args, **_kwargs):
+        raise TimeoutError("difference failed")
+
+    core._update_backpressure.reset()
+    core._update_backpressure.handle_updates_last_log = 10**12
+    monkeypatch.setattr(core, "_original_handle_updates", explode)
+
+    await core._patched_handle_updates(SimpleNamespace(), object())
+
+    assert core._update_backpressure.handle_updates_errors == 1
+
+
+def test_bounded_updates_queue_drops_old_updates_but_keeps_stop_sentinel():
+    from tg_signer import core
+
+    queue = core._bound_updates_queue(asyncio.Queue(maxsize=1))
+    queue.put_nowait("old")
+    queue.put_nowait("new")
+    assert queue.get_nowait() == "new"
+
+    queue.put_nowait("pending")
+    queue.put_nowait(None)
+    assert queue.get_nowait() is None
+    assert queue.empty()
+
+    sentinel_queue = core._bound_updates_queue(asyncio.Queue(maxsize=1))
+    sentinel_queue.put_nowait(None)
+    sentinel_queue.put_nowait("update")
+    assert sentinel_queue.get_nowait() is None
+    assert sentinel_queue.empty()

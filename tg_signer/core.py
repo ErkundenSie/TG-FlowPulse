@@ -32,6 +32,7 @@ from pyrogram.enums import ChatMembersFilter, ChatType
 from pyrogram.handlers import EditedMessageHandler, MessageHandler
 from pyrogram.methods.utilities.idle import idle
 from pyrogram.session import Session
+from pyrogram.dispatcher import Dispatcher
 from pyrogram.storage import SQLiteStorage
 from pyrogram.types import (
     Chat,
@@ -99,11 +100,6 @@ def _read_positive_int_env(name: str, default: int, minimum: int = 1) -> int:
         return default
 
 
-_get_channel_diff_semaphore = asyncio.Semaphore(
-    _read_positive_int_env("TG_UPDATES_MAX_CONCURRENCY", 8, 1)
-)
-
-
 def _read_positive_float_env(name: str, default: float, minimum: float = 1.0) -> float:
     raw = os.getenv(name)
     if raw is None:
@@ -114,54 +110,240 @@ def _read_positive_float_env(name: str, default: float, minimum: float = 1.0) ->
         return default
 
 
-async def _patched_invoke(self, query, *args, **kwargs):
-    if isinstance(
-        query,
-        (
-            raw.functions.updates.GetChannelDifference,
-            raw.functions.updates.GetDifference,
-        ),
-    ):
-        # Disable Pyrogram's internal sleep and retry mechanisms to prevent blocking the semaphore indefinitely
-        kwargs.setdefault("sleep_threshold", 0)
-        kwargs["retries"] = 0
-        kwargs.setdefault("timeout", 5.0)
+_get_channel_diff_semaphore = asyncio.Semaphore(
+    _read_positive_int_env("TG_UPDATES_MAX_CONCURRENCY", 2, 1)
+)
+_CHANNEL_DIFF_LIMIT = _read_positive_int_env("TG_CHANNEL_DIFF_LIMIT", 100, 1)
+_CHANNEL_DIFF_COOLDOWN_SECONDS = _read_positive_float_env(
+    "TG_CHANNEL_DIFF_COOLDOWN_SECONDS", 30.0, 1.0
+)
+_UPDATES_QUEUE_MAX = _read_positive_int_env("TG_UPDATES_QUEUE_MAX", 200, 1)
+_UPDATE_LOG_INTERVAL_SECONDS = 30.0
 
+
+class _UpdateBackpressure:
+    """Counters for the Telegram update pipeline. Payloads are never stored here."""
+
+    def __init__(self) -> None:
+        self.channel_diff_failures = 0
+        self.channel_diff_open_until = 0.0
+        self.channel_diff_skipped = 0
+        self.channel_diff_last_log = 0.0
+        self.handle_updates_errors = 0
+        self.handle_updates_last_log = 0.0
+        self.dropped_updates = 0
+        self.dropped_updates_last_log = 0.0
+
+    def reset(self) -> None:
+        self.__init__()
+
+
+_update_backpressure = _UpdateBackpressure()
+
+
+def _is_recoverable_updates_error(exc: BaseException) -> bool:
+    err_str = str(exc).lower()
+    return (
+        isinstance(exc, asyncio.TimeoutError)
+        or "timeout" in err_str
+        or "connection" in err_str
+        or "flood" in err_str
+        or "network" in err_str
+        or "msg_id" in err_str
+        or "client time" in err_str
+    )
+
+
+def _empty_channel_difference(query):
+    pts = getattr(query, "pts", 0) or 0
+    try:
+        pts = int(pts)
+    except (TypeError, ValueError):
+        pts = 0
+    return raw.types.updates.ChannelDifferenceEmpty(pts=pts, final=True)
+
+
+def _log_update_pressure(
+    kind: str, detail: str, counter_name: str, last_log_name: str
+) -> None:
+    state = _update_backpressure
+    setattr(state, counter_name, getattr(state, counter_name) + 1)
+    now = time.monotonic()
+    if now - getattr(state, last_log_name) < _UPDATE_LOG_INTERVAL_SECONDS:
+        return
+    logger.warning(
+        "%s: %s (suppressed %s)",
+        kind,
+        detail,
+        getattr(state, counter_name),
+    )
+    setattr(state, last_log_name, now)
+    setattr(state, counter_name, 0)
+
+
+def _open_channel_diff_circuit(seconds: float) -> None:
+    _update_backpressure.channel_diff_open_until = max(
+        _update_backpressure.channel_diff_open_until,
+        time.monotonic() + max(float(seconds), 1.0),
+    )
+
+
+async def _invoke_channel_difference(self, query, args, kwargs):
+    # 差量只用于补全 peer。超时后如果继续抛出，Pyrogram 的 fire-and-forget task
+    # 会留下未取回的异常和整包 users/chats，长跑后内存不会还给系统。
+    # 返回空差量后，原始频道消息仍会入队，关键词监听可以继续匹配正文。
+    if time.monotonic() < _update_backpressure.channel_diff_open_until:
+        _log_update_pressure(
+            "Skipping GetChannelDifference",
+            "circuit open",
+            "channel_diff_skipped",
+            "channel_diff_last_log",
+        )
+        return _empty_channel_difference(query)
+
+    call_kwargs = dict(kwargs)
+    call_kwargs["sleep_threshold"] = 0
+    call_kwargs["retries"] = 0
+    call_kwargs["timeout"] = min(float(call_kwargs.get("timeout") or 2.0), 2.0)
+    limit = getattr(query, "limit", None)
+    if isinstance(limit, int) and limit > _CHANNEL_DIFF_LIMIT:
+        query.limit = _CHANNEL_DIFF_LIMIT
+
+    try:
         async with _get_channel_diff_semaphore:
-            max_retries = 2
-            base_delay = 1.0
-            for attempt in range(max_retries + 1):
-                try:
-                    return await _original_invoke(self, query, *args, **kwargs)
-                except Exception as e:
-                    err_str = str(e).lower()
-                    is_recoverable_updates_error = (
-                        isinstance(e, asyncio.TimeoutError)
-                        or "timeout" in err_str
-                        or "connection" in err_str
-                        or "flood" in err_str
-                        or "network" in err_str
-                        or "msg_id" in err_str
-                        or "client time" in err_str
-                    )
-                    if is_recoverable_updates_error:
-                        if isinstance(e, errors.FloodWait):
-                            raise
-                        if attempt < max_retries:
-                            delay = base_delay * (2**attempt) + random.uniform(0, 1)
-                            await asyncio.sleep(delay)
-                            continue
+            result = await _original_invoke(self, query, *args, **call_kwargs)
+    except errors.FloodWait as exc:
+        _update_backpressure.channel_diff_failures += 1
+        _open_channel_diff_circuit(min(getattr(exc, "value", 30) or 30, 60))
+        _log_update_pressure(
+            "Skipping GetChannelDifference",
+            f"flood wait {getattr(exc, 'value', '')}",
+            "channel_diff_skipped",
+            "channel_diff_last_log",
+        )
+        return _empty_channel_difference(query)
+    except Exception as exc:
+        if not _is_recoverable_updates_error(exc):
+            raise
+        _update_backpressure.channel_diff_failures += 1
+        _open_channel_diff_circuit(_CHANNEL_DIFF_COOLDOWN_SECONDS)
+        _log_update_pressure(
+            "Skipping GetChannelDifference",
+            f"{type(exc).__name__}: {exc}",
+            "channel_diff_skipped",
+            "channel_diff_last_log",
+        )
+        return _empty_channel_difference(query)
 
-                        logger.warning(
-                            "Unable to fetch %s after retries: %s",
-                            type(query).__name__,
-                            e,
-                        )
+    _update_backpressure.channel_diff_failures = 0
+    _update_backpressure.channel_diff_open_until = 0.0
+    return result
+
+
+async def _invoke_with_update_retries(self, query, args, kwargs):
+    call_kwargs = dict(kwargs)
+    call_kwargs.setdefault("sleep_threshold", 0)
+    call_kwargs["retries"] = 0
+    call_kwargs.setdefault("timeout", 5.0)
+    max_retries = 2
+    base_delay = 1.0
+    async with _get_channel_diff_semaphore:
+        for attempt in range(max_retries + 1):
+            try:
+                return await _original_invoke(self, query, *args, **call_kwargs)
+            except Exception as exc:
+                if isinstance(exc, errors.FloodWait) or not _is_recoverable_updates_error(
+                    exc
+                ):
                     raise
+                if attempt < max_retries:
+                    delay = base_delay * (2**attempt) + random.uniform(0, 1)
+                    await asyncio.sleep(delay)
+                    continue
+                logger.warning(
+                    "Unable to fetch %s after retries: %s",
+                    type(query).__name__,
+                    exc,
+                )
+                raise
+
+
+async def _patched_invoke(self, query, *args, **kwargs):
+    if isinstance(query, raw.functions.updates.GetChannelDifference):
+        return await _invoke_channel_difference(self, query, args, kwargs)
+    if isinstance(query, raw.functions.updates.GetDifference):
+        return await _invoke_with_update_retries(self, query, args, kwargs)
     return await _original_invoke(self, query, *args, **kwargs)
 
 
+async def _patched_handle_updates(self, updates):
+    try:
+        await _original_handle_updates(self, updates)
+    except Exception as exc:
+        _log_update_pressure(
+            "Dropped Telegram update batch",
+            f"{type(exc).__name__}: {exc}",
+            "handle_updates_errors",
+            "handle_updates_last_log",
+        )
+
+
+def _bound_updates_queue(queue: asyncio.Queue) -> asyncio.Queue:
+    original_put = queue.put_nowait
+
+    def put_nowait(item):
+        def drop_oldest_updates():
+            while queue.full():
+                try:
+                    oldest = queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    return True
+                if oldest is None:
+                    original_put(oldest)
+                    return False
+                _log_update_pressure(
+                    "Dropping Telegram update",
+                    "queue full",
+                    "dropped_updates",
+                    "dropped_updates_last_log",
+                )
+            return True
+
+        # stop() 会为每个 worker 放入 None。哨兵不能丢，否则停机会一直等。
+        if item is None:
+            if not drop_oldest_updates():
+                raise RuntimeError("updates queue is full of stop sentinels")
+            original_put(item)
+            return
+        if not drop_oldest_updates():
+            _log_update_pressure(
+                "Dropping Telegram update",
+                "queue full",
+                "dropped_updates",
+                "dropped_updates_last_log",
+            )
+            return
+        original_put(item)
+
+    queue.put_nowait = put_nowait
+    return queue
+
+
+_original_dispatcher_init = Dispatcher.__init__
+
+
+def _patched_dispatcher_init(self, client):
+    _original_dispatcher_init(self, client)
+    workers = int(getattr(client, "workers", 1) or 1)
+    self.updates_queue = _bound_updates_queue(
+        asyncio.Queue(maxsize=max(_UPDATES_QUEUE_MAX, workers))
+    )
+
+
+_original_handle_updates = BaseClient.handle_updates
 BaseClient.invoke = _patched_invoke
+BaseClient.handle_updates = _patched_handle_updates
+Dispatcher.__init__ = _patched_dispatcher_init
 
 logger = logging.getLogger("tg-flowpulse")
 
@@ -355,6 +537,10 @@ class Client(SafeGetForumTopics, BaseClient):
     def __init__(self, name: str, *args, **kwargs):
         key = kwargs.pop("key", None)
         self._tg_signpulse_no_updates = kwargs.get("no_updates")
+        # 跳过启动时的历史差量回放。监听另有短轮询，签到任务也不依赖积压更新。
+        if "skip_updates" not in kwargs:
+            kwargs["skip_updates"] = True
+        self._tg_signpulse_skip_updates = kwargs.get("skip_updates")
         super().__init__(name, *args, **kwargs)
         self.key = key or str(pathlib.Path(self.workdir).joinpath(self.name).resolve())
         if self.in_memory and not self.session_string:
@@ -561,12 +747,26 @@ def get_client(
             and bool(requested_session_string)
             and requested_session_string != existing_session_string
         )
+        requested_skip_updates = kwargs.get("skip_updates")
+        existing_skip_updates = getattr(existing, "_tg_signpulse_skip_updates", None)
+        requested_workers = kwargs.get("workers")
+        existing_workers = getattr(existing, "workers", None)
         refs = _CLIENT_REFS.get(key, 0)
         if (
             (
                 requested_no_updates is not None
                 and existing_no_updates is not None
                 and requested_no_updates != existing_no_updates
+            )
+            or (
+                requested_skip_updates is not None
+                and existing_skip_updates is not None
+                and requested_skip_updates != existing_skip_updates
+            )
+            or (
+                requested_workers is not None
+                and existing_workers is not None
+                and requested_workers != existing_workers
             )
             or session_changed
         ) and (refs <= 0 and not getattr(existing, "is_connected", False)):

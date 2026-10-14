@@ -2281,6 +2281,8 @@ class KeywordMonitorService:
                         api_id=api_id,
                         api_hash=api_hash,
                         no_updates=False,
+                        skip_updates=True,
+                        workers=2,
                     )
 
                     async def handler(
