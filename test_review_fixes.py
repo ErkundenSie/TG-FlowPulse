@@ -637,3 +637,38 @@ def test_bounded_updates_queue_drops_old_updates_but_keeps_stop_sentinel():
     sentinel_queue.put_nowait("update")
     assert sentinel_queue.get_nowait() is None
     assert sentinel_queue.empty()
+
+
+@pytest.mark.asyncio
+async def test_update_pipeline_skips_channel_difference_and_status_updates(monkeypatch):
+    from pyrogram import raw
+
+    from tg_signer import core
+
+    calls = []
+
+    async def fail(*_args, **_kwargs):
+        calls.append("invoke")
+        raise asyncio.TimeoutError("should not be called")
+
+    core._update_backpressure.reset()
+    monkeypatch.setattr(core, "_original_invoke", fail)
+    token = core._channel_diff_scope.set("skip")
+    try:
+        result = await core._invoke_channel_difference(
+            SimpleNamespace(), SimpleNamespace(pts=9, limit=5000), (), {}
+        )
+    finally:
+        core._channel_diff_scope.reset(token)
+
+    assert calls == []
+    assert isinstance(result, raw.types.updates.ChannelDifferenceEmpty)
+    assert result.pts == 9
+
+    queue = core._bound_updates_queue(asyncio.Queue(maxsize=2))
+    core._update_backpressure.irrelevant_updates_last_log = 10**12
+    queue.put_nowait((raw.types.UpdateUserStatus(user_id=1, status=raw.types.UserStatusEmpty()), {}, {}))
+    queue.put_nowait(("legacy-item",))
+    assert queue.get_nowait() == ("legacy-item",)
+    assert queue.empty()
+    assert core._update_backpressure.irrelevant_updates == 1

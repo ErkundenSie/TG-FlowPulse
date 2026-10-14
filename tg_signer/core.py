@@ -1,4 +1,5 @@
 import asyncio
+import contextvars
 import json
 import logging
 import os
@@ -117,7 +118,8 @@ _CHANNEL_DIFF_LIMIT = _read_positive_int_env("TG_CHANNEL_DIFF_LIMIT", 100, 1)
 _CHANNEL_DIFF_COOLDOWN_SECONDS = _read_positive_float_env(
     "TG_CHANNEL_DIFF_COOLDOWN_SECONDS", 30.0, 1.0
 )
-_UPDATES_QUEUE_MAX = _read_positive_int_env("TG_UPDATES_QUEUE_MAX", 200, 1)
+_UPDATES_QUEUE_MAX = _read_positive_int_env("TG_UPDATES_QUEUE_MAX", 2000, 1)
+_channel_diff_scope = contextvars.ContextVar("tg_channel_diff_scope", default="normal")
 _UPDATE_LOG_INTERVAL_SECONDS = 30.0
 
 
@@ -133,6 +135,8 @@ class _UpdateBackpressure:
         self.handle_updates_last_log = 0.0
         self.dropped_updates = 0
         self.dropped_updates_last_log = 0.0
+        self.irrelevant_updates = 0
+        self.irrelevant_updates_last_log = 0.0
 
     def reset(self) -> None:
         self.__init__()
@@ -188,10 +192,38 @@ def _open_channel_diff_circuit(seconds: float) -> None:
     )
 
 
+def _kept_update_types():
+    names = (
+        "UpdateNewMessage",
+        "UpdateNewChannelMessage",
+        "UpdateEditMessage",
+        "UpdateEditChannelMessage",
+        "UpdateLoginToken",
+    )
+    return tuple(getattr(raw.types, name) for name in names if hasattr(raw.types, name))
+
+
+_KEPT_UPDATE_TYPES = _kept_update_types()
+
+
+def _updates_filter_enabled() -> bool:
+    return os.getenv("TG_UPDATES_KEEP_ALL", "").strip().lower() not in {"1", "true", "yes"}
+
+
+def _should_queue_update(item) -> bool:
+    if not _updates_filter_enabled() or item is None or not isinstance(item, tuple) or not item:
+        return True
+    update = item[0]
+    if not isinstance(update, raw.base.Update):
+        return True
+    return isinstance(update, _KEPT_UPDATE_TYPES)
+
+
 async def _invoke_channel_difference(self, query, args, kwargs):
-    # 差量只用于补全 peer。超时后如果继续抛出，Pyrogram 的 fire-and-forget task
-    # 会留下未取回的异常和整包 users/chats，长跑后内存不会还给系统。
+    # 差量只用于补全 peer。监听路径直接跳过，避免每条频道消息都打超时请求。
     # 返回空差量后，原始频道消息仍会入队，关键词监听可以继续匹配正文。
+    if _channel_diff_scope.get() == "skip":
+        return _empty_channel_difference(query)
     if time.monotonic() < _update_backpressure.channel_diff_open_until:
         _log_update_pressure(
             "Skipping GetChannelDifference",
@@ -277,6 +309,7 @@ async def _patched_invoke(self, query, *args, **kwargs):
 
 
 async def _patched_handle_updates(self, updates):
+    token = _channel_diff_scope.set("skip")
     try:
         await _original_handle_updates(self, updates)
     except Exception as exc:
@@ -286,6 +319,8 @@ async def _patched_handle_updates(self, updates):
             "handle_updates_errors",
             "handle_updates_last_log",
         )
+    finally:
+        _channel_diff_scope.reset(token)
 
 
 def _bound_updates_queue(queue: asyncio.Queue) -> asyncio.Queue:
@@ -309,6 +344,14 @@ def _bound_updates_queue(queue: asyncio.Queue) -> asyncio.Queue:
                 )
             return True
 
+        if item is not None and not _should_queue_update(item):
+            _log_update_pressure(
+                "Ignoring non-message Telegram update",
+                type(item[0]).__name__ if isinstance(item, tuple) and item else type(item).__name__,
+                "irrelevant_updates",
+                "irrelevant_updates_last_log",
+            )
+            return
         # stop() 会为每个 worker 放入 None。哨兵不能丢，否则停机会一直等。
         if item is None:
             if not drop_oldest_updates():
