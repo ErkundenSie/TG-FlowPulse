@@ -21,7 +21,9 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends build-essential tzdata gosu && \
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential tzdata gosu ca-certificates && \
+  sed -i 's|^mozilla/emSign_ECC_Root_CA_-_G3.crt$|!mozilla/emSign_ECC_Root_CA_-_G3.crt|' /etc/ca-certificates.conf && \
+  update-ca-certificates --fresh && \
   rm -rf /var/lib/apt/lists/*
 
 # Copy minimal metadata first for better layer caching.
