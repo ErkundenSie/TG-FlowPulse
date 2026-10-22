@@ -1,4 +1,4 @@
-﻿FROM node:20-slim AS frontend-builder
+FROM node:24.22.1-slim AS frontend-builder
 
 WORKDIR /frontend
 
@@ -10,7 +10,7 @@ COPY frontend/ ./
 RUN npm run build
 
 
-FROM python:3.12-slim AS app
+FROM python:3.13-slim AS app
 
 ENV PYTHONUNBUFFERED=1 \
   PYTHONDONTWRITEBYTECODE=1 \

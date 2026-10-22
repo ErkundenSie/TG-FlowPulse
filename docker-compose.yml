@@ -4,7 +4,7 @@ services:
     image: tg-flowpulse:local
     container_name: tg-flowpulse
     ports:
-      - "${HOST_PORT:-8080}:8080"
+      - "127.0.0.1:${HOST_PORT:-8080}:8080"
     volumes:
       - ./data:/data
     environment:
