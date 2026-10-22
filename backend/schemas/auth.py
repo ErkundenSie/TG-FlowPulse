@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class LoginRequest(BaseModel):
     username: str
     password: str
-    totp_code: Optional[str] = None
+    totp_code: str | None = None
 
 
 class TokenResponse(BaseModel):
@@ -24,5 +23,4 @@ class UserOut(BaseModel):
     is_active: bool
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)

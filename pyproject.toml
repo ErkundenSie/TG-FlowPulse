@@ -11,7 +11,7 @@ authors = [
 ]
 license = "BSD-3-Clause"
 readme = "README.md"
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.11,<3.14"
 classifiers = [
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3 :: Only"
@@ -19,16 +19,17 @@ classifiers = [
 dependencies = [
     "kurigram>=2.2.19,<2.3.0",
     "click",
-    "pydantic<2",
-    "openai",
+    "pydantic==2.14.1",
+    "pydantic-settings==2.16.1",
+    "openai>=3.36.0,<4",
     "croniter",
     "json_repair",
     "typing-extensions",
-    "httpx",
-    "fastapi>=0.109.2",
-    "uvicorn[standard]",
-    "sqlalchemy",
-    "apscheduler",
+    "httpx==0.28.1",
+    "fastapi==0.159.1",
+    "uvicorn[standard]==0.54.0",
+    "sqlalchemy>=2.1.6,<2.2",
+    "apscheduler>=3.11.3,<4",
     "python-jose[cryptography]",
     "python-multipart",
     "pyotp",

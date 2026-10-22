@@ -3,7 +3,6 @@ from __future__ import annotations
 import shutil
 import uuid
 from datetime import datetime
-from typing import Any, Optional
 
 from fastapi import (
     APIRouter,
@@ -15,7 +14,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -25,7 +24,6 @@ from backend.core.database import get_db
 from backend.core.security import hash_password
 from backend.core.workspace import activate_workspace, reset_workspace
 from backend.models.user import User
-from backend.utils.paths import ensure_user_workspace_dirs
 from backend.utils.full_backup import (
     BackupError,
     backup_filename,
@@ -33,6 +31,7 @@ from backend.utils.full_backup import (
     read_backup_upload,
     stage_system_restore,
 )
+from backend.utils.paths import ensure_user_workspace_dirs
 
 router = APIRouter()
 
@@ -44,8 +43,7 @@ class ManagedUserOut(BaseModel):
     is_active: bool
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CreateUserRequest(BaseModel):
@@ -54,9 +52,9 @@ class CreateUserRequest(BaseModel):
 
 
 class UpdateUserRequest(BaseModel):
-    username: Optional[str] = None
-    password: Optional[str] = None
-    is_active: Optional[bool] = None
+    username: str | None = None
+    password: str | None = None
+    is_active: bool | None = None
 
 
 def _normalize_username(value: str) -> str:

@@ -5,23 +5,23 @@ import json
 import logging
 import re
 from datetime import datetime
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel, Field, root_validator, validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from backend.core.auth import get_current_user
 from backend.models.user import User
 from backend.services.sign_tasks import get_sign_task_service
-from backend.utils.xlsx_export import build_xlsx_bytes
 from backend.utils.names import validate_name_segment
+from backend.utils.xlsx_export import build_xlsx_bytes
 
 router = APIRouter()
 logger = logging.getLogger("backend.api.monitors")
 
-MonitorChatId = Union[int, str]
-_keyword_monitor_restart_task: Optional[asyncio.Task] = None
+MonitorChatId = int | str
+_keyword_monitor_restart_task: asyncio.Task | None = None
 _keyword_monitor_restart_pending = False
 
 
@@ -37,13 +37,13 @@ async def _run_keyword_monitor_restart() -> None:
                     get_keyword_monitor_service().restart_from_tasks(),
                     timeout=30,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning("Keyword monitor restart timed out")
             except Exception:
                 logger.warning("Keyword monitor restart failed", exc_info=True)
             if not _keyword_monitor_restart_pending:
                 break
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("Keyword monitor restart timed out")
     except Exception:
         logger.warning("Keyword monitor restart failed", exc_info=True)
@@ -63,7 +63,7 @@ def _validate_task_name(value: str) -> str:
     return validate_name_segment(value, "monitor name")
 
 
-def _normalize_optional_text(value: Optional[str]) -> Optional[str]:
+def _normalize_optional_text(value: str | None) -> str | None:
     if value is None:
         return None
     text = str(value).strip()
@@ -101,7 +101,7 @@ def _clean_text_lines(value: Any) -> list[str]:
     return [str(item).strip() for item in raw_items if str(item).strip()]
 
 
-def _keyword_action_from_rule(rule: "MonitorRule") -> dict[str, Any]:
+def _keyword_action_from_rule(rule: MonitorRule) -> dict[str, Any]:
     push_channel = rule.push_channel
     auto_reply_text = _normalize_optional_text(rule.auto_reply_text)
     ai_auto_reply = bool(rule.ai_auto_reply)
@@ -296,9 +296,9 @@ def _rule_from_chat(task_name: str, account_name: str, chat: dict[str, Any]) -> 
 
 
 class MonitorRule(BaseModel):
-    chat_id: Optional[MonitorChatId] = Field(None, description="Source chat ID or @username")
+    chat_id: MonitorChatId | None = Field(None, description="Source chat ID or @username")
     chat_name: str = ""
-    message_thread_id: Optional[int] = None
+    message_thread_id: int | None = None
     message_thread_ids: list[int] = Field(default_factory=list)
     monitor_scope: Literal["selected", "private"] = "selected"
     keywords: list[str] = Field(default_factory=list)
@@ -306,28 +306,29 @@ class MonitorRule(BaseModel):
     ignore_case: bool = True
     include_self_messages: bool = False
     time_window_enabled: bool = False
-    active_time_start: Optional[str] = None
-    active_time_end: Optional[str] = None
+    active_time_start: str | None = None
+    active_time_end: str | None = None
     match_all: bool = False
     push_channel: Literal["telegram", "forward", "bark", "custom", "continue"] = "telegram"
-    bark_url: Optional[str] = None
-    custom_url: Optional[str] = None
-    forward_chat_id: Optional[MonitorChatId] = None
-    forward_message_thread_id: Optional[int] = None
-    auto_reply_text: Optional[str] = None
+    bark_url: str | None = None
+    custom_url: str | None = None
+    forward_chat_id: MonitorChatId | None = None
+    forward_message_thread_id: int | None = None
+    auto_reply_text: str | None = None
     ai_auto_reply: bool = False
-    ai_prompt: Optional[str] = None
-    ai_persona: Optional[str] = None
+    ai_prompt: str | None = None
+    ai_persona: str | None = None
     ai_context_messages: int = 0
     ai_whitelist_users: list[str] = Field(default_factory=list)
     ai_blacklist_users: list[str] = Field(default_factory=list)
-    ai_daily_limit: Optional[int] = None
-    continue_chat_id: Optional[MonitorChatId] = None
-    continue_message_thread_id: Optional[int] = None
+    ai_daily_limit: int | None = None
+    continue_chat_id: MonitorChatId | None = None
+    continue_message_thread_id: int | None = None
     continue_action_interval: float = 1
     continue_actions: list[dict[str, Any]] = Field(default_factory=list)
 
-    @validator("chat_id", "forward_chat_id", "continue_chat_id", pre=True)
+    @field_validator("chat_id", "forward_chat_id", "continue_chat_id", mode="before")
+    @classmethod
     def chat_id_must_be_number_or_username(cls, value):
         if value is None or value == "":
             return None
@@ -341,7 +342,8 @@ class MonitorRule(BaseModel):
         except ValueError as exc:
             raise ValueError("chat id must be a number or @username") from exc
 
-    @validator("message_thread_ids", pre=True)
+    @field_validator("message_thread_ids", mode="before")
+    @classmethod
     def thread_ids_must_be_numbers(cls, value):
         if value is None or value == "":
             return []
@@ -357,7 +359,8 @@ class MonitorRule(BaseModel):
                 raise ValueError("topic id must be a number") from exc
         return cleaned
 
-    @validator("active_time_start", "active_time_end", pre=True)
+    @field_validator("active_time_start", "active_time_end", mode="before")
+    @classmethod
     def time_must_be_hhmm(cls, value):
         text = _normalize_optional_text(value)
         if text is None:
@@ -369,39 +372,40 @@ class MonitorRule(BaseModel):
             raise ValueError("time must use HH:MM format")
         return text
 
-    @validator("keywords")
+    @field_validator("keywords")
+    @classmethod
     def clean_keywords(cls, value):
         cleaned = [str(item).strip() for item in value if str(item).strip()]
         return cleaned
 
-    @root_validator
-    def keywords_or_match_all_required(cls, values):
-        keywords = values.get("keywords") or []
-        if values.get("match_all"):
-            return values
-        raw_auto_reply_text = _normalize_optional_text(values.get("auto_reply_text"))
-        has_ai_auto_reply = bool(values.get("ai_auto_reply", False))
+    @model_validator(mode="after")
+    def keywords_or_match_all_required(self):
+        if self.match_all:
+            return self
         if (
-            not keywords
-            and values.get("monitor_scope") == "private"
-            and values.get("push_channel") == "continue"
-            and (raw_auto_reply_text or has_ai_auto_reply)
+            not self.keywords
+            and self.monitor_scope == "private"
+            and self.push_channel == "continue"
+            and (_normalize_optional_text(self.auto_reply_text) or self.ai_auto_reply)
         ):
-            values["match_all"] = True
-            return values
-        if not keywords:
+            self.match_all = True
+            return self
+        if not self.keywords:
             raise ValueError("at least one keyword or enable match_all is required")
-        return values
+        return self
 
-    @validator("ai_prompt", pre=True)
+    @field_validator("ai_prompt", mode="before")
+    @classmethod
     def normalize_ai_prompt(cls, value):
         return _normalize_optional_text(value)
 
-    @validator("ai_persona", pre=True)
+    @field_validator("ai_persona", mode="before")
+    @classmethod
     def normalize_ai_persona(cls, value):
         return _normalize_optional_text(value)
 
-    @validator("ai_context_messages", pre=True)
+    @field_validator("ai_context_messages", mode="before")
+    @classmethod
     def normalize_ai_context_messages(cls, value):
         if value in (None, ""):
             return 0
@@ -410,11 +414,13 @@ class MonitorRule(BaseModel):
         except (TypeError, ValueError) as exc:
             raise ValueError("context messages must be a number") from exc
 
-    @validator("ai_whitelist_users", "ai_blacklist_users", pre=True)
+    @field_validator("ai_whitelist_users", "ai_blacklist_users", mode="before")
+    @classmethod
     def normalize_ai_user_list(cls, value):
         return _clean_text_lines(value)
 
-    @validator("ai_daily_limit", pre=True)
+    @field_validator("ai_daily_limit", mode="before")
+    @classmethod
     def normalize_ai_daily_limit(cls, value):
         if value in (None, ""):
             return None
@@ -434,23 +440,26 @@ class MonitorTaskCreate(BaseModel):
     enabled: bool = True
     rules: list[MonitorRule]
 
-    @validator("name")
+    @field_validator("name")
+    @classmethod
     def name_must_be_valid(cls, value):
         return _validate_task_name(value)
 
-    @validator("account_name")
+    @field_validator("account_name")
+    @classmethod
     def account_name_must_be_valid(cls, value):
         return validate_name_segment(value, "account_name")
 
 
 class MonitorTaskUpdate(BaseModel):
-    name: Optional[str] = None
-    account_name: Optional[str] = None
-    group: Optional[str] = None
-    enabled: Optional[bool] = None
-    rules: Optional[list[MonitorRule]] = None
+    name: str | None = None
+    account_name: str | None = None
+    group: str | None = None
+    enabled: bool | None = None
+    rules: list[MonitorRule] | None = None
 
-    @validator("name")
+    @field_validator("name")
+    @classmethod
     def name_must_be_valid(cls, value):
         if value is None:
             return value
@@ -476,9 +485,9 @@ class MonitorMatchRecordOut(BaseModel):
     fingerprint: str = ""
     account_name: str = ""
     task_name: str = ""
-    chat_id: Optional[MonitorChatId] = None
+    chat_id: MonitorChatId | None = None
     chat_name: str = ""
-    message_thread_id: Optional[int] = None
+    message_thread_id: int | None = None
     matched_keyword: str = ""
     match_mode: str = "contains"
     message_text: str = ""
@@ -490,11 +499,11 @@ class MonitorMatchRecordOut(BaseModel):
     hit_count: int = 1
     first_seen_at: str = ""
     last_seen_at: str = ""
-    first_message_id: Optional[int] = None
-    last_message_id: Optional[int] = None
+    first_message_id: int | None = None
+    last_message_id: int | None = None
 
 
-def _task_to_monitor(task: dict[str, Any]) -> Optional[MonitorTaskOut]:
+def _task_to_monitor(task: dict[str, Any]) -> MonitorTaskOut | None:
     chats = task.get("chats") or []
     rules: list[dict[str, Any]] = []
     for chat in chats:
@@ -523,7 +532,7 @@ def _is_standalone_monitor(task: dict[str, Any]) -> bool:
 
 def _ensure_monitor_task(
     task_name: str,
-    account_name: Optional[str] = None,
+    account_name: str | None = None,
 ) -> dict[str, Any]:
     task = get_sign_task_service().get_task(task_name, account_name=account_name)
     if not task or not _is_standalone_monitor(task):
@@ -562,7 +571,7 @@ def _mark_monitor_only(account_name: str, task_name: str) -> None:
     if not config_file.exists():
         return
     try:
-        with open(config_file, "r", encoding="utf-8") as fp:
+        with open(config_file, encoding="utf-8") as fp:
             config = json.load(fp)
         config["monitor_only"] = True
         with open(config_file, "w", encoding="utf-8") as fp:
@@ -573,14 +582,14 @@ def _mark_monitor_only(account_name: str, task_name: str) -> None:
 
             remove_sign_task_job(account_name, task_name)
         except Exception:
-            pass
+            logger.exception("Failed to remove the scheduled job for a monitor-only task")
     except Exception:
-        pass
+        logger.exception("Failed to mark the task configuration as monitor-only")
 
 
 @router.get("", response_model=list[MonitorTaskOut])
 def list_monitors(
-    account_name: Optional[str] = None,
+    account_name: str | None = None,
     current_user: User = Depends(get_current_user),
 ):
     tasks = get_sign_task_service().list_tasks(
@@ -627,7 +636,7 @@ async def create_monitor(
 @router.get("/{task_name}", response_model=MonitorTaskOut)
 def get_monitor(
     task_name: str,
-    account_name: Optional[str] = None,
+    account_name: str | None = None,
     current_user: User = Depends(get_current_user),
 ):
     task = get_sign_task_service().get_task(task_name, account_name=account_name)
@@ -645,7 +654,7 @@ def get_monitor(
 async def update_monitor(
     task_name: str,
     payload: MonitorTaskUpdate,
-    account_name: Optional[str] = None,
+    account_name: str | None = None,
     current_user: User = Depends(get_current_user),
 ):
     existing = get_sign_task_service().get_task(task_name, account_name=account_name)
@@ -691,7 +700,7 @@ async def update_monitor(
 @router.delete("/{task_name}", status_code=status.HTTP_200_OK)
 async def delete_monitor(
     task_name: str,
-    account_name: Optional[str] = None,
+    account_name: str | None = None,
     current_user: User = Depends(get_current_user),
 ):
     existing = get_sign_task_service().get_task(task_name, account_name=account_name)
@@ -707,7 +716,7 @@ async def delete_monitor(
 @router.get("/{task_name}/status", response_model=MonitorStatusOut)
 def get_monitor_status(
     task_name: str,
-    account_name: Optional[str] = None,
+    account_name: str | None = None,
     current_user: User = Depends(get_current_user),
 ):
     existing = _ensure_monitor_task(task_name, account_name)
@@ -735,7 +744,7 @@ def get_monitor_status(
 @router.get("/{task_name}/records", response_model=list[MonitorMatchRecordOut])
 def list_monitor_records(
     task_name: str,
-    account_name: Optional[str] = None,
+    account_name: str | None = None,
     limit: int = 200,
     current_user: User = Depends(get_current_user),
 ):
@@ -759,7 +768,7 @@ def list_monitor_records(
 @router.get("/{task_name}/records/export")
 def export_monitor_records(
     task_name: str,
-    account_name: Optional[str] = None,
+    account_name: str | None = None,
     current_user: User = Depends(get_current_user),
 ):
     existing = _ensure_monitor_task(task_name, account_name)
@@ -837,7 +846,7 @@ def export_monitor_records(
 @router.get("/{task_name}/export")
 def export_monitor(
     task_name: str,
-    account_name: Optional[str] = None,
+    account_name: str | None = None,
     current_user: User = Depends(get_current_user),
 ):
     monitor = get_monitor(task_name, account_name=account_name, current_user=current_user)
@@ -859,8 +868,8 @@ def export_monitor(
 
 class ImportMonitorRequest(BaseModel):
     config_json: str
-    task_name: Optional[str] = None
-    account_name: Optional[str] = None
+    task_name: str | None = None
+    account_name: str | None = None
 
 
 @router.post("/import", response_model=MonitorTaskOut)

@@ -4,24 +4,15 @@ import os
 import secrets
 from functools import lru_cache
 from pathlib import Path
-from typing import Optional
 
-from backend.utils.storage import get_initial_data_dir, get_writable_base_dir
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
 from backend.core.workspace import resolve_workspace_dir
+from backend.utils.storage import get_initial_data_dir, get_writable_base_dir
 
-try:
-    from pydantic.v1 import BaseSettings
-except ImportError:
-    from pydantic import BaseSettings
-
-
-_DEFAULT_CORS_ORIGINS = ",".join(
-    [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:8080",
-        "http://127.0.0.1:8080",
-    ]
+_DEFAULT_CORS_ORIGINS = (
+    "http://localhost:3000,http://127.0.0.1:3000,"
+    "http://localhost:8080,http://127.0.0.1:8080"
 )
 
 
@@ -63,15 +54,14 @@ class Settings(BaseSettings):
 
     timezone: str = os.getenv("TZ", "Asia/Hong_Kong")
     data_dir: Path = get_initial_data_dir()
-    db_path: Optional[Path] = None
-    signer_workdir: Optional[Path] = None
-    session_dir: Optional[Path] = None
-    logs_dir: Optional[Path] = None
+    db_path: Path | None = None
+    signer_workdir: Path | None = None
+    session_dir: Path | None = None
+    logs_dir: Path | None = None
 
-    class Config:
-        env_file = ".env"
-        env_prefix = "APP_"
-        case_sensitive = False
+    model_config = SettingsConfigDict(
+        env_file=".env", env_prefix="APP_", case_sensitive=False, extra="ignore"
+    )
 
     @property
     def database_url(self) -> str:
@@ -103,6 +93,6 @@ class Settings(BaseSettings):
         return get_writable_base_dir()
 
 
-@lru_cache()
+@lru_cache
 def get_settings() -> Settings:
     return Settings()

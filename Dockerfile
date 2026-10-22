@@ -30,29 +30,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
 COPY pyproject.toml ./
 COPY tg_signer/__init__.py ./tg_signer/__init__.py
 
-# Install core deps (FastAPI uses Pydantic v1 here).
-RUN pip install --no-cache-dir "pydantic<2" "fastapi==0.109.2"
+# Resolve once with pip-compile; builds install the reviewed, hashed dependency set.
+COPY requirements.lock ./
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock
 
-# Install bcrypt early to keep backend requirements consistent.
-RUN pip install --no-cache-dir "bcrypt==4.0.1"
-
-# Install project and runtime deps.
 COPY . /app
-RUN pip install --no-cache-dir . && \
-  pip install --no-cache-dir \
-  uvicorn[standard] \
-  sqlalchemy \
-  "passlib[bcrypt]==1.7.4" \
-  "python-jose[cryptography]" \
-  pyotp \
-  qrcode[pil] \
-  apscheduler \
-  python-multipart
+RUN pip install --no-cache-dir --no-deps . && pip check
 
 # Install tgcrypto only on amd64 to avoid arm64 build failures.
 ARG TARGETPLATFORM
 RUN if [ "${TARGETPLATFORM:-}" = "linux/amd64" ] || [ "$(uname -m)" = "x86_64" ]; then \
-    pip install --no-cache-dir tgcrypto; \
+    pip install --no-cache-dir "tgcrypto==1.2.5"; \
   else \
     echo "Skipping tgcrypto on ${TARGETPLATFORM:-unknown}"; \
   fi

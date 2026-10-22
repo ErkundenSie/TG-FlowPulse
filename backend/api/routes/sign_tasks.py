@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from fastapi import (
     APIRouter,
@@ -16,7 +16,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.orm import Session
 
 from backend.core.auth import get_current_user
@@ -66,7 +66,7 @@ class SendPhotoAction(ActionBase):
 
     action: int = Field(9, description="动作类型：9=发送图片")
     photo: str = Field(..., description="图片路径、URL、Telegram 消息链接或 file_id")
-    caption: Optional[str] = Field(None, description="图片说明文字")
+    caption: str | None = Field(None, description="图片说明文字")
 
 
 class ForwardMessagesAction(ActionBase):
@@ -74,7 +74,7 @@ class ForwardMessagesAction(ActionBase):
 
     action: int = Field(10, description="动作类型：10=转发消息")
     from_chat_id: Any = Field(..., description="来源 Chat ID 或 @username")
-    message_ids: List[int] = Field(..., description="来源消息 ID 列表")
+    message_ids: list[int] = Field(..., description="来源消息 ID 列表")
 
 
 class ClickKeyboardAction(ActionBase):
@@ -101,10 +101,10 @@ class ChatConfig(BaseModel):
 
     chat_id: int = Field(..., description="Chat ID")
     name: str = Field("", description="Chat 名称")
-    actions: List[Dict[str, Any]] = Field(..., description="动作列表")
-    delete_after: Optional[int] = Field(None, description="删除延迟（秒）")
+    actions: list[dict[str, Any]] = Field(..., description="动作列表")
+    delete_after: int | None = Field(None, description="删除延迟（秒）")
     action_interval: int = Field(1, description="动作间隔（秒）")
-    message_thread_id: Optional[int] = Field(None, description="群组话题 Thread ID")
+    message_thread_id: int | None = Field(None, description="群组话题 Thread ID")
 
 
 class SignTaskCreate(BaseModel):
@@ -114,14 +114,14 @@ class SignTaskCreate(BaseModel):
     account_name: str = Field(..., description="关联的账号名称")
     group: str = Field("", description="任务分组")
     sign_at: str = Field(..., description="签到时间（CRON 表达式）")
-    chats: List[ChatConfig] = Field(..., description="Chat 配置列表")
+    chats: list[ChatConfig] = Field(..., description="Chat 配置列表")
     random_seconds: int = Field(0, description="随机延迟秒数")
-    sign_interval: Optional[int] = Field(
+    sign_interval: int | None = Field(
         None, description="签到间隔秒数，留空使用全局配置或随机 1-120 秒"
     )
-    execution_mode: Optional[str] = Field("fixed", description="执行模式: fixed/range")
-    range_start: Optional[str] = Field(None, description="随机范围开始时间")
-    range_end: Optional[str] = Field(None, description="随机范围结束时间")
+    execution_mode: str | None = Field("fixed", description="执行模式: fixed/range")
+    range_start: str | None = Field(None, description="随机范围开始时间")
+    range_end: str | None = Field(None, description="随机范围结束时间")
 
     enabled: bool = Field(True, description="Whether the task is enabled")
     notify_on_failure: bool = Field(
@@ -129,11 +129,13 @@ class SignTaskCreate(BaseModel):
     )
     task_kind: str = Field("sign", description="任务类型: sign/broadcast")
 
-    @validator("name")
+    @field_validator("name")
+    @classmethod
     def name_must_be_valid_filename(cls, v):
         return validate_name_segment(v, "task_name")
 
-    @validator("account_name")
+    @field_validator("account_name")
+    @classmethod
     def account_name_must_be_valid_filename(cls, v):
         return validate_name_segment(v, "account_name")
 
@@ -141,23 +143,24 @@ class SignTaskCreate(BaseModel):
 class SignTaskUpdate(BaseModel):
     """更新签到任务请求"""
 
-    name: Optional[str] = Field(None, description="任务名称")
-    group: Optional[str] = Field(None, description="任务分组")
-    sign_at: Optional[str] = Field(None, description="签到时间（CRON 表达式）")
-    chats: Optional[List[ChatConfig]] = Field(None, description="Chat 配置列表")
-    random_seconds: Optional[int] = Field(None, description="随机延迟秒数")
-    sign_interval: Optional[int] = Field(None, description="签到间隔秒数")
-    execution_mode: Optional[str] = Field(None, description="执行模式: fixed/range")
-    range_start: Optional[str] = Field(None, description="随机范围开始时间")
-    range_end: Optional[str] = Field(None, description="随机范围结束时间")
+    name: str | None = Field(None, description="任务名称")
+    group: str | None = Field(None, description="任务分组")
+    sign_at: str | None = Field(None, description="签到时间（CRON 表达式）")
+    chats: list[ChatConfig] | None = Field(None, description="Chat 配置列表")
+    random_seconds: int | None = Field(None, description="随机延迟秒数")
+    sign_interval: int | None = Field(None, description="签到间隔秒数")
+    execution_mode: str | None = Field(None, description="执行模式: fixed/range")
+    range_start: str | None = Field(None, description="随机范围开始时间")
+    range_end: str | None = Field(None, description="随机范围结束时间")
 
-    enabled: Optional[bool] = Field(None, description="Whether the task is enabled")
-    notify_on_failure: Optional[bool] = Field(
+    enabled: bool | None = Field(None, description="Whether the task is enabled")
+    notify_on_failure: bool | None = Field(
         None, description="Send notification when task fails"
     )
-    task_kind: Optional[str] = Field(None, description="任务类型: sign/broadcast")
+    task_kind: str | None = Field(None, description="任务类型: sign/broadcast")
 
-    @validator("name")
+    @field_validator("name")
+    @classmethod
     def name_must_be_valid_filename(cls, v):
         if v is None:
             return v
@@ -180,14 +183,14 @@ class SignTaskOut(BaseModel):
     group: str = ""
     task_kind: str = "sign"
     sign_at: str
-    chats: List[Dict[str, Any]]
+    chats: list[dict[str, Any]]
     random_seconds: int
     sign_interval: int
     enabled: bool
-    last_run: Optional[LastRunInfo] = None
-    execution_mode: Optional[str] = "fixed"
-    range_start: Optional[str] = None
-    range_end: Optional[str] = None
+    last_run: LastRunInfo | None = None
+    execution_mode: str | None = "fixed"
+    range_start: str | None = None
+    range_end: str | None = None
     notify_on_failure: bool = True
 
 
@@ -195,16 +198,16 @@ class ChatOut(BaseModel):
     """Chat 输出"""
 
     id: int
-    title: Optional[str] = None
-    username: Optional[str] = None
+    title: str | None = None
+    username: str | None = None
     type: str
-    first_name: Optional[str] = None
+    first_name: str | None = None
 
 
 class ChatSearchResponse(BaseModel):
     """Chat 搜索结果"""
 
-    items: List[ChatOut]
+    items: list[ChatOut]
     total: int
     limit: int
     offset: int
@@ -222,7 +225,7 @@ class TaskHistoryItem(BaseModel):
     time: str
     success: bool
     message: str = ""
-    flow_logs: List[str] = Field(default_factory=list)
+    flow_logs: list[str] = Field(default_factory=list)
     flow_truncated: bool = False
     flow_line_count: int = 0
 
@@ -230,12 +233,12 @@ class TaskHistoryItem(BaseModel):
 # API 路由
 
 
-def _normalize_task_kind(value: Optional[str]) -> str:
+def _normalize_task_kind(value: str | None) -> str:
     kind = (value or "sign").strip().lower() or "sign"
     return kind if kind in {"sign", "broadcast"} else "sign"
 
 
-def _matches_task_kind(task: Dict[str, Any], task_kind: Optional[str]) -> bool:
+def _matches_task_kind(task: dict[str, Any], task_kind: str | None) -> bool:
     if task.get("monitor_only"):
         return False
     expected = _normalize_task_kind(task_kind)
@@ -243,11 +246,11 @@ def _matches_task_kind(task: Dict[str, Any], task_kind: Optional[str]) -> bool:
     return actual == expected
 
 
-@router.get("", response_model=List[SignTaskOut])
+@router.get("", response_model=list[SignTaskOut])
 def list_sign_tasks(
-    account_name: Optional[str] = None,
+    account_name: str | None = None,
     force_refresh: bool = False,
-    task_kind: Optional[str] = Query("sign", description="任务类型: sign/broadcast"),
+    task_kind: str | None = Query("sign", description="任务类型: sign/broadcast"),
     current_user=Depends(get_current_user),
 ):
     """
@@ -302,16 +305,16 @@ async def create_sign_task(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
     except Exception as e:
-        print(f"创建任务失败: {str(e)}")
+        print(f"创建任务失败: {e!s}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"创建任务失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"创建任务失败: {e!s}")
 
 
 @router.get("/{task_name}", response_model=SignTaskOut)
 def get_sign_task(
     task_name: str,
-    account_name: Optional[str] = None,
-    task_kind: Optional[str] = Query(None, description="任务类型: sign/broadcast"),
+    account_name: str | None = None,
+    task_kind: str | None = Query(None, description="任务类型: sign/broadcast"),
     current_user=Depends(get_current_user),
 ):
     """获取单个签到任务的详细信息"""
@@ -327,8 +330,8 @@ def get_sign_task(
 async def update_sign_task(
     task_name: str,
     payload: SignTaskUpdate,
-    account_name: Optional[str] = None,
-    task_kind: Optional[str] = Query(None, description="任务类型: sign/broadcast"),
+    account_name: str | None = None,
+    task_kind: str | None = Query(None, description="任务类型: sign/broadcast"),
     current_user=Depends(get_current_user),
 ):
     """更新签到任务"""
@@ -380,16 +383,16 @@ async def update_sign_task(
     except Exception as e:
         import traceback
 
-        print(f"更新任务失败: {str(e)}")
+        print(f"更新任务失败: {e!s}")
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"更新任务失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"更新任务失败: {e!s}")
 
 
 @router.delete("/{task_name}", status_code=status.HTTP_200_OK)
 async def delete_sign_task(
     task_name: str,
-    account_name: Optional[str] = None,
-    task_kind: Optional[str] = Query(None, description="任务类型: sign/broadcast"),
+    account_name: str | None = None,
+    task_kind: str | None = Query(None, description="任务类型: sign/broadcast"),
     current_user=Depends(get_current_user),
 ):
     """删除签到任务"""
@@ -415,7 +418,7 @@ async def delete_sign_task(
 async def run_sign_task(
     task_name: str,
     account_name: str,
-    task_kind: Optional[str] = Query("sign", description="任务类型: sign/broadcast"),
+    task_kind: str | None = Query("sign", description="任务类型: sign/broadcast"),
     current_user=Depends(get_current_user),
 ):
     """手动运行签到任务"""
@@ -430,11 +433,11 @@ async def run_sign_task(
     return result
 
 
-@router.get("/{task_name}/logs", response_model=List[str])
+@router.get("/{task_name}/logs", response_model=list[str])
 def get_sign_task_logs(
     task_name: str,
     account_name: str | None = None,
-    task_kind: Optional[str] = Query("sign", description="任务类型: sign/broadcast"),
+    task_kind: str | None = Query("sign", description="任务类型: sign/broadcast"),
     current_user=Depends(get_current_user),
 ):
     """获取正在运行任务的实时日志"""
@@ -445,12 +448,12 @@ def get_sign_task_logs(
     return logs
 
 
-@router.get("/{task_name}/history", response_model=List[TaskHistoryItem])
+@router.get("/{task_name}/history", response_model=list[TaskHistoryItem])
 def get_sign_task_history(
     task_name: str,
     account_name: str,
     limit: int = Query(20, ge=1, le=200),
-    task_kind: Optional[str] = Query("sign", description="任务类型: sign/broadcast"),
+    task_kind: str | None = Query("sign", description="任务类型: sign/broadcast"),
     current_user=Depends(get_current_user),
 ):
     task = get_sign_task_service().get_task(task_name, account_name=account_name)
@@ -466,7 +469,7 @@ def get_sign_task_history(
     )
 
 
-@router.get("/chats/{account_name}", response_model=List[ChatOut])
+@router.get("/chats/{account_name}", response_model=list[ChatOut])
 async def get_account_chats(
     account_name: str,
     force_refresh: bool = False,
@@ -493,7 +496,7 @@ async def get_account_chats(
         import traceback
 
         traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"获取对话列表失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取对话列表失败: {e!s}")
 
 
 @router.get("/chats/{account_name}/search", response_model=ChatSearchResponse)
@@ -510,7 +513,7 @@ def search_account_chats(
             account_name, q, limit=limit, offset=offset
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"搜索对话列表失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"搜索对话列表失败: {e!s}")
 
 
 @router.websocket("/ws/{task_name}")
@@ -518,7 +521,7 @@ async def sign_task_logs_ws(
     websocket: WebSocket,
     task_name: str,
     account_name: str | None = Query(None),
-    task_kind: Optional[str] = Query("sign"),
+    task_kind: str | None = Query("sign"),
     token: str | None = Query(None),
     db: Session = Depends(get_db),
 ):
