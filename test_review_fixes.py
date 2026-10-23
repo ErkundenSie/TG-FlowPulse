@@ -672,3 +672,33 @@ async def test_update_pipeline_skips_channel_difference_and_status_updates(monke
     assert queue.get_nowait() == ("legacy-item",)
     assert queue.empty()
     assert core._update_backpressure.irrelevant_updates == 1
+
+
+@pytest.mark.asyncio
+async def test_safe_get_forum_topics_awaits_async_parse(monkeypatch):
+    from tg_signer._kurigram import methods
+
+    parsed_ids = []
+
+    async def fake_parse(_client, topic, _messages, _users, _chats):
+        parsed_ids.append(topic.id)
+        return SimpleNamespace(id=topic.id, top_message=None)
+
+    monkeypatch.setattr(methods.types.ForumTopic, "_parse", staticmethod(fake_parse))
+
+    class Client(methods.SafeGetForumTopics):
+        async def resolve_peer(self, chat_id):
+            return chat_id
+
+        async def invoke(self, _query):
+            return SimpleNamespace(
+                users=[SimpleNamespace(id=1)],
+                chats=[SimpleNamespace(id=2)],
+                messages=[],
+                topics=[SimpleNamespace(id=7)],
+            )
+
+    topics = [topic async for topic in Client().get_forum_topics(-100123, limit=1)]
+
+    assert parsed_ids == [7]
+    assert [topic.id for topic in topics] == [7]

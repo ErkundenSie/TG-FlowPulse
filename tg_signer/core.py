@@ -1172,8 +1172,11 @@ class BaseUserWorker(Generic[ConfigT]):
                             )
                             for topic in topics:
                                 print_to_user(f"  {readable_topic(topic)}")
-                        except (asyncio.TimeoutError, errors.RPCError):
-                            pass
+                        except Exception as exc:
+                            self.log(
+                                f"读取论坛话题失败，已跳过: {type(exc).__name__}: {exc}",
+                                level="WARNING",
+                            )
 
                 with open(
                     self.get_user_dir(me).joinpath("latest_chats.json"),

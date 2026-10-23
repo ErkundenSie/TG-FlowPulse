@@ -45,7 +45,7 @@ class SafeGetForumTopics:
 
             page_topics = []
             for topic in result.topics:
-                parsed_topic = types.ForumTopic._parse(
+                parsed_topic = await types.ForumTopic._parse(
                     self, topic, messages, users, chats
                 )
                 if parsed_topic is None or parsed_topic.id in seen_topic_ids:

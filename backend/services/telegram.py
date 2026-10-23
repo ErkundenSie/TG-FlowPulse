@@ -1512,7 +1512,7 @@ class TelegramService:
 
         async def _finalize_login(login_result: Any) -> Dict[str, Any]:
             # 标记授权用户
-            user = types.User._parse(client, login_result.authorization.user)
+            user = await types.User._parse(client, login_result.authorization.user)
             await client.storage.user_id(user.id)
             await client.storage.is_bot(False)
             data["authorized"] = True
@@ -1854,7 +1854,7 @@ class TelegramService:
                             )
                         )
                     )
-                    user_from_password = types.User._parse(client, auth.user)
+                    user_from_password = await types.User._parse(client, auth.user)
                     await client.storage.user_id(user_from_password.id)
                     await client.storage.is_bot(False)
                     data["authorized"] = True
@@ -1948,7 +1948,7 @@ class TelegramService:
                             result = None
 
                     if isinstance(result, raw.types.auth.LoginTokenSuccess):
-                        user = types.User._parse(client, result.authorization.user)
+                        user = await types.User._parse(client, result.authorization.user)
                         await client.storage.user_id(user.id)
                         await client.storage.is_bot(False)
                         data["authorized"] = True
@@ -2003,7 +2003,7 @@ class TelegramService:
                             if isinstance(
                                 export_result, raw.types.auth.LoginTokenSuccess
                             ):
-                                user = types.User._parse(
+                                user = await types.User._parse(
                                     client, export_result.authorization.user
                                 )
                                 await client.storage.user_id(user.id)
@@ -2030,7 +2030,7 @@ class TelegramService:
                                         migrate_result,
                                         raw.types.auth.LoginTokenSuccess,
                                     ):
-                                        user = types.User._parse(
+                                        user = await types.User._parse(
                                             client, migrate_result.authorization.user
                                         )
                                         await client.storage.user_id(user.id)
@@ -2124,7 +2124,7 @@ class TelegramService:
                     raise ValueError("请先在手机端确认登录")
 
                 if isinstance(result, raw.types.auth.LoginTokenSuccess):
-                    user = types.User._parse(client, result.authorization.user)
+                    user = await types.User._parse(client, result.authorization.user)
                     await client.storage.user_id(user.id)
                     await client.storage.is_bot(False)
                     data["authorized"] = True
