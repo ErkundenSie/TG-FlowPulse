@@ -65,6 +65,8 @@ class BackendUserSigner(UserSigner):
     后端专用的 UserSigner，适配后端目录结构并禁止交互式输入
     """
 
+    print_login_chats = False
+
     @property
     def task_dir(self):
         # 适配后端的目录结构: signs_dir / account_name / task_name
@@ -1962,8 +1964,9 @@ class SignTaskService:
                     self._active_logs[task_key].append("全部目标会话执行流程结束")
                     self._active_logs[task_key].append("任务执行完成")
 
-                    # 增加缓冲时间，防止同账号连续执行任务时，Session文件锁尚未完全释放导致 "database is locked"
-                    await asyncio.sleep(2)
+                    # 文件 session 才需要等 SQLite 锁释放。内存 session_string 不再空等。
+                    if not use_in_memory:
+                        await asyncio.sleep(2)
 
         except Exception as e:
             if account_invalid_detected or self._is_invalid_session_error(e):

@@ -702,3 +702,49 @@ async def test_safe_get_forum_topics_awaits_async_parse(monkeypatch):
 
     assert parsed_ids == [7]
     assert [topic.id for topic in topics] == [7]
+
+
+@pytest.mark.asyncio
+async def test_skip_updates_get_difference_returns_empty(monkeypatch):
+    from pyrogram import raw
+
+    from tg_signer import core
+
+    async def fail(*_args, **_kwargs):
+        raise AssertionError("skip_updates should not call the network")
+
+    monkeypatch.setattr(core, "_original_invoke", fail)
+    query = raw.functions.updates.GetDifference(pts=1, date=2, qts=3)
+    client = SimpleNamespace(_tg_signpulse_skip_updates=True)
+
+    result = await core._patched_invoke(client, query)
+
+    assert isinstance(result, raw.types.updates.DifferenceEmpty)
+    assert result.date == 2
+
+
+def test_permanent_chat_error_and_slowmode_wait():
+    from tg_signer.core import _is_permanent_chat_error, _slowmode_wait_seconds
+
+    assert _is_permanent_chat_error(RuntimeError("400 CHANNEL_PRIVATE"))
+    assert not _is_permanent_chat_error(RuntimeError("timeout"))
+
+    class SlowmodeWait(Exception):
+        def __init__(self):
+            super().__init__("wait 8 seconds")
+            self.value = 8
+
+    assert _slowmode_wait_seconds(SlowmodeWait()) == 8
+    assert (
+        _slowmode_wait_seconds(
+            RuntimeError("SLOWMODE_WAIT_X: wait 8 seconds before sending")
+        )
+        == 8
+    )
+    assert _slowmode_wait_seconds(RuntimeError("temporary")) is None
+
+
+def test_backend_signer_does_not_print_login_chats():
+    from backend.services.sign_tasks import BackendUserSigner
+
+    assert BackendUserSigner.print_login_chats is False

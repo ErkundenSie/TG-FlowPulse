@@ -3,6 +3,7 @@ import contextvars
 import json
 import logging
 import os
+import re
 import pathlib
 import random
 import sqlite3
@@ -304,6 +305,12 @@ async def _patched_invoke(self, query, *args, **kwargs):
     if isinstance(query, raw.functions.updates.GetChannelDifference):
         return await _invoke_channel_difference(self, query, args, kwargs)
     if isinstance(query, raw.functions.updates.GetDifference):
+        # 监听和签到都不依赖历史差量。差量超时会堵住 worker，队列随后丢消息。
+        if getattr(self, "_tg_signpulse_skip_updates", False):
+            return raw.types.updates.DifferenceEmpty(
+                date=int(getattr(query, "date", 0) or 0),
+                seq=0,
+            )
         return await _invoke_with_update_retries(self, query, args, kwargs)
     return await _original_invoke(self, query, *args, **kwargs)
 
@@ -895,6 +902,46 @@ ConfigT = TypeVar("ConfigT", bound=BaseJSONConfig)
 ApiCallResultT = TypeVar("ApiCallResultT")
 
 
+
+_PERMANENT_CHAT_ERROR_MARKERS = (
+    "CHANNEL_PRIVATE",
+    "CHANNEL_INVALID",
+    "PEER_ID_INVALID",
+    "USER_NOT_PARTICIPANT",
+    "USER_BANNED_IN_CHANNEL",
+)
+_PERMANENT_CHAT_FAILURES: dict[tuple[str, str], str] = {}
+
+
+def _exception_text(exc: BaseException) -> str:
+    return f"{type(exc).__name__}: {exc}"
+
+
+def _is_permanent_chat_error(exc: BaseException) -> bool:
+    text = _exception_text(exc)
+    return any(marker in text for marker in _PERMANENT_CHAT_ERROR_MARKERS)
+
+
+def _slowmode_wait_seconds(exc: BaseException) -> Optional[float]:
+    text = _exception_text(exc)
+    if (
+        type(exc).__name__ not in {"SlowmodeWait", "FloodWait"}
+        and "SLOWMODE_WAIT" not in text
+    ):
+        return None
+    value = getattr(exc, "value", None)
+    if value is None:
+        matched = re.search(r"wait (\d+) second", text, flags=re.IGNORECASE)
+        if matched:
+            value = matched.group(1)
+    if value is None:
+        return None
+    try:
+        return max(float(value), 1.0)
+    except (TypeError, ValueError):
+        return None
+
+
 class BaseUserWorker(Generic[ConfigT]):
     _workdir = "."
     _tasks_dir = "tasks"
@@ -1106,8 +1153,14 @@ class BaseUserWorker(Generic[ConfigT]):
                 me = await self._call_telegram_api("users.GetFullUser", app.get_me)
                 chats = []
                 latest_chats = []
+                cache_file = self.get_user_dir(me).joinpath("latest_chats.json")
+                skip_dialog_refresh = (not print_chat) and cache_file.is_file()
+                if skip_dialog_refresh:
+                    self.log("跳过会话列表刷新，复用已有缓存")
 
                 async def load_latest_chats():
+                    if skip_dialog_refresh:
+                        return latest_chats
                     try:
                         async for dialog in app.get_dialogs(limit=num_of_dialogs):
                             try:
@@ -1149,9 +1202,10 @@ class BaseUserWorker(Generic[ConfigT]):
                         )
                     return latest_chats
 
-                await self._call_telegram_api("messages.GetDialogs", load_latest_chats)
+                if not skip_dialog_refresh:
+                    await self._call_telegram_api("messages.GetDialogs", load_latest_chats)
 
-                if print_chat:
+                if print_chat and not skip_dialog_refresh:
                     for chat in chats:
                         print_to_user(readable_chat(chat))
                         if not chat_has_forum_topics(chat):
@@ -1178,18 +1232,19 @@ class BaseUserWorker(Generic[ConfigT]):
                                 level="WARNING",
                             )
 
-                with open(
-                    self.get_user_dir(me).joinpath("latest_chats.json"),
-                    "w",
-                    encoding="utf-8",
-                ) as fp:
-                    json.dump(
-                        latest_chats,
-                        fp,
-                        indent=4,
-                        default=Object.default,
-                        ensure_ascii=False,
-                    )
+                if not skip_dialog_refresh:
+                    with open(
+                        cache_file,
+                        "w",
+                        encoding="utf-8",
+                    ) as fp:
+                        json.dump(
+                            latest_chats,
+                            fp,
+                            indent=4,
+                            default=Object.default,
+                            ensure_ascii=False,
+                        )
                 await self._call_telegram_api(
                     "auth.ExportAuthorization", self.app.save_session_string
                 )
@@ -1717,10 +1772,19 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 sign_record = json.load(fp)
         return sign_record
 
+    def _remember_permanent_chat_failure(self, chat_id, exc: BaseException) -> None:
+        if not _is_permanent_chat_error(exc):
+            return
+        _PERMANENT_CHAT_FAILURES[(str(self._account), str(chat_id))] = _exception_text(exc)
+
     async def sign_a_chat(
         self,
         chat: SignChatV3,
     ):
+        failure_key = (str(self._account), str(chat.chat_id))
+        cached_failure = _PERMANENT_CHAT_FAILURES.get(failure_key)
+        if cached_failure:
+            raise RuntimeError(f"跳过已知不可用会话 {chat.chat_id}: {cached_failure}")
         try:
             # 预热会话，确保 peer/access_hash 可用
             await self.app.get_chat(chat.chat_id)
@@ -1813,6 +1877,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                             continue
 
                 if not resolved_peer:
+                    self._remember_permanent_chat_failure(chat.chat_id, last_error)
                     self.log(
                         f"Failed to preheat chat_id={chat.chat_id}, error={type(last_error).__name__}: {last_error}",
                         level="ERROR",
@@ -1821,6 +1886,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                         f"Failed to preheat chat_id {chat.chat_id}: {last_error}"
                     ) from last_error
             else:
+                self._remember_permanent_chat_failure(chat.chat_id, e)
                 self.log(
                     f"预热会话失败: chat_id={chat.chat_id}, error={type(e).__name__}: {e}",
                     level="ERROR",
@@ -1837,7 +1903,8 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         )
         last_error: Optional[Exception] = None
 
-        for flow_attempt in range(1, max_flow_attempts + 1):
+        flow_attempt = 1
+        while flow_attempt <= max_flow_attempts:
             if max_flow_attempts > 1:
                 self.log(f"开始第 {flow_attempt}/{max_flow_attempts} 次脚本流程尝试")
             try:
@@ -1861,6 +1928,26 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             except Exception as exc:
                 last_error = exc
                 self.context.waiting_message = None
+                self._remember_permanent_chat_failure(chat.chat_id, exc)
+                if _is_permanent_chat_error(exc):
+                    raise RuntimeError(
+                        f"会话不可用，已停止重试: {exc}"
+                    ) from exc
+                slowmode_wait = _slowmode_wait_seconds(exc)
+                if slowmode_wait is not None:
+                    max_wait = _read_positive_float_env(
+                        "SIGN_TASK_SLOWMODE_MAX_WAIT", 30.0, 1.0
+                    )
+                    if slowmode_wait > max_wait:
+                        raise RuntimeError(
+                            f"慢速模式需要等待 {slowmode_wait:.0f}s，超过本次上限，跳过该会话"
+                        ) from exc
+                    self.log(
+                        f"触发慢速模式，等待 {slowmode_wait:.0f}s 后重试当前会话",
+                        level="WARNING",
+                    )
+                    await asyncio.sleep(slowmode_wait)
+                    continue
                 if flow_attempt >= max_flow_attempts:
                     break
                 self.log(
@@ -1869,6 +1956,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     level="WARNING",
                 )
                 await asyncio.sleep(max(float(chat.action_interval or 0), 1.0))
+                flow_attempt += 1
 
         raise RuntimeError(
             f"脚本流程尝试 {max_flow_attempts} 次仍失败: {last_error}"
@@ -1904,7 +1992,10 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
         self, num_of_dialogs=20, only_once: bool = False, force_rerun: bool = False
     ):
         if self.user is None:
-            await self.login(num_of_dialogs, print_chat=True)
+            await self.login(
+                num_of_dialogs,
+                print_chat=bool(getattr(self, "print_login_chats", True)),
+            )
 
         async with self.app:
             config = self.load_config(self.cfg_cls)
@@ -1941,9 +2032,10 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                         continue
                     except Exception as _e:
                         failure_count += 1
+                        skipped = "跳过已知不可用会话" in str(_e)
                         self.log(
                             f"目标会话 {index}/{total_chats} 执行失败，继续下一个: {chat.name or chat.chat_id} ({chat.chat_id})，错误: {_e}",
-                            level="ERROR",
+                            level="WARNING" if skipped else "ERROR",
                         )
                         logger.warning(_e, exc_info=True)
                         continue
