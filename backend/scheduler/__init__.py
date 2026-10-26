@@ -296,6 +296,11 @@ async def _job_run_sign_task(user_id: int, account_name: str, task_name: str) ->
             logger.info(f"Scheduler: 任务 {task_name} 执行成功")
         else:
             logger.error(f"Scheduler: 任务 {task_name} 执行失败: {result.get('error')}")
+    except asyncio.CancelledError:
+        logger.info(
+            "Scheduler: 任务 %s 已取消（通常由服务停止或重新部署触发）",
+            task_name,
+        )
     except Exception as e:
         logger.error(f"Scheduler: 运行签到任务 {task_name} 失败: {e}", exc_info=True)
     finally:

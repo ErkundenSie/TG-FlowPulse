@@ -16,6 +16,7 @@ from typing import (
     Awaitable,
     BinaryIO,
     Callable,
+    DefaultDict,
     Generic,
     List,
     Optional,
@@ -159,13 +160,35 @@ def _is_recoverable_updates_error(exc: BaseException) -> bool:
     )
 
 
-def _empty_channel_difference(query):
-    pts = getattr(query, "pts", 0) or 0
+def _safe_int(value, default: int = 0) -> int:
     try:
-        pts = int(pts)
+        return int(value or default)
     except (TypeError, ValueError):
-        pts = 0
-    return raw.types.updates.ChannelDifferenceEmpty(pts=pts, final=True)
+        return default
+
+
+def _empty_channel_difference(query):
+    return raw.types.updates.ChannelDifferenceEmpty(
+        pts=_safe_int(getattr(query, "pts", 0)), final=True
+    )
+
+
+def _empty_difference(query):
+    """Return an empty GetDifference result compatible with Pyrogram handlers."""
+    return raw.types.updates.Difference(
+        new_messages=[],
+        new_encrypted_messages=[],
+        other_updates=[],
+        chats=[],
+        users=[],
+        state=raw.types.updates.State(
+            pts=_safe_int(getattr(query, "pts", 0)),
+            qts=_safe_int(getattr(query, "qts", 0)),
+            date=_safe_int(getattr(query, "date", 0)),
+            seq=0,
+            unread_count=0,
+        ),
+    )
 
 
 def _log_update_pressure(
@@ -307,10 +330,7 @@ async def _patched_invoke(self, query, *args, **kwargs):
     if isinstance(query, raw.functions.updates.GetDifference):
         # 监听和签到都不依赖历史差量。差量超时会堵住 worker，队列随后丢消息。
         if getattr(self, "_tg_signpulse_skip_updates", False):
-            return raw.types.updates.DifferenceEmpty(
-                date=int(getattr(query, "date", 0) or 0),
-                seq=0,
-            )
+            return _empty_difference(query)
         return await _invoke_with_update_retries(self, query, args, kwargs)
     return await _original_invoke(self, query, *args, **kwargs)
 
@@ -1509,8 +1529,8 @@ class UserSignerWorkerContext(BaseModel):
         arbitrary_types_allowed = True
 
     waiter: Waiter
-    sign_chats: dict  # 签到配置列表, int -> list[SignChatV3]
-    chat_messages: dict  # 收到的消息, int -> dict[int, Optional[Message]]
+    sign_chats: DefaultDict[int, List[SignChatV3]]  # 签到配置列表
+    chat_messages: DefaultDict[int, dict[int, Optional[Message]]]  # 收到的消息
     waiting_message: Optional[Message] = None  # 正在处理的消息
 
 
@@ -2018,7 +2038,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                     self.log(
                         f"开始执行目标会话 {index}/{total_chats}: {chat.name or chat.chat_id} ({chat.chat_id})"
                     )
-                    self.context.sign_chats[chat.chat_id].append(chat)
+                    self.context.sign_chats.setdefault(chat.chat_id, []).append(chat)
                     try:
                         await self.sign_a_chat(chat)
                         success_count += 1

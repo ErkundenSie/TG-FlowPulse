@@ -184,8 +184,12 @@ class SpeakerCollectionService(ChatMigrationService):
     def _extract_websites(cls, bio: Any) -> list[str]:
         websites: list[str] = []
         seen: set[str] = set()
-        for match in cls.WEBSITE_RE.finditer(str(bio or "")):
-            value = match.group(0).rstrip(".,，;；:：!！?？)]}）】\"'")
+        # Telegram bios often concatenate URLs and Chinese labels without whitespace.
+        # Treat non-ASCII text as a delimiter so one malformed value cannot absorb
+        # the following label or URL and abort the entire collection scan.
+        text = "".join(char if char.isascii() else " " for char in str(bio or ""))
+        for match in cls.WEBSITE_RE.finditer(text):
+            value = match.group(0).rstrip(".,;:!?)]}\"'")
             if not value:
                 continue
             url = (
@@ -193,8 +197,13 @@ class SpeakerCollectionService(ChatMigrationService):
                 if value.lower().startswith(("http://", "https://"))
                 else f"https://{value}"
             )
-            hostname = (urlparse(url).hostname or "").casefold().removeprefix("www.")
-            if hostname in {"t.me", "telegram.me", "telegram.dog"}:
+            try:
+                hostname = (
+                    (urlparse(url).hostname or "").casefold().removeprefix("www.")
+                )
+            except ValueError:
+                continue
+            if not hostname or hostname in {"t.me", "telegram.me", "telegram.dog"}:
                 continue
             key = url.casefold()
             if key not in seen:

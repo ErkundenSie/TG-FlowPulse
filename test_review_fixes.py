@@ -383,6 +383,20 @@ async def test_login_discovers_forum_topics_via_client(monkeypatch, tmp_path):
     assert topic_calls == [(-100123, 20)]
 
 
+def test_speaker_collection_extracts_urls_around_non_ascii_labels():
+    from backend.services.speaker_collection import SpeakerCollectionService
+
+    websites = SpeakerCollectionService._extract_websites(
+        "官网：https://appsmk.com节点自助下单地址：https://shop.example.com/path "
+        "频道：https://t.me/example"
+    )
+
+    assert websites == [
+        "https://appsmk.com",
+        "https://shop.example.com/path",
+    ]
+
+
 def test_speaker_collection_reports_time_window_statuses():
     from backend.services.speaker_collection import SpeakerCollectionService
 
@@ -619,6 +633,21 @@ async def test_handle_updates_swallows_fire_and_forget_errors(monkeypatch):
     assert core._update_backpressure.handle_updates_errors == 1
 
 
+def test_user_signer_context_preserves_defaultdict_factories():
+    from collections import defaultdict
+
+    from tg_signer.core import UserSigner
+
+    context = UserSigner.ensure_ctx(object())
+
+    assert isinstance(context.sign_chats, defaultdict)
+    assert isinstance(context.chat_messages, defaultdict)
+    context.sign_chats[-1003830420390].append("chat")
+    context.chat_messages[-1003830420390][1] = "message"
+    assert context.sign_chats[-1003830420390] == ["chat"]
+    assert context.chat_messages[-1003830420390] == {1: "message"}
+
+
 def test_bounded_updates_queue_drops_old_updates_but_keeps_stop_sentinel():
     from tg_signer import core
 
@@ -719,8 +748,45 @@ async def test_skip_updates_get_difference_returns_empty(monkeypatch):
 
     result = await core._patched_invoke(client, query)
 
-    assert isinstance(result, raw.types.updates.DifferenceEmpty)
-    assert result.date == 2
+    assert isinstance(result, raw.types.updates.Difference)
+    assert result.users == []
+    assert result.chats == []
+    assert result.new_messages == []
+    assert result.other_updates == []
+    assert result.state.pts == 1
+    assert result.state.qts == 3
+    assert result.state.date == 2
+
+
+@pytest.mark.asyncio
+async def test_sign_scheduler_handles_cancelled_random_delay(monkeypatch):
+    from backend import scheduler
+    from backend.services import sign_tasks
+
+    class FakeDb:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    db = FakeDb()
+    service = SimpleNamespace(
+        get_task=lambda *_args: {"execution_mode": "cron", "random_seconds": 10}
+    )
+
+    monkeypatch.setattr(scheduler, "get_session_local", lambda: lambda: db)
+    monkeypatch.setattr(scheduler, "_activate_user_workspace", lambda *_args: "token")
+    monkeypatch.setattr(scheduler, "reset_workspace", lambda *_args: None)
+    monkeypatch.setattr(sign_tasks, "get_sign_task_service", lambda: service)
+
+    async def cancel_delay(_seconds):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(asyncio, "sleep", cancel_delay)
+
+    await scheduler._job_run_sign_task(1, "account", "task")
+
+    assert db.closed is True
 
 
 def test_permanent_chat_error_and_slowmode_wait():
