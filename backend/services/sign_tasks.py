@@ -37,6 +37,19 @@ from tg_signer.core import UserSigner, get_client
 settings = get_settings()
 
 
+def _task_run_summary_error(run_summary: Any) -> str:
+    if not isinstance(run_summary, dict):
+        return ""
+    try:
+        success_count = int(run_summary.get("success_count") or 0)
+        failure_count = int(run_summary.get("failure_count") or 0)
+    except (TypeError, ValueError):
+        return ""
+    if failure_count <= 0:
+        return ""
+    return f"部分目标会话执行失败：成功 {success_count} 个，失败 {failure_count} 个"
+
+
 class TaskLogHandler(logging.Handler):
     """
     自定义日志处理器，将日志实时写入到内存列表中
@@ -1940,6 +1953,7 @@ class SignTaskService:
                     )
 
                     # 执行任务（数据库锁冲突时重试）
+                    run_summary = None
                     async with get_global_semaphore():
                         max_retries = 3
                         for attempt in range(max_retries):
@@ -1947,7 +1961,7 @@ class SignTaskService:
                                 self._active_logs[task_key].append(
                                     "开始执行全部目标会话..."
                                 )
-                                await signer.run_once(num_of_dialogs=20)
+                                run_summary = await signer.run_once(num_of_dialogs=20)
                                 break
                             except Exception as e:
                                 if "database is locked" in str(e).lower():
@@ -1960,9 +1974,15 @@ class SignTaskService:
                                         continue
                                 raise
 
-                    success = True
+                    summary_error = _task_run_summary_error(run_summary)
                     self._active_logs[task_key].append("全部目标会话执行流程结束")
-                    self._active_logs[task_key].append("任务执行完成")
+                    if summary_error:
+                        success = False
+                        error_msg = summary_error
+                        self._active_logs[task_key].append(summary_error)
+                    else:
+                        success = True
+                        self._active_logs[task_key].append("任务执行完成")
 
                     # 文件 session 才需要等 SQLite 锁释放。内存 session_string 不再空等。
                     if not use_in_memory:

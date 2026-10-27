@@ -648,6 +648,57 @@ def test_user_signer_context_preserves_defaultdict_factories():
     assert context.chat_messages[-1003830420390] == {1: "message"}
 
 
+def test_updates_queue_filters_unmonitored_chats_and_keeps_transient_chats():
+    from pyrogram import raw, utils
+
+    from tg_signer import core
+
+    allowed_id = utils.get_channel_id(123)
+    transient_id = utils.get_channel_id(456)
+    client = SimpleNamespace()
+    core.set_client_update_chat_filter(client, [allowed_id])
+    queue = core._bound_updates_queue(asyncio.Queue(maxsize=4), client)
+
+    def item(channel_id):
+        return (
+            SimpleNamespace(
+                message=SimpleNamespace(
+                    peer_id=raw.types.PeerChannel(channel_id=channel_id)
+                )
+            ),
+            {},
+            {},
+        )
+
+    queue.put_nowait(item(999))
+    assert queue.empty()
+
+    queue.put_nowait(item(123))
+    assert queue.get_nowait()[0].message.peer_id.channel_id == 123
+
+    core.register_client_update_chats(client, [transient_id])
+    queue.put_nowait(item(456))
+    assert queue.get_nowait()[0].message.peer_id.channel_id == 456
+
+    core.unregister_client_update_chats(client, [transient_id])
+    queue.put_nowait(item(456))
+    assert queue.empty()
+
+
+
+def test_task_run_summary_reports_partial_failures():
+    from backend.services.sign_tasks import _task_run_summary_error
+
+    assert _task_run_summary_error(None) == ""
+    assert (
+        _task_run_summary_error({"success_count": 5, "failure_count": 0}) == ""
+    )
+    assert _task_run_summary_error(
+        {"success_count": 5, "failure_count": 12}
+    ) == "部分目标会话执行失败：成功 5 个，失败 12 个"
+
+
+
 def test_bounded_updates_queue_drops_old_updates_but_keeps_stop_sentinel():
     from tg_signer import core
 

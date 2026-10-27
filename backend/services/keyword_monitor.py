@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import asyncio
 import hashlib
@@ -2177,6 +2177,7 @@ class KeywordMonitorService:
                 _CLIENT_INSTANCES,
                 close_client_by_name,
                 get_client,
+                set_client_update_chat_filter,
             )
 
             rules = self._load_rules()
@@ -2282,7 +2283,16 @@ class KeywordMonitorService:
                         api_hash=api_hash,
                         no_updates=False,
                         skip_updates=True,
-                        workers=8,
+                        workers=_read_positive_int_env(
+                            "KEYWORD_MONITOR_WORKERS", 32, 1
+                        ),
+                    )
+                    filterable_chat_ids = all(
+                        str(chat_id).lstrip("-").isdigit() for chat_id in chat_ids
+                    )
+                    set_client_update_chat_filter(
+                        client,
+                        chat_ids if not wide_scope and filterable_chat_ids else None,
                     )
 
                     async def handler(

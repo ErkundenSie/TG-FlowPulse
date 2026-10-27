@@ -30,7 +30,7 @@ import httpx
 from croniter import CroniterBadCronError, croniter
 from pydantic import BaseModel, ValidationError
 from pyrogram import Client as BaseClient
-from pyrogram import errors, filters, raw
+from pyrogram import errors, filters, raw, utils
 from pyrogram.enums import ChatMembersFilter, ChatType
 from pyrogram.handlers import EditedMessageHandler, MessageHandler
 from pyrogram.methods.utilities.idle import idle
@@ -139,6 +139,8 @@ class _UpdateBackpressure:
         self.dropped_updates_last_log = 0.0
         self.irrelevant_updates = 0
         self.irrelevant_updates_last_log = 0.0
+        self.unmonitored_updates = 0
+        self.unmonitored_updates_last_log = 0.0
 
     def reset(self) -> None:
         self.__init__()
@@ -241,6 +243,81 @@ def _should_queue_update(item) -> bool:
     if not isinstance(update, raw.base.Update):
         return True
     return isinstance(update, _KEPT_UPDATE_TYPES)
+
+
+_UPDATE_CHAT_FILTER_UNSET = object()
+
+
+def _normalize_update_chat_id(value):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return value
+
+
+def _update_chat_id(item):
+    if item is None or not isinstance(item, tuple) or not item:
+        return None
+    update = item[0]
+    message = getattr(update, "message", None)
+    peer = getattr(message, "peer_id", None)
+    channel_id = getattr(peer, "channel_id", None)
+    if channel_id is None:
+        channel_id = getattr(update, "channel_id", None)
+    if channel_id is not None:
+        return utils.get_channel_id(int(channel_id))
+    chat_id = getattr(peer, "chat_id", None)
+    if chat_id is not None:
+        return -int(chat_id)
+    user_id = getattr(peer, "user_id", None)
+    if user_id is not None:
+        return int(user_id)
+    return None
+
+
+def set_client_update_chat_filter(client, chat_ids) -> None:
+    client._tg_signpulse_base_update_chat_ids = (
+        None
+        if chat_ids is None
+        else {_normalize_update_chat_id(chat_id) for chat_id in chat_ids}
+    )
+
+
+def register_client_update_chats(client, chat_ids) -> None:
+    counters = getattr(client, "_tg_signpulse_transient_update_chat_ids", None)
+    if counters is None:
+        counters = Counter()
+        client._tg_signpulse_transient_update_chat_ids = counters
+    for chat_id in chat_ids:
+        counters[_normalize_update_chat_id(chat_id)] += 1
+
+
+def unregister_client_update_chats(client, chat_ids) -> None:
+    counters = getattr(client, "_tg_signpulse_transient_update_chat_ids", None)
+    if not counters:
+        return
+    for chat_id in chat_ids:
+        normalized = _normalize_update_chat_id(chat_id)
+        counters[normalized] -= 1
+        if counters[normalized] <= 0:
+            counters.pop(normalized, None)
+
+
+def _client_allows_update(client, item) -> bool:
+    if client is None:
+        return True
+    base_chat_ids = getattr(
+        client, "_tg_signpulse_base_update_chat_ids", _UPDATE_CHAT_FILTER_UNSET
+    )
+    if base_chat_ids is _UPDATE_CHAT_FILTER_UNSET or base_chat_ids is None:
+        return True
+    chat_id = _update_chat_id(item)
+    if chat_id is None:
+        return True
+    if chat_id in base_chat_ids:
+        return True
+    transient = getattr(client, "_tg_signpulse_transient_update_chat_ids", {})
+    return transient.get(chat_id, 0) > 0
 
 
 async def _invoke_channel_difference(self, query, args, kwargs):
@@ -350,7 +427,7 @@ async def _patched_handle_updates(self, updates):
         _channel_diff_scope.reset(token)
 
 
-def _bound_updates_queue(queue: asyncio.Queue) -> asyncio.Queue:
+def _bound_updates_queue(queue: asyncio.Queue, client=None) -> asyncio.Queue:
     original_put = queue.put_nowait
 
     def put_nowait(item):
@@ -377,6 +454,14 @@ def _bound_updates_queue(queue: asyncio.Queue) -> asyncio.Queue:
                 type(item[0]).__name__ if isinstance(item, tuple) and item else type(item).__name__,
                 "irrelevant_updates",
                 "irrelevant_updates_last_log",
+            )
+            return
+        if item is not None and not _client_allows_update(client, item):
+            _log_update_pressure(
+                "Ignoring unmonitored Telegram update",
+                str(_update_chat_id(item)),
+                "unmonitored_updates",
+                "unmonitored_updates_last_log",
             )
             return
         # stop() 会为每个 worker 放入 None。哨兵不能丢，否则停机会一直等。
@@ -406,7 +491,7 @@ def _patched_dispatcher_init(self, client):
     _original_dispatcher_init(self, client)
     workers = int(getattr(client, "workers", 1) or 1)
     self.updates_queue = _bound_updates_queue(
-        asyncio.Queue(maxsize=max(_UPDATES_QUEUE_MAX, workers))
+        asyncio.Queue(maxsize=max(_UPDATES_QUEUE_MAX, workers)), client
     )
 
 
@@ -2029,6 +2114,8 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
             need_update_handlers = bool(getattr(config, "requires_updates", True))
             message_handler_ref = None
             edited_handler_ref = None
+            update_chats_registered = False
+            last_run_summary = None
 
             async def sign_once():
                 success_count = 0
@@ -2072,6 +2159,11 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 sign_record[str(now.date())] = now.isoformat()
                 with open(self.sign_record_file, "w", encoding="utf-8") as fp:
                     json.dump(sign_record, fp)
+                return {
+                    "success_count": success_count,
+                    "failure_count": failure_count,
+                    "total_count": total_chats,
+                }
 
             def need_sign(last_date_str):
                 if force_rerun:
@@ -2093,6 +2185,8 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                 while True:
                     if need_update_handlers and message_handler_ref is None:
                         self.log(f"adding message handlers for chats: {chat_ids}")
+                        register_client_update_chats(self.app, chat_ids)
+                        update_chats_registered = True
                         message_handler_ref = self.app.add_handler(
                             MessageHandler(self.on_message, filters.chat(chat_ids))
                         )
@@ -2112,7 +2206,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                                 if delay > 0:
                                     self.log(f"单次执行随机延迟: {delay} 秒")
                                     await asyncio.sleep(delay)
-                            await sign_once()
+                            last_run_summary = await sign_once()
 
                     except (OSError, errors.Unauthorized) as e:
                         logger.exception(e)
@@ -2120,7 +2214,7 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                         continue
 
                     if only_once:
-                        break
+                        return last_run_summary
                     cron_it = croniter(self._validate_sign_at(config.sign_at), now)
                     next_run: datetime = cron_it.next(datetime) + timedelta(
                         seconds=random.randint(0, int(config.random_seconds))
@@ -2138,6 +2232,8 @@ class UserSigner(BaseUserWorker[SignConfigV3]):
                         self.app.remove_handler(*edited_handler_ref)
                     except Exception:
                         pass
+                if update_chats_registered:
+                    unregister_client_update_chats(self.app, chat_ids)
 
     async def run_once(self, num_of_dialogs):
         return await self.run(num_of_dialogs, only_once=True, force_rerun=True)
